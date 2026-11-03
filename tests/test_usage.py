@@ -5,7 +5,7 @@ invented, so a change in how the API reports usage shows up as a test failure
 rather than as a quietly wrong invoice.
 """
 
-from src.voice.usage import SessionUsage, TurnUsage
+from src.voice.usage import FLASH_LITE, LIVE, SessionUsage, TurnUsage
 
 # Turn 1 of the 5-turn run, 2026-11-03. Note thoughtsTokenCount sits outside
 # totalTokenCount - 748 == 645 + 103, with the 90 thinking tokens nowhere in it.
@@ -91,3 +91,24 @@ def test_zero_minutes_is_rejected_rather_than_dividing_by_zero():
     except ValueError:
         return
     raise AssertionError("expected ValueError")
+
+
+def test_chat_is_priced_at_the_text_model_rate_not_the_audio_one():
+    """Pricing chat at Live rates would overstate it about fivefold."""
+    blob = {"promptTokenCount": 800, "candidatesTokenCount": 80}
+    turn = TurnUsage.parse_text(blob)
+
+    assert turn.prompt_text == 800 and turn.response_text == 80
+    assert turn.prompt_usd(FLASH_LITE) == 800 * 0.30 / 1e6
+    assert turn.output_usd(FLASH_LITE) == 80 * 2.50 / 1e6
+    # The same turn on the Live model's text rates costs noticeably more.
+    assert turn.output_usd(LIVE) > turn.output_usd(FLASH_LITE)
+
+
+def test_a_session_prices_every_turn_with_its_own_model_rates():
+    chat = SessionUsage(rates=FLASH_LITE)
+    chat.record_text({"promptTokenCount": 400, "candidatesTokenCount": 60})
+    voice = SessionUsage()
+    voice.record_text({"promptTokenCount": 400, "candidatesTokenCount": 60})
+
+    assert chat.output_usd < voice.output_usd

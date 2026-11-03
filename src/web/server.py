@@ -26,6 +26,9 @@ from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from src.agent.persona import GREETING
+from src.chat.gemini_text import GeminiTextModel
+from src.chat.session import ChatSession
 from src.config import Config, load
 from src.voice.gemini_live import GeminiLiveSession
 from src.voice.session import Conversation
@@ -70,7 +73,10 @@ def create_app(config: Config | None = None) -> FastAPI:
             "capture_sample_rate": settings.capture_sample_rate,
             "playback_sample_rate": settings.playback_sample_rate,
             "reply_word_cap": settings.reply_word_cap,
+            "chat_word_cap": settings.chat_word_cap,
             "thinking_budget": settings.thinking_budget,
+            "text_model": settings.gemini_text_model,
+            "greeting": GREETING,
         }
 
     @app.websocket("/ws")
@@ -121,6 +127,57 @@ def create_app(config: Config | None = None) -> FastAPI:
         finally:
             await source.close()
             await sink.close()
+
+    @app.websocket("/ws/chat")
+    async def chat(websocket: WebSocket) -> None:
+        """Text chat.
+
+        A socket of its own rather than message types on the voice socket. The
+        voice socket carries fifty binary audio frames a second; multiplexing a
+        text conversation onto it would couple two unrelated lifecycles for no
+        gain, since the UI shows one tab at a time.
+        """
+        await websocket.accept()
+        model = GeminiTextModel(
+            api_key=settings.gemini_api_key,
+            model=settings.gemini_text_model,
+            system_instruction=settings.chat_instruction,
+        )
+        session = ChatSession(model)
+
+        try:
+            await websocket.send_json({"type": "ready", "greeting": GREETING})
+            while True:
+                message = await websocket.receive_json()
+                text = (message.get("text") or "").strip()
+                if not text:
+                    continue
+
+                await websocket.send_json({"type": "start"})
+                async for delta in session.send(text):
+                    await websocket.send_json({"type": "delta", "text": delta})
+
+                record = session.result.turns[-1] if session.result.turns else None
+                await websocket.send_json(
+                    {
+                        "type": "done",
+                        "turn": record.turn if record else None,
+                        "prompt_tokens": record.prompt_tokens if record else 0,
+                        "response_tokens": record.response_tokens if record else 0,
+                        "thinking_tokens": record.thinking_tokens if record else 0,
+                        "conversation_inr": session.usage.input_usd_rebilled
+                        * settings.usd_inr
+                        + session.usage.output_usd * settings.usd_inr,
+                    }
+                )
+        except WebSocketDisconnect:
+            log.info("chat disconnected")
+        except Exception:
+            log.exception("chat failed")
+            with contextlib.suppress(Exception):
+                await websocket.send_json(
+                    {"type": "error", "message": "that message could not be answered"}
+                )
 
     return app
 

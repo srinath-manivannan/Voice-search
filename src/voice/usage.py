@@ -20,13 +20,42 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-# USD per 1M tokens.
-PROMPT_AUDIO = 3.00
-PROMPT_TEXT = 0.75
-RESPONSE_AUDIO = 12.00
-RESPONSE_TEXT = 4.50
-# Thinking is billed at the text output rate.
-THINKING = 4.50
+
+@dataclass(frozen=True)
+class Rates:
+    """USD per 1M tokens, for one model.
+
+    Rates belong to a model, not to this module. Chat runs on Flash-Lite and
+    voice on the Live model, and hard-coding one set meant the chat path would
+    have been priced at audio rates - a 5x error in the direction that makes a
+    project look affordable.
+    """
+
+    prompt_audio: float
+    prompt_text: float
+    response_audio: float
+    response_text: float
+    thinking: float
+
+
+# gemini-3.8-live, verified 2026-11-03.
+LIVE = Rates(
+    prompt_audio=3.00,
+    prompt_text=0.75,
+    response_audio=12.00,
+    response_text=4.50,
+    thinking=4.50,
+)
+
+# gemini-3.5-flash-lite. Text only - audio rates are zero because it is never
+# sent audio, and a non-zero figure there would hide a routing mistake.
+FLASH_LITE = Rates(
+    prompt_audio=0.0,
+    prompt_text=0.30,
+    response_audio=0.0,
+    response_text=2.50,
+    thinking=2.50,
+)
 
 
 def _by_modality(details: list[dict] | None) -> dict[str, int]:
@@ -74,15 +103,27 @@ class TurnUsage:
         """
         return self.response_audio + self.response_text + self.thoughts
 
-    def output_usd(self) -> float:
+    @classmethod
+    def parse_text(cls, usage_metadata: dict) -> TurnUsage:
+        """The text API reports flat counts, not the Live API's modality split."""
+        return cls(
+            prompt_text=usage_metadata.get("promptTokenCount", 0),
+            response_text=usage_metadata.get("candidatesTokenCount", 0),
+            thoughts=usage_metadata.get("thoughtsTokenCount") or 0,
+        )
+
+    def output_usd(self, rates: Rates = LIVE) -> float:
         return (
-            self.response_audio * RESPONSE_AUDIO
-            + self.response_text * RESPONSE_TEXT
-            + self.thoughts * THINKING
+            self.response_audio * rates.response_audio
+            + self.response_text * rates.response_text
+            + self.thoughts * rates.thinking
         ) / 1e6
 
-    def prompt_usd(self) -> float:
-        return (self.prompt_audio * PROMPT_AUDIO + self.prompt_text * PROMPT_TEXT) / 1e6
+    def prompt_usd(self, rates: Rates = LIVE) -> float:
+        return (
+            self.prompt_audio * rates.prompt_audio
+            + self.prompt_text * rates.prompt_text
+        ) / 1e6
 
 
 @dataclass
@@ -90,26 +131,32 @@ class SessionUsage:
     """Accumulates turns and prices the session under both billing hypotheses."""
 
     turns: list[TurnUsage] = field(default_factory=list)
+    rates: Rates = LIVE
 
     def record(self, usage_metadata: dict) -> TurnUsage:
         turn = TurnUsage.parse(usage_metadata)
         self.turns.append(turn)
         return turn
 
+    def record_text(self, usage_metadata: dict) -> TurnUsage:
+        turn = TurnUsage.parse_text(usage_metadata)
+        self.turns.append(turn)
+        return turn
+
     @property
     def output_usd(self) -> float:
         """Identical under both hypotheses - each turn's output is charged once."""
-        return sum(t.output_usd() for t in self.turns)
+        return sum(t.output_usd(self.rates) for t in self.turns)
 
     @property
     def input_usd_rebilled(self) -> float:
         """H1: every turn is charged its full accumulated prompt."""
-        return sum(t.prompt_usd() for t in self.turns)
+        return sum(t.prompt_usd(self.rates) for t in self.turns)
 
     @property
     def input_usd_billed_once(self) -> float:
         """H2: context is cached, so only the final prompt is charged."""
-        return self.turns[-1].prompt_usd() if self.turns else 0.0
+        return self.turns[-1].prompt_usd(self.rates) if self.turns else 0.0
 
     def totals_usd(self) -> dict[str, float]:
         return {

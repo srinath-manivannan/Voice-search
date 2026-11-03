@@ -19,10 +19,13 @@ from dataclasses import dataclass
 class Config:
     gemini_api_key: str
     gemini_live_model: str
+    # Chat deliberately runs on a cheaper text model. See CHAT-PLAN.md.
+    gemini_text_model: str
 
     # Phase 0 measured both of these. They are the two cheapest levers we have
     # and they belong in config, not hard-coded, so a change is reviewable.
     reply_word_cap: int
+    chat_word_cap: int
     thinking_budget: int
 
     capture_sample_rate: int
@@ -38,20 +41,23 @@ class Config:
 
     @property
     def system_instruction(self) -> str:
-        """The agent's standing instruction.
+        """The voice agent's standing instruction.
 
         The word cap is interpolated rather than written out, because Phase 0
         showed reply length is the largest single cost line and responds almost
         linearly to how this sentence is worded. Changing the number is a
         performance change and should be measured like one.
         """
-        return (
-            "You are Poorvika's voice assistant. "
-            "Reply in the same language the customer used - Tamil, English or Tanglish. "
-            f"Keep every reply under {self.reply_word_cap} words. "
-            "Never invent a price, stock level, offer or store detail. "
-            "If you do not know, say so and offer to check."
-        )
+        from src.agent.persona import system_instruction
+
+        return system_instruction("voice", self.reply_word_cap)
+
+    @property
+    def chat_instruction(self) -> str:
+        """The same persona, delivered to a reader rather than a listener."""
+        from src.agent.persona import system_instruction
+
+        return system_instruction("chat", self.chat_word_cap)
 
 
 def _require(name: str) -> str:
@@ -78,7 +84,11 @@ def load(env: str | None = None) -> Config:
         gemini_live_model=os.environ.get(
             "GEMINI_LIVE_MODEL", defaults.GEMINI_LIVE_MODEL
         ),
+        gemini_text_model=os.environ.get(
+            "GEMINI_TEXT_MODEL", defaults.GEMINI_TEXT_MODEL
+        ),
         reply_word_cap=int(os.environ.get("REPLY_WORD_CAP", defaults.REPLY_WORD_CAP)),
+        chat_word_cap=int(os.environ.get("CHAT_WORD_CAP", defaults.CHAT_WORD_CAP)),
         thinking_budget=int(
             os.environ.get("THINKING_BUDGET", defaults.THINKING_BUDGET)
         ),

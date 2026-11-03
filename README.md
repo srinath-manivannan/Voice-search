@@ -75,6 +75,9 @@ tests/           committed, unlike search-proxy's.
 | `python -m src.tools.talk` | ✅ runnable; prints p50/p95 and ₹/min |
 | Browser UI (`make ui`) | ✅ transcript, live p50/p95, per-turn tokens |
 | Transport seam carries a 2nd implementation | ✅ browser as well as ALSA |
+| Chat tab on `gemini-3.5-flash-lite` | ✅ streaming, ~₹0.016/turn measured |
+| One persona, both surfaces | ✅ `src/agent/persona.py` |
+| Grounding holds — no invented prices | ✅ asked for prices, it offered to check |
 | p50/p95 over 10 Tamil + 10 Tanglish turns | ⬜ **the Phase 1 completion criterion** |
 | Telephony | ⬜ Phase 2 |
 

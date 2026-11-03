@@ -47,7 +47,7 @@
   .tab:disabled { opacity: .45; cursor: not-allowed; }
 
   /* stage -------------------------------------------------------------- */
-  main { flex: 1; display: grid; place-items: center; padding: 10px 20px 24px; }
+  main { flex: 1; display: grid; place-items: center; padding: 10px 20px 24px; width: 100%; }
   .stage { width: 100%; max-width: 560px; text-align: center; }
 
   /* A brushed-metal sphere. Two layers: a conic gradient for the banding that
@@ -130,6 +130,35 @@
   .line.dim { background: none; color: #b0b0b0; font-size: 12.5px; text-align: center; font-style: italic; }
   .line.bad { background: #fef2f2; color: var(--bad); }
 
+  /* chat ---------------------------------------------------------------- */
+  #chat-panel { width: 100%; max-width: 680px; display: flex; flex-direction: column; height: 100%; }
+  #messages { flex: 1; overflow-y: auto; padding: 4px 0 14px; min-height: 240px; }
+  .msg { display: flex; gap: 10px; margin-bottom: 14px; align-items: flex-start; }
+  .msg .av {
+    width: 28px; height: 28px; border-radius: 50%; background: var(--brand);
+    color: #fff; font-size: 12px; font-weight: 700; display: grid; place-items: center; flex: none;
+  }
+  .bubble {
+    background: #fff; border: 1px solid var(--line); border-radius: 14px;
+    padding: 10px 14px; max-width: 78%; font-size: 14.5px; white-space: pre-wrap;
+  }
+  .msg.me { justify-content: flex-end; }
+  .msg.me .bubble { background: #111; color: #fff; border-color: #111; }
+  .bubble.thinking { color: var(--dim); font-style: italic; }
+
+  .composer { display: flex; gap: 10px; align-items: center; padding-top: 12px; border-top: 1px solid var(--line); }
+  .composer input {
+    flex: 1; border: 1px solid var(--line); border-radius: 999px;
+    padding: 12px 18px; font-size: 14.5px; outline: none; font-family: inherit;
+  }
+  .composer input:focus { border-color: #c7c7c7; }
+  .send {
+    width: 42px; height: 42px; border-radius: 50%; border: 0; background: #111; color: #fff;
+    cursor: pointer; font-size: 16px; flex: none;
+  }
+  .send:disabled { opacity: .35; cursor: default; }
+  .composer-note { text-align: center; color: #b0b0b0; font-size: 12px; margin: 8px 0 0; }
+
   /* metrics drawer ----------------------------------------------------- */
   .drawer { border-top: 1px solid var(--line); background: var(--soft); }
   .drawer summary {
@@ -162,12 +191,12 @@
 </header>
 
 <nav>
-  <button class="tab" aria-selected="true">📞 Voice Call</button>
-  <button class="tab" disabled title="Text chat arrives in Phase 3">💬 Chat</button>
+  <button class="tab" id="tab-voice" aria-selected="true">📞 Voice Call</button>
+  <button class="tab" id="tab-chat" aria-selected="false">💬 Chat</button>
 </nav>
 
 <main>
-  <div class="stage">
+  <div class="stage" id="voice-panel">
     <div class="orb-wrap"><div class="orb"><i></i><i></i><i></i></div></div>
 
     <h1>Talk to Poorvika</h1>
@@ -181,6 +210,15 @@
     <div class="state" id="status"></div>
 
     <div id="transcript"></div>
+  </div>
+
+  <div id="chat-panel" hidden>
+    <div id="messages"></div>
+    <div class="composer">
+      <input id="chat-input" placeholder="Message Poorvika…" autocomplete="off">
+      <button class="send" id="chat-send" title="Send">➤</button>
+    </div>
+    <p class="composer-note">You're chatting with an AI assistant.</p>
   </div>
 </main>
 
