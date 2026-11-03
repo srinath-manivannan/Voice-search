@@ -108,7 +108,7 @@ async function start() {
     setStatus('microphone blocked', 'bad');
     log('Could not open the microphone: ' + error.message, 'bad');
     el('toggle').disabled = false;
-    el('toggle').textContent = '📞 Start Call';
+    setCtaLabel('Start Call');
     return;
   }
 
@@ -157,7 +157,7 @@ async function start() {
     sourceNode.connect(worklet);
     state.running = true;
     el('toggle').disabled = false;
-    el('toggle').textContent = '■ End Call';
+    setCtaLabel('End Call');
     el('toggle').classList.add('stop');
     el('sub').textContent = 'Speak whenever you like — you can talk over it';
   };
@@ -173,7 +173,7 @@ function stop() {
   state.socket = state.stream = state.captureContext = state.playbackContext = null;
   setStatus('');
   setOrb('idle');
-  el('toggle').textContent = '📞 Start Call';
+  setCtaLabel('Start Call');
   el('toggle').classList.remove('stop');
   el('toggle').disabled = false;
   el('sub').textContent = 'Click to start a voice conversation';
@@ -220,9 +220,10 @@ el('toggle').addEventListener('click', () => (state.running ? stop() : start()))
 
 el('share').addEventListener('click', async () => {
   await navigator.clipboard.writeText(location.href).catch(() => {});
+  // Flash a tick without losing the icon: swap a class, not the contents.
   const button = el('share');
-  button.textContent = '✓';
-  setTimeout(() => (button.textContent = '⤴'), 1200);
+  button.classList.add('copied');
+  setTimeout(() => button.classList.remove('copied'), 1200);
 });
 loadConfig().catch(() => setStatus('cannot reach the server', 'bad'));
 
@@ -233,6 +234,12 @@ loadConfig().catch(() => setStatus('cannot reach the server', 'bad'));
 // two unrelated lifecycles for no gain, since only one tab is ever visible.
 
 const chat = { socket: null, bubble: null, greeted: false, turns: 0 };
+
+// The button holds an icon beside its label, so only the label is rewritten -
+// setting textContent would throw the SVG away.
+function setCtaLabel(text) {
+  el('toggle').querySelector('span').textContent = text;
+}
 
 function bubble(text, mine) {
   const row = document.createElement('div');

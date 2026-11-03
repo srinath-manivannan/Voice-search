@@ -9,7 +9,11 @@
   :root {
     --bg: #ffffff; --soft: #fafafa; --line: #ececec;
     --ink: #1a1a1a; --dim: #8a8a8a;
-    --brand: #ef5a28; --aura: #4338ca; --aura2: #6366f1;
+    --brand: #f4511e;
+    /* A deeper orange wherever white text sits on it. White on the logo orange
+       is about 3.4:1, under the 4.5:1 that 14px text needs; this clears it. */
+    --brand-ink: #c2410c;
+    --brand-ink-hover: #9a3412;
     --good: #16a34a; --warn: #d97706; --bad: #dc2626;
   }
   * { box-sizing: border-box; }
@@ -32,16 +36,23 @@
     border: 0; background: none; color: var(--dim); cursor: pointer;
     padding: 8px; border-radius: 8px; font-size: 17px; line-height: 1;
   }
-  .icon-btn:hover { background: var(--soft); color: var(--ink); }
+  .icon-btn:hover { background: var(--soft); color: var(--brand-ink); }
 
   /* tabs --------------------------------------------------------------- */
   nav { display: flex; gap: 26px; padding: 0 20px; border-bottom: 1px solid var(--line); }
+  .tab svg { width: 15px; height: 15px; }
+  .cta svg { width: 17px; height: 17px; }
+  .send svg { width: 17px; height: 17px; }
+  .icon-btn svg { width: 17px; height: 17px; display: block; }
+  .icon-btn.copied { color: #16a34a; }
+  .icon-btn.copied svg { animation: pop .3s ease; }
+  @keyframes pop { 50% { transform: scale(1.25); } }
   .tab {
     background: none; border: 0; padding: 10px 0 12px; font-size: 14.5px;
     color: var(--dim); cursor: pointer; border-bottom: 2px solid transparent;
     display: flex; align-items: center; gap: 7px;
   }
-  .tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); font-weight: 500; }
+  .tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--brand); font-weight: 500; }
   .tab:disabled { opacity: .45; cursor: not-allowed; }
 
   /* stage -------------------------------------------------------------- */
@@ -106,13 +117,13 @@
   .fine { color: #a3a3a3; font-size: 12px; max-width: 400px; margin: 0 auto 16px; line-height: 1.5; }
 
   .cta {
-    background: #111; color: #fff; border: 0; border-radius: 999px;
+    background: var(--brand-ink); color: #fff; border: 0; border-radius: 999px;
     padding: 12px 26px; font-size: 14.5px; font-weight: 500; cursor: pointer;
     display: inline-flex; align-items: center; gap: 9px;
   }
-  .cta:hover { background: #000; }
+  .cta:hover { background: var(--brand-ink-hover); }
   .cta:disabled { opacity: .5; cursor: default; }
-  .cta.stop { background: #dc2626; }
+  .cta.stop { background: #b91c1c; }
 
   .state { margin-top: 12px; font-size: 13.5px; color: var(--dim); min-height: 20px; }
   .state.live  { color: var(--aura); }
@@ -142,7 +153,7 @@
     padding: 10px 14px; max-width: 78%; font-size: 14.5px; white-space: pre-wrap;
   }
   .msg.me { justify-content: flex-end; }
-  .msg.me .bubble { background: #111; color: #fff; border-color: #111; }
+  .msg.me .bubble { background: var(--brand-ink); color: #fff; border-color: var(--brand-ink); }
   .bubble.thinking { color: var(--dim); font-style: italic; }
 
   .composer { display: flex; gap: 10px; align-items: center; padding-top: 12px; border-top: 1px solid var(--line); }
@@ -152,9 +163,11 @@
   }
   .composer input:focus { border-color: #c7c7c7; }
   .send {
-    width: 42px; height: 42px; border-radius: 50%; border: 0; background: #111; color: #fff;
-    cursor: pointer; font-size: 16px; flex: none;
+    width: 42px; height: 42px; border-radius: 50%; border: 0;
+    background: var(--brand-ink); color: #fff; cursor: pointer; flex: none;
+    display: grid; place-items: center;
   }
+  .send:hover:not(:disabled) { background: var(--brand-ink-hover); }
   .send:disabled { opacity: .35; cursor: default; }
   .composer-note { text-align: center; color: #b0b0b0; font-size: 12px; margin: 8px 0 0; }
 
@@ -186,12 +199,12 @@
   <img class="logo" src="/static/logo.svg" alt="Poorvika">
   <div class="who"><b>Poorvika</b><span id="model">—</span></div>
   <div class="spacer"></div>
-  <button class="icon-btn" id="share" title="Copy link">⤴</button>
+  <button class="icon-btn" id="share" title="Copy link" aria-label="Copy link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg></button>
 </header>
 
 <nav>
-  <button class="tab" id="tab-voice" aria-selected="true">📞 Voice Call</button>
-  <button class="tab" id="tab-chat" aria-selected="false">💬 Chat</button>
+  <button class="tab" id="tab-voice" aria-selected="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .3 1.9.6 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.5c.9.3 1.8.5 2.8.6a2 2 0 0 1 1.7 2z"/></svg> Voice Call</button>
+  <button class="tab" id="tab-chat" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.5 8.5 0 0 1-3.8-.9L3 20.5l1.4-4.2A8.5 8.5 0 0 1 12 3.5a8.4 8.4 0 0 1 9 8z"/></svg> Chat</button>
 </nav>
 
 <main>
@@ -205,7 +218,7 @@
       Audio is sent to Google to be understood. <b>Nothing is recorded or stored.</b>
     </p>
 
-    <button class="cta" id="toggle">📞 Start Call</button>
+    <button class="cta" id="toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .3 1.9.6 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.5c.9.3 1.8.5 2.8.6a2 2 0 0 1 1.7 2z"/></svg><span>Start Call</span></button>
     <div class="state" id="status"></div>
 
     <div id="transcript"></div>
@@ -215,7 +228,7 @@
     <div id="messages"></div>
     <div class="composer">
       <input id="chat-input" placeholder="Message Poorvika…" autocomplete="off">
-      <button class="send" id="chat-send" title="Send">➤</button>
+      <button class="send" id="chat-send" title="Send" aria-label="Send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg></button>
     </div>
     <p class="composer-note">You're chatting with an AI assistant.</p>
   </div>

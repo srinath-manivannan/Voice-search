@@ -1,22 +1,22 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Poorvika">
   <rect width="100" height="100" rx="24" fill="#f4511e"/>
-  <path d="M50.0 76.0 Q45.4 71.6 25.3 68.0" stroke="#fff" stroke-width="3.1" stroke-linecap="round" fill="none"/>
-  <circle cx="25.3" cy="68.0" r="3.6" fill="#fff"/>
-  <path d="M50.0 76.0 Q42.5 65.0 22.5 56.0" stroke="#fff" stroke-width="3.4" stroke-linecap="round" fill="none"/>
-  <circle cx="22.5" cy="56.0" r="3.9" fill="#fff"/>
-  <path d="M50.0 76.0 Q42.3 57.3 25.3 42.0" stroke="#fff" stroke-width="3.6" stroke-linecap="round" fill="none"/>
-  <circle cx="25.3" cy="42.0" r="4.1" fill="#fff"/>
-  <path d="M50.0 76.0 Q45.0 50.9 35.2 30.3" stroke="#fff" stroke-width="3.8" stroke-linecap="round" fill="none"/>
-  <circle cx="35.2" cy="30.3" r="4.4" fill="#fff"/>
-  <path d="M50.0 76.0 Q50.0 48.0 50.0 25.0" stroke="#fff" stroke-width="3.9" stroke-linecap="round" fill="none"/>
-  <circle cx="50.0" cy="25.0" r="4.5" fill="#fff"/>
-  <path d="M50.0 76.0 Q55.0 50.9 64.8 30.3" stroke="#fff" stroke-width="3.8" stroke-linecap="round" fill="none"/>
-  <circle cx="64.8" cy="30.3" r="4.4" fill="#fff"/>
-  <path d="M50.0 76.0 Q57.7 57.3 74.7 42.0" stroke="#fff" stroke-width="3.6" stroke-linecap="round" fill="none"/>
-  <circle cx="74.7" cy="42.0" r="4.1" fill="#fff"/>
-  <path d="M50.0 76.0 Q57.5 65.0 77.5 56.0" stroke="#fff" stroke-width="3.4" stroke-linecap="round" fill="none"/>
-  <circle cx="77.5" cy="56.0" r="3.9" fill="#fff"/>
-  <path d="M50.0 76.0 Q54.6 71.6 74.7 68.0" stroke="#fff" stroke-width="3.1" stroke-linecap="round" fill="none"/>
-  <circle cx="74.7" cy="68.0" r="3.6" fill="#fff"/>
-  <circle cx="50.0" cy="76.0" r="4.2" fill="#fff"/>
+  <path d="M50.0 82.0 Q30.6 68.4 20.7 75.8" stroke="#fff" stroke-width="2.4" stroke-linecap="round" fill="none"/>
+  <g transform="translate(20.7 75.8) rotate(-78)"><ellipse rx="4.4" ry="5.6" fill="#fff"/><ellipse ry="2.0" rx="1.6" cy="-0.6" fill="#f4511e"/></g>
+  <path d="M50.0 82.0 Q28.9 59.9 14.4 59.7" stroke="#fff" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+  <g transform="translate(14.4 59.7) rotate(-58)"><ellipse rx="4.4" ry="5.6" fill="#fff"/><ellipse ry="2.0" rx="1.6" cy="-0.6" fill="#f4511e"/></g>
+  <path d="M50.0 82.0 Q32.4 51.9 18.0 41.0" stroke="#fff" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+  <g transform="translate(18.0 41.0) rotate(-38)"><ellipse rx="4.4" ry="5.6" fill="#fff"/><ellipse ry="2.0" rx="1.6" cy="-0.6" fill="#f4511e"/></g>
+  <path d="M50.0 82.0 Q40.0 46.6 31.1 27.2" stroke="#fff" stroke-width="2.6" stroke-linecap="round" fill="none"/>
+  <g transform="translate(31.1 27.2) rotate(-19)"><ellipse rx="4.4" ry="5.6" fill="#fff"/><ellipse ry="2.0" rx="1.6" cy="-0.6" fill="#f4511e"/></g>
+  <path d="M50.0 82.0 Q50.0 44.2 50.0 21.0" stroke="#fff" stroke-width="2.7" stroke-linecap="round" fill="none"/>
+  <g transform="translate(50.0 21.0) rotate(0)"><ellipse rx="4.4" ry="5.6" fill="#fff"/><ellipse ry="2.0" rx="1.6" cy="-0.6" fill="#f4511e"/></g>
+  <path d="M50.0 82.0 Q60.0 46.6 68.9 27.2" stroke="#fff" stroke-width="2.6" stroke-linecap="round" fill="none"/>
+  <g transform="translate(68.9 27.2) rotate(19)"><ellipse rx="4.4" ry="5.6" fill="#fff"/><ellipse ry="2.0" rx="1.6" cy="-0.6" fill="#f4511e"/></g>
+  <path d="M50.0 82.0 Q67.6 51.9 82.0 41.0" stroke="#fff" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+  <g transform="translate(82.0 41.0) rotate(38)"><ellipse rx="4.4" ry="5.6" fill="#fff"/><ellipse ry="2.0" rx="1.6" cy="-0.6" fill="#f4511e"/></g>
+  <path d="M50.0 82.0 Q71.1 59.9 85.6 59.7" stroke="#fff" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+  <g transform="translate(85.6 59.7) rotate(58)"><ellipse rx="4.4" ry="5.6" fill="#fff"/><ellipse ry="2.0" rx="1.6" cy="-0.6" fill="#f4511e"/></g>
+  <path d="M50.0 82.0 Q69.4 68.4 79.3 75.8" stroke="#fff" stroke-width="2.4" stroke-linecap="round" fill="none"/>
+  <g transform="translate(79.3 75.8) rotate(78)"><ellipse rx="4.4" ry="5.6" fill="#fff"/><ellipse ry="2.0" rx="1.6" cy="-0.6" fill="#f4511e"/></g>
+  <path d="M50.0 82.0 q-3 6 0 10 q3-4 0-10z" fill="#fff"/>
 </svg>
