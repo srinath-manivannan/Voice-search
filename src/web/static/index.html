@@ -26,8 +26,13 @@
 
   /* header ------------------------------------------------------------- */
   header { display: flex; align-items: center; gap: 12px; padding: 14px 20px; }
-  /* The asset carries its own orange tile, so this only sizes it. */
-  .logo { width: 40px; height: 40px; border-radius: 10px; flex: none; display: block; }
+  /* The supplied file is orange on its own off-white ground, so the tile adds
+     no background - only the rounded corner and a hairline, without which a
+     near-white square on a white header has no edge at all. */
+  .logo {
+    width: 40px; height: 40px; border-radius: 10px; flex: none; display: block;
+    object-fit: cover; box-shadow: inset 0 0 0 1px rgba(0,0,0,.07);
+  }
   .who { line-height: 1.25; }
   .who b { font-size: 15.5px; font-weight: 600; display: block; }
   .who span { font-size: 13px; color: var(--dim); }
@@ -169,7 +174,8 @@
   .msg { display: flex; gap: 10px; margin-bottom: 14px; align-items: flex-start; }
   .msg .av {
     width: 28px; height: 28px; border-radius: 50%; flex: none;
-    background: var(--brand) url("/static/logo-mark.svg") center/70% no-repeat;
+    background: #fff url("/static/logo-photo.avif") center/cover no-repeat;
+    box-shadow: inset 0 0 0 1px rgba(0,0,0,.08);
   }
   .bubble {
     background: #fff; border: 1px solid var(--line); border-radius: 14px;
@@ -219,7 +225,7 @@
 <body data-state="idle">
 
 <header>
-  <img class="logo" src="/static/logo.svg" alt="Poorvika">
+  <img class="logo" src="/static/logo-photo.avif" alt="Poorvika">
   <div class="who"><b>Poorvika</b><span>AI Assistant</span></div>
   <div class="spacer"></div>
   <button class="icon-btn" id="share" title="Copy link" aria-label="Copy link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg></button>
@@ -251,7 +257,7 @@
     <div id="messages"></div>
     <div class="composer">
       <input id="chat-input" placeholder="Message Poorvika…" autocomplete="off">
-      <button class="send" id="chat-send" title="Send" aria-label="Send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg></button>
+      <button class="send" id="chat-send" title="Send" aria-label="Send"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2.6 20.9 21.4 12.8c.9-.4.9-1.6 0-2L2.6 2.7c-.8-.3-1.6.4-1.4 1.2L2.9 10c.1.4.4.7.8.8l7.6 1.2-7.6 1.2c-.4.1-.7.4-.8.8L1.2 19.7c-.2.8.6 1.5 1.4 1.2z"/></svg></button>
     </div>
     <p class="composer-note">You're chatting with an AI assistant.</p>
   </div>
