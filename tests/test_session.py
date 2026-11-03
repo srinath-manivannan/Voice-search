@@ -218,3 +218,42 @@ async def test_a_confirmed_interruption_forwards_the_run_up():
     # Held frames are released on confirmation, so the model hears the word
     # that started the interruption rather than only its tail.
     assert len(model.sent) > 0
+
+
+async def test_the_floor_is_held_from_the_moment_the_agent_is_asked_to_speak():
+    """Not from when its first audio chunk arrives, some 700 ms later.
+
+    That gap cost us the greeting three times over. The microphone was still
+    open across it, a rise and fall in room noise read as the caller finishing
+    a sentence, end_of_speech told the model the caller had stopped, and the
+    model abandoned its greeting to answer. Claiming the floor on construction
+    is what closes it.
+    """
+    model = StubModel([], keep_open=True)
+    conversation = Conversation(
+        model,
+        FakeSource([SILENCE] * 10 + [SPEECH] * 4 + [SILENCE] * 40),
+        FakeSink(),
+        vad=EnergyVad(),
+        agent_opens=True,
+    )
+    await conversation._pump_microphone()
+
+    # Nothing forwarded and, crucially, no end-of-turn signalled - the model
+    # is left to finish its greeting.
+    assert model.sent == []
+    assert model.ends == 0, "the greeting was cut short by a false end of turn"
+
+
+async def test_without_agent_opens_the_caller_speaks_first_as_before():
+    model = StubModel([], keep_open=True)
+    conversation = Conversation(
+        model,
+        FakeSource([SILENCE] * 5 + [SPEECH] * 10 + [SILENCE] * 40),
+        FakeSink(),
+        vad=EnergyVad(),
+    )
+    await conversation._pump_microphone()
+
+    assert model.sent, "the caller's audio never reached the model"
+    assert model.ends == 1

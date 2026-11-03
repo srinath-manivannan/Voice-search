@@ -105,7 +105,11 @@ def create_app(config: Config | None = None) -> FastAPI:
                 # Speak first. A call that answers and then says nothing until
                 # the caller speaks sounds like a dead line.
                 await model.greet(GREETING)
-                talking = Conversation(model, source, sink, on_update=push)
+                # agent_opens: the greeting is already on its way, so the
+                # agent holds the floor before its first chunk arrives.
+                talking = Conversation(
+                    model, source, sink, on_update=push, agent_opens=True
+                )
                 reader = asyncio.create_task(read_microphone(), name="browser-reader")
                 runner = asyncio.create_task(talking.run(), name="conversation")
 

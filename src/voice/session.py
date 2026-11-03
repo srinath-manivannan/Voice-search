@@ -64,6 +64,7 @@ class Conversation:
         sink: AudioSink,
         vad: EnergyVad | None = None,
         on_update: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+        agent_opens: bool = False,
     ) -> None:
         self._model = model
         self._source = source
@@ -72,8 +73,15 @@ class Conversation:
         # Optional, because the CLI does not need it and the telephony
         # transport will not have a screen to update.
         self._on_update = on_update
-        self._agent_speaking = False
-        self._agent_started_at = 0.0
+        # When the agent speaks first, it holds the floor from the moment the
+        # greeting is requested - not from when its first audio chunk arrives
+        # some 700 ms later. That gap was enough to lose the greeting: the
+        # microphone was still open, a rise and fall in room noise read as the
+        # caller finishing a sentence, end_of_speech told the model so, and the
+        # model abandoned its greeting to answer. The floor has to be claimed
+        # before the audio exists, not when it shows up.
+        self._agent_speaking = agent_opens
+        self._agent_started_at = time.monotonic() if agent_opens else 0.0
         self._caller_speaking = False
         self._heard_speech_this_turn = False
         self._barge_frames = 0
