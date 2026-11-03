@@ -5,11 +5,25 @@ its `firstMessage` and `chatFirstMessage` are byte-identical. One persona, one
 set of facts, two ways of reaching it. Two copies would be two places for an
 answer about an EMI offer to drift apart.
 
-What legitimately differs between voice and chat is reply length, and only
-reply length. Fifteen words is a constraint of being *listened to* - a phone
-caller cannot skim. A reader can, and text output bills at $2.50 per million
-against $12.00 for audio, so the voice cap would make chat worse and save
-almost nothing.
+Both caps are 100 words. It is a ceiling, not a target, and measurement says
+the model treats it as one:
+
+    cap  15 : 15.3 words a reply, 184 response tokens a turn
+    cap 100 : 23.0 words a reply, 141 response tokens a turn
+
+Raising it did not produce hundred-word answers. The model answers the
+question and stops; the cap only bites when the natural answer would exceed
+it, and at 15 it was biting - replies were being cut to length rather than
+finished. Three questions is a small sample and the token counts are within
+noise of each other, but the direction is clear enough: this is close to free.
+
+That corrects an earlier reading of the Phase 0 numbers, which extrapolated
+205 tokens at a 25-word cap linearly out to 100 and predicted roughly Rs 3.80
+a minute in output audio. It does not work that way.
+
+Output audio is still the largest line in the stack, so if the per-minute
+figure ever needs to come down this is where to look first - but lower it on a
+measurement, not on an extrapolation.
 """
 
 from __future__ import annotations
@@ -18,8 +32,8 @@ from typing import Literal
 
 Surface = Literal["voice", "chat"]
 
-VOICE_WORD_CAP = 15
-CHAT_WORD_CAP = 45
+VOICE_WORD_CAP = 100
+CHAT_WORD_CAP = 100
 
 GREETING = (
     "Vanakkam! Naan Poorvika pesuren Poorvika Mobiles-la irundhu. "

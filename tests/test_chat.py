@@ -159,5 +159,8 @@ def test_both_surfaces_share_one_persona_differing_only_in_delivery():
         assert "does NOT apply" in text
     assert "speaking out loud" in voice
     assert "chat window" in chat
-    # A reader skims; a listener cannot. Text output is also 4.8x cheaper.
-    assert CHAT_WORD_CAP > VOICE_WORD_CAP
+    # Both caps are 100 at the operator's instruction. Measurement says the
+    # model treats the cap as a ceiling rather than a target - 23 words a reply
+    # at 100, against 15.3 at a cap of 15 - so raising it buys finished answers
+    # rather than longer ones, and costs nothing measurable.
+    assert CHAT_WORD_CAP == VOICE_WORD_CAP == 100
