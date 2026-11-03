@@ -239,7 +239,8 @@ function bubble(text, mine) {
   row.className = 'msg' + (mine ? ' me' : '');
   if (!mine) {
     const av = document.createElement('div');
-    av.className = 'av'; av.textContent = 'P';
+    av.className = 'av';
+    av.setAttribute('aria-label', 'Poorvika');
     row.appendChild(av);
   }
   const body = document.createElement('div');

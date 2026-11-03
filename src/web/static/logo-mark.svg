@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Poorvika">
+  <path d="M50.0 76.0 Q45.4 71.6 25.3 68.0" stroke="#fff" stroke-width="3.1" stroke-linecap="round" fill="none"/>
+  <circle cx="25.3" cy="68.0" r="3.6" fill="#fff"/>
+  <path d="M50.0 76.0 Q42.5 65.0 22.5 56.0" stroke="#fff" stroke-width="3.4" stroke-linecap="round" fill="none"/>
+  <circle cx="22.5" cy="56.0" r="3.9" fill="#fff"/>
+  <path d="M50.0 76.0 Q42.3 57.3 25.3 42.0" stroke="#fff" stroke-width="3.6" stroke-linecap="round" fill="none"/>
+  <circle cx="25.3" cy="42.0" r="4.1" fill="#fff"/>
+  <path d="M50.0 76.0 Q45.0 50.9 35.2 30.3" stroke="#fff" stroke-width="3.8" stroke-linecap="round" fill="none"/>
+  <circle cx="35.2" cy="30.3" r="4.4" fill="#fff"/>
+  <path d="M50.0 76.0 Q50.0 48.0 50.0 25.0" stroke="#fff" stroke-width="3.9" stroke-linecap="round" fill="none"/>
+  <circle cx="50.0" cy="25.0" r="4.5" fill="#fff"/>
+  <path d="M50.0 76.0 Q55.0 50.9 64.8 30.3" stroke="#fff" stroke-width="3.8" stroke-linecap="round" fill="none"/>
+  <circle cx="64.8" cy="30.3" r="4.4" fill="#fff"/>
+  <path d="M50.0 76.0 Q57.7 57.3 74.7 42.0" stroke="#fff" stroke-width="3.6" stroke-linecap="round" fill="none"/>
+  <circle cx="74.7" cy="42.0" r="4.1" fill="#fff"/>
+  <path d="M50.0 76.0 Q57.5 65.0 77.5 56.0" stroke="#fff" stroke-width="3.4" stroke-linecap="round" fill="none"/>
+  <circle cx="77.5" cy="56.0" r="3.9" fill="#fff"/>
+  <path d="M50.0 76.0 Q54.6 71.6 74.7 68.0" stroke="#fff" stroke-width="3.1" stroke-linecap="round" fill="none"/>
+  <circle cx="74.7" cy="68.0" r="3.6" fill="#fff"/>
+  <circle cx="50.0" cy="76.0" r="4.2" fill="#fff"/>
+</svg>
