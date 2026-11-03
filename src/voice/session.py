@@ -31,6 +31,7 @@ from typing import Any
 
 from src.voice.events import AudioOut, TurnComplete, Transcript, TurnInterrupted
 from src.voice.gemini_live import GeminiLiveSession
+from src.voice.trace import CallTrace
 from src.voice.transport import AudioSink, AudioSource
 from src.voice.vad import EnergyVad, VadFrame
 
@@ -90,6 +91,10 @@ class Conversation:
         # lost when we start forwarding again.
         self._held: deque[bytes] = deque(maxlen=15)
         self._abandoned: set[int] = set()
+        # Every decision this call makes, timestamped. Not the words - the
+        # choices, which is what is missing when something goes wrong.
+        self.trace = CallTrace()
+        self.trace.record("call_open", agent_opens=agent_opens)
         self.result = ConversationResult()
 
     # The agent's own voice reaches the microphone. Browser echo cancellation
@@ -144,10 +149,19 @@ class Conversation:
                 # holding costs nothing.
                 if not self._is_real_interruption(verdict):
                     self._held.append(frame)
+                    self.trace.record(
+                        "gate_held", rms=int(verdict.rms), run=self._barge_frames
+                    )
                     continue
 
                 log.debug(
                     "barge-in at rms=%.0f floor=%.0f", verdict.rms, verdict.noise_floor
+                )
+                self.trace.record(
+                    "barge_in_local",
+                    rms=int(verdict.rms),
+                    floor=int(verdict.noise_floor),
+                    held_frames=len(self._held),
                 )
                 await self._notify(type="barge_in")
                 await self._interrupt()
@@ -178,12 +192,14 @@ class Conversation:
                     # It also starts the latency clock, so first-audio timing
                     # was never measured either.
                     self._heard_speech_this_turn = False
+                    self.trace.record("end_of_speech", turn=self._model.turn_id + 1)
                     await self._model.end_of_speech()
 
             await self._model.send_audio(frame)
 
     async def _interrupt(self) -> None:
         """Stop talking over the caller, and remember not to resume."""
+        self.trace.record("flush", turn=self._model.turn_id)
         self._agent_speaking = False
         self._abandoned.add(self._model.turn_id)
         await self._sink.flush()
@@ -197,17 +213,23 @@ class Conversation:
                     # Audio for a turn the caller already talked over must not
                     # reach the speaker, however late it arrives.
                     if turn_id in self._abandoned:
+                        self.trace.record("audio_dropped", turn=turn_id, bytes=len(pcm))
                         continue
                     if not self._agent_speaking:
                         self._agent_speaking = True
                         self._agent_started_at = time.monotonic()
+                        self.trace.record("agent_floor", turn=turn_id)
                         await self._notify(type="state", agent_speaking=True)
+                    self.trace.record("audio_out", turn=turn_id, bytes=len(pcm))
                     await self._sink.write(pcm)
 
                 case Transcript(text=text):
                     await self._notify(type="transcript", text=text)
 
                 case TurnInterrupted(turn_id=turn_id):
+                    # Distinct from our own barge-in: this is the model saying
+                    # it heard the caller. Telling them apart mattered.
+                    self.trace.record("interrupted_by_model", turn=turn_id)
                     self._abandoned.add(turn_id)
                     await self._interrupt()
 

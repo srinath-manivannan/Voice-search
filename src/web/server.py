@@ -36,6 +36,9 @@ from src.voice.web_transport import BrowserSink, BrowserSource
 
 log = logging.getLogger(__name__)
 STATIC = Path(__file__).parent / "static"
+# Gitignored. Traces hold decisions and timings, never audio or speech, but
+# they are still call records and belong on the machine that made them.
+TRACES = Path(__file__).resolve().parents[2] / "out" / "traces"
 
 
 def create_app(config: Config | None = None) -> FastAPI:

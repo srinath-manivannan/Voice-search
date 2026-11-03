@@ -212,7 +212,10 @@ async function start() {
         }
         break;
       case 'turn':    addTurn(message); break;
-      case 'summary': showCost(message.cost); break;
+      case 'summary':
+        showCost(message.cost);
+        showTrace(message.trace, message.trace_file);
+        break;
       case 'error':   setStatus(message.message, 'bad'); break;
     }
   };
@@ -298,6 +301,20 @@ function updatePercentiles() {
   el('p95').className = p95 <= 2000 ? 'good' : 'bad';
   el('verdict').textContent =
     (p50 <= 1000 && p95 <= 2000 ? 'PASS' : 'MISS') + ' · ' + values.length + ' turns';
+}
+
+// The counters that answer "why did that call go wrong" without a console:
+// did audio arrive, was any of it thrown away, and who did the interrupting.
+function showTrace(trace, file) {
+  if (!trace) return;
+  el('trace').hidden = false;
+  el('t-turns').textContent = trace.turns;
+  el('t-chunks').textContent = trace.audio_chunks;
+  el('t-dropped').textContent = trace.audio_dropped_abandoned;
+  el('t-dropped').className = trace.audio_dropped_abandoned ? 'bad' : 'good';
+  el('t-barge').textContent = trace.barge_ins_local;
+  el('t-model').textContent = trace.interrupts_from_model;
+  el('t-file').textContent = file || '—';
 }
 
 function showCost(cost) {
