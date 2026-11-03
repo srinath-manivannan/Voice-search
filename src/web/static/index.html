@@ -50,57 +50,57 @@
   main { flex: 1; display: grid; place-items: center; padding: 10px 20px 24px; width: 100%; }
   .stage { width: 100%; max-width: 560px; text-align: center; }
 
-  /* A brushed-metal sphere. Two layers: a conic gradient for the banding that
-     makes metal look like metal, and a radial highlight for the roundness. The
-     sheen rotates rather than the element, so the highlight stays put and only
-     the banding turns - a whole spinning ball reads as a loading spinner, which
-     is the wrong idea entirely. */
+  /* A lit sphere in Poorvika orange.
+     Four things make a circle read as a ball, and leaving any one out makes it
+     look like a sticker: light falling off from a point that is not the centre,
+     a small hard specular highlight, a terminator opposite it, and - the one
+     usually missed - a rim light along the dark edge where the surroundings
+     bounce back. The contact shadow underneath sits it on the page. */
   .orb-wrap { height: 170px; display: grid; place-items: center; }
   .orb {
-    position: relative; width: 136px; height: 136px; border-radius: 50%;
-    overflow: hidden;
-    box-shadow: 0 8px 22px rgba(0,0,0,.16);
-  }
-  .orb i {
-    position: absolute; inset: 0; display: block; border-radius: 50%;
-  }
-  /* Base: a linear metal gradient. This carries the shape - bright band high
-     and left, falling away top and bottom - and it is what makes it read as a
-     sphere rather than a disc. */
-  .orb i:nth-child(1) {
-    background: linear-gradient(158deg,
-      #3f3f46 0%, #e8eaed 24%, #a1a5ab 44%,
-      #f4f6f8 58%, #8b9097 74%, #45484e 100%);
-  }
-  /* Banding, blurred hard and kept faint. A conic gradient gives metal its
-     turned look, but its centre converges to a visible point - blurring past
-     the radius hides that while keeping the movement. */
-  .orb i:nth-child(2) {
-    background: conic-gradient(from 210deg,
-      #71717a, #f4f4f5, #a1a1aa, #fafafa, #52525b,
-      #d4d4d8, #3f3f46, #e4e4e7, #71717a);
-    filter: blur(14px); opacity: .45; transform-origin: 50% 50%;
-    animation: sheen 16s linear infinite;
-  }
-  /* Roundness: highlight up and left, occlusion opposite. Sits above the
-     banding so the blurred centre never shows through. */
-  .orb i:nth-child(3) {
+    position: relative; width: 140px; height: 140px; border-radius: 50%;
     background:
-      radial-gradient(circle at 34% 26%, rgba(255,255,255,.88), rgba(255,255,255,0) 44%),
-      radial-gradient(circle at 72% 84%, rgba(0,0,0,.40), rgba(0,0,0,0) 54%);
-    box-shadow: inset 0 0 16px rgba(0,0,0,.26), inset 0 2px 4px rgba(255,255,255,.5);
+      radial-gradient(circle at 34% 29%,
+        #ffd9bd 0%, #ffa264 22%, #fb7233 42%, #ef5a28 58%, #c8400f 78%, #8f2c08 100%);
+    box-shadow:
+      inset -12px -14px 30px rgba(120,40,8,.42),
+      inset  10px  12px 26px rgba(255,220,190,.28),
+      0 16px 26px -10px rgba(124,45,18,.50);
+  }
+  .orb i { position: absolute; inset: 0; display: block; border-radius: 50%; }
+  /* specular highlight - small and hard, or it reads as fog */
+  .orb i:nth-child(1) {
+    background: radial-gradient(circle at 31% 25%,
+      rgba(255,255,255,.92) 0%, rgba(255,255,255,.45) 7%, rgba(255,255,255,0) 17%);
+  }
+  /* rim light: the surroundings bouncing back along the dark edge */
+  .orb i:nth-child(2) {
+    background: radial-gradient(circle at 74% 80%,
+      rgba(255,176,122,.55) 0%, rgba(255,150,90,.18) 16%, rgba(255,150,90,0) 32%);
+    animation: sheen 18s linear infinite;
+    transform-origin: 50% 50%;
+  }
+  /* a faint sheen band, so state has something to move */
+  .orb i:nth-child(3) {
+    background: linear-gradient(118deg,
+      rgba(255,255,255,0) 38%, rgba(255,255,255,.16) 50%, rgba(255,255,255,0) 62%);
   }
   @keyframes sheen {
     from { transform: rotate(0deg); }
     to   { transform: rotate(360deg); }
   }
-  /* State is speed and brightness. Metal does not change colour, so a hue
-     shift here would look like a bug rather than a signal. */
-  body[data-state="idle"]      .orb i:nth-child(2) { animation-duration: 30s; opacity: .3; }
-  body[data-state="listening"] .orb i:nth-child(2) { animation-duration: 16s; opacity: .45; }
-  body[data-state="caller"]    .orb i:nth-child(2) { animation-duration: 7s;  opacity: .6; }
-  body[data-state="agent"]     .orb i:nth-child(2) { animation-duration: 3s;  opacity: .78; }
-  body[data-state="error"]     .orb i:nth-child(2) { animation-play-state: paused; opacity: .15; }
+  /* State is the speed the bounce light travels and how lit the ball is.
+     The hue never moves - an orange ball turning blue would read as a fault. */
+  body[data-state="idle"]      .orb { filter: brightness(.94) saturate(.92); }
+  body[data-state="idle"]      .orb i:nth-child(2) { animation-duration: 26s; }
+  body[data-state="listening"] .orb { filter: brightness(1); }
+  body[data-state="listening"] .orb i:nth-child(2) { animation-duration: 14s; }
+  body[data-state="caller"]    .orb { filter: brightness(1.07) saturate(1.06); }
+  body[data-state="caller"]    .orb i:nth-child(2) { animation-duration: 6s; }
+  body[data-state="agent"]     .orb { filter: brightness(1.12) saturate(1.1); }
+  body[data-state="agent"]     .orb i:nth-child(2) { animation-duration: 2.8s; }
+  body[data-state="error"]     .orb { filter: grayscale(.8) brightness(.8); }
+  body[data-state="error"]     .orb i:nth-child(2) { animation-play-state: paused; }
 
   h1 { font-size: 20px; margin: 0 0 5px; font-weight: 600; }
   .sub { color: var(--dim); margin: 0 0 14px; font-size: 14px; }
