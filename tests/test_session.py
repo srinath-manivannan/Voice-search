@@ -58,7 +58,9 @@ async def test_every_microphone_frame_reaches_the_model():
 
 async def test_local_speech_while_the_agent_talks_flushes_playback():
     """The whole point: stop without waiting for the server to agree."""
-    source = FakeSource([SILENCE] * 40 + [SPEECH] * 5)
+    # Sustained speech: a real interrupter talks over the agent for a moment,
+    # which is what separates them from echo of the agent's own voice.
+    source = FakeSource([SILENCE] * 40 + [SPEECH] * 20)
     sink = FakeSink()
     model = StubModel([AudioOut(turn_id=1, pcm=b"agent talking")], keep_open=True)
 
@@ -133,16 +135,8 @@ async def test_the_agent_does_not_interrupt_itself_the_moment_it_starts():
 async def test_a_real_interruption_still_lands_once_the_grace_window_passes():
     sink = FakeSink()
     model = StubModel([AudioOut(turn_id=1, pcm=b"talking")], keep_open=True)
-    conversation = Conversation(
-        model,
-        FakeSource([SILENCE] * 10 + [SPEECH] * 6),
-        sink,
-        vad=EnergyVad(speech_frames_to_trigger=3),
-    )
-    conversation.BARGE_IN_GRACE_SECONDS = (
-        0.0  # as if the agent had been talking a while
-    )
-    await conversation.run()
+    conversation = speaking_conversation(model, [SILENCE] * 10 + [SPEECH] * 25, sink)
+    await conversation._pump_microphone()
 
     assert sink.flushes >= 1, "a genuine barge-in was ignored"
 
@@ -179,3 +173,48 @@ async def test_each_turn_gets_its_own_id_so_abandoning_one_spares_the_next():
     source = FakeSource([SPEECH] * 10 + [SILENCE] * 40 + [SPEECH] * 10 + [SILENCE] * 40)
     await Conversation(model, source, FakeSink(), vad=EnergyVad()).run()
     assert model.ends == 2 and model.turn_id == 3
+
+
+def speaking_conversation(model, frames, sink=None):
+    """A conversation with the agent already holding the floor.
+
+    Set directly rather than driven through the model pump: otherwise whether
+    the gate is closed when the microphone frames arrive depends on task
+    scheduling, and the test passes or fails by luck.
+    """
+    conversation = Conversation(
+        model, FakeSource(frames), sink or FakeSink(), vad=EnergyVad()
+    )
+    conversation._agent_speaking = True
+    conversation._agent_started_at = 0.0  # long past the grace window
+    return conversation
+
+
+async def test_the_microphone_is_held_back_while_the_agent_speaks():
+    """The model must not hear the agent's own voice.
+
+    Browser echo cancellation leaves enough behind that the model recognises
+    it as speech, concludes the caller interrupted, and cuts its own sentence
+    off - which is what made the greeting stop partway through. AI-voice gates
+    the same way: while the agent holds the floor, nothing is forwarded unless
+    a genuine interruption is confirmed.
+    """
+    model = StubModel([], keep_open=True)
+    # Quiet-room echo: never loud enough, never sustained enough to count.
+    conversation = speaking_conversation(model, [SILENCE] * 30)
+    await conversation._pump_microphone()
+
+    assert model.sent == [], "the agent's own audio window was forwarded to the model"
+
+
+async def test_a_confirmed_interruption_forwards_the_run_up():
+    """The caller's first syllable must not be lost to the gate."""
+    model = StubModel([], keep_open=True)
+    sink = FakeSink()
+    conversation = speaking_conversation(model, [SPEECH] * 25, sink)
+    await conversation._pump_microphone()
+
+    assert sink.flushes >= 1, "a sustained interruption did not stop playback"
+    # Held frames are released on confirmation, so the model hears the word
+    # that started the interruption rather than only its tail.
+    assert len(model.sent) > 0

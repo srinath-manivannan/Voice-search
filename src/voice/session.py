@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections import deque
 from dataclasses import dataclass, field
 
 from collections.abc import Awaitable, Callable
@@ -31,7 +32,7 @@ from typing import Any
 from src.voice.events import AudioOut, TurnComplete, Transcript, TurnInterrupted
 from src.voice.gemini_live import GeminiLiveSession
 from src.voice.transport import AudioSink, AudioSource
-from src.voice.vad import EnergyVad
+from src.voice.vad import EnergyVad, VadFrame
 
 log = logging.getLogger(__name__)
 
@@ -75,6 +76,11 @@ class Conversation:
         self._agent_started_at = 0.0
         self._caller_speaking = False
         self._heard_speech_this_turn = False
+        self._barge_frames = 0
+        # Roughly 300 ms. While the microphone is held back these keep the run
+        # up to a genuine interruption, so the caller's first syllable is not
+        # lost when we start forwarding again.
+        self._held: deque[bytes] = deque(maxlen=15)
         self._abandoned: set[int] = set()
         self.result = ConversationResult()
 
@@ -85,14 +91,27 @@ class Conversation:
     # answer is cut off a moment after it starts and the caller hears almost
     # nothing. The grace period is the fix: for this long after the agent
     # starts speaking, it does not listen for interruptions at all.
-    BARGE_IN_GRACE_SECONDS = 0.6
+    BARGE_IN_GRACE_SECONDS = 0.4
+    # A real interrupter speaks over the agent for a moment, and does it loudly
+    # relative to the room. Echo surviving the browser's cancellation is neither
+    # sustained nor loud, so demanding both is what separates them. 12 frames is
+    # 240 ms.
+    BARGE_IN_SPEECH_FRAMES = 12
+    BARGE_IN_RMS_FACTOR = 6.0
 
-    def _may_barge_in(self) -> bool:
-        if not self._agent_speaking:
-            return False
+    def _past_grace(self) -> bool:
         return (
             time.monotonic() - self._agent_started_at
         ) >= self.BARGE_IN_GRACE_SECONDS
+
+    def _is_real_interruption(self, verdict: VadFrame) -> bool:
+        """Sustained and loud, or it is the agent hearing itself."""
+        loud = verdict.rms > verdict.noise_floor * self.BARGE_IN_RMS_FACTOR
+        if verdict.is_speech and loud:
+            self._barge_frames += 1
+        else:
+            self._barge_frames = 0
+        return self._barge_frames >= self.BARGE_IN_SPEECH_FRAMES and self._past_grace()
 
     async def _notify(self, **payload: Any) -> None:
         if self._on_update is not None:
@@ -108,12 +127,28 @@ class Conversation:
         async for frame in self._source.frames():
             verdict = self._vad.accept(frame)
 
-            if verdict.is_speech and self._may_barge_in():
+            if self._agent_speaking:
+                # Hold the microphone back rather than streaming the agent's
+                # own voice into the model. Browser echo cancellation leaves
+                # enough behind that the model hears itself, decides the caller
+                # interrupted, and cuts its own sentence off - which is why the
+                # greeting stopped partway through. Silence is not billed, so
+                # holding costs nothing.
+                if not self._is_real_interruption(verdict):
+                    self._held.append(frame)
+                    continue
+
                 log.debug(
                     "barge-in at rms=%.0f floor=%.0f", verdict.rms, verdict.noise_floor
                 )
                 await self._notify(type="barge_in")
                 await self._interrupt()
+                # Forward the run-up so the interruption does not arrive
+                # beheaded, missing the word that started it.
+                for held in self._held:
+                    await self._model.send_audio(held)
+                self._held.clear()
+                self._barge_frames = 0
 
             if verdict.is_speech != self._caller_speaking:
                 self._caller_speaking = verdict.is_speech
