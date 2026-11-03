@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass, field
 
 from collections.abc import Awaitable, Callable
@@ -71,9 +72,26 @@ class Conversation:
         # transport will not have a screen to update.
         self._on_update = on_update
         self._agent_speaking = False
+        self._agent_started_at = 0.0
         self._caller_speaking = False
         self._abandoned: set[int] = set()
         self.result = ConversationResult()
+
+    # The agent's own voice reaches the microphone. Browser echo cancellation
+    # removes most of it and not all, and what is left is speech-shaped, which
+    # is exactly what the VAD is built to notice. Without a guard the agent
+    # hears itself, calls it a barge-in, and flushes its own reply - so every
+    # answer is cut off a moment after it starts and the caller hears almost
+    # nothing. The grace period is the fix: for this long after the agent
+    # starts speaking, it does not listen for interruptions at all.
+    BARGE_IN_GRACE_SECONDS = 0.6
+
+    def _may_barge_in(self) -> bool:
+        if not self._agent_speaking:
+            return False
+        return (
+            time.monotonic() - self._agent_started_at
+        ) >= self.BARGE_IN_GRACE_SECONDS
 
     async def _notify(self, **payload: Any) -> None:
         if self._on_update is not None:
@@ -89,10 +107,11 @@ class Conversation:
         async for frame in self._source.frames():
             verdict = self._vad.accept(frame)
 
-            if verdict.is_speech and self._agent_speaking:
+            if verdict.is_speech and self._may_barge_in():
                 log.debug(
                     "barge-in at rms=%.0f floor=%.0f", verdict.rms, verdict.noise_floor
                 )
+                await self._notify(type="barge_in")
                 await self._interrupt()
 
             await self._model.send_audio(frame)
@@ -115,6 +134,7 @@ class Conversation:
                         continue
                     if not self._agent_speaking:
                         self._agent_speaking = True
+                        self._agent_started_at = time.monotonic()
                         await self._notify(type="state", agent_speaking=True)
                     await self._sink.write(pcm)
 

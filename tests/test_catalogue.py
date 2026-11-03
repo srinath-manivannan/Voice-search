@@ -42,12 +42,33 @@ PAYLOAD = {
     "total": 42,
     "understood": {"price_max": 20000},
     "hits": [
-        {"document": {"name": "Galaxy M35 5G", "price": 18999, "brand": "Samsung",
-                      "item_code": "SM-M35", "stock_status": "In Stock"}},
-        {"document": {"name": "Poco X7", "price": 19499, "brand": "Poco",
-                      "item_code": "PX7", "stock_status": "Out Of Stock"}},
-        {"document": {"name": "Redmi Note 14", "price": 16999, "brand": "Redmi",
-                      "item_code": "RN14", "stock_status": "In Stock"}},
+        {
+            "document": {
+                "name": "Galaxy M35 5G",
+                "price": 18999,
+                "brand": "Samsung",
+                "item_code": "SM-M35",
+                "stock_status": "In Stock",
+            }
+        },
+        {
+            "document": {
+                "name": "Poco X7",
+                "price": 19499,
+                "brand": "Poco",
+                "item_code": "PX7",
+                "stock_status": "Out Of Stock",
+            }
+        },
+        {
+            "document": {
+                "name": "Redmi Note 14",
+                "price": 16999,
+                "brand": "Redmi",
+                "item_code": "RN14",
+                "stock_status": "In Stock",
+            }
+        },
         {"document": {"name": "Should not be spoken", "price": 100, "item_code": "X"}},
     ],
 }
@@ -85,7 +106,9 @@ async def test_stock_is_a_hint_and_only_when_the_field_says_so():
 
 
 async def test_a_missing_price_is_absent_rather_than_zero():
-    cat, _ = catalogue_with(FakeResponse({"hits": [{"document": {"name": "Thing"}}], "total": 1}))
+    cat, _ = catalogue_with(
+        FakeResponse({"hits": [{"document": {"name": "Thing"}}], "total": 1})
+    )
     product = (await cat.search("thing")).products[0]
     assert product.price is None
     assert "price not listed" in product.spoken()

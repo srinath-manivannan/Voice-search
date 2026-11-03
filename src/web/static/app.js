@@ -103,6 +103,12 @@ function stopLevelLoop() {
 function play(pcmBytes) {
   const ctx = state.playbackContext;
   if (!ctx) return;
+  state.chunksPlayed = (state.chunksPlayed || 0) + 1;
+
+  // A context can be suspended again by the browser at any point - a
+  // background tab, a device change. Scheduling into a suspended context is
+  // silent and raises nothing, so check every time rather than once at start.
+  if (ctx.state === 'suspended') ctx.resume().catch(() => {});
 
   const samples = new Int16Array(pcmBytes);
   const buffer = ctx.createBuffer(1, samples.length, ctx.sampleRate);
@@ -173,6 +179,13 @@ async function start() {
 
   state.captureContext = new AudioContext({ sampleRate: state.config.capture_sample_rate });
   state.playbackContext = new AudioContext({ sampleRate: state.config.playback_sample_rate });
+
+  // An AudioContext can be born suspended even when it was created inside a
+  // click handler, and a suspended context accepts everything you schedule and
+  // plays none of it - no error, no sound. Resume both explicitly.
+  await Promise.all([state.captureContext.resume(), state.playbackContext.resume()]
+    .map(p => p.catch(() => {})));
+
   await state.captureContext.audioWorklet.addModule('/static/capture-worklet.js');
 
   const url = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws';
@@ -180,7 +193,11 @@ async function start() {
   state.socket.binaryType = 'arraybuffer';
 
   state.socket.onmessage = (event) => {
-    if (event.data instanceof ArrayBuffer) { play(event.data); return; }
+    if (event.data instanceof ArrayBuffer) {
+      state.bytesIn = (state.bytesIn || 0) + event.data.byteLength;
+      play(event.data);
+      return;
+    }
     const message = JSON.parse(event.data);
     switch (message.type) {
       case 'ready':      setStatus('listening', 'live'); break;
@@ -242,6 +259,17 @@ function stop() {
 }
 
 // --- metrics --------------------------------------------------------------
+
+window.audioDiagnostics = () => ({
+  playbackState: state.playbackContext && state.playbackContext.state,
+  playbackRate: state.playbackContext && state.playbackContext.sampleRate,
+  captureState: state.captureContext && state.captureContext.state,
+  bytesReceived: state.bytesIn || 0,
+  chunksPlayed: state.chunksPlayed || 0,
+  scheduled: state.scheduled.length,
+  playheadAhead: state.playbackContext
+    ? +(state.playheadAt - state.playbackContext.currentTime).toFixed(2) : null,
+});
 
 function addTurn(turn) {
   state.turns.push(turn);

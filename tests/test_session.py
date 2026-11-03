@@ -59,6 +59,9 @@ async def test_local_speech_while_the_agent_talks_flushes_playback():
     conversation = Conversation(
         model, source, sink, vad=EnergyVad(speech_frames_to_trigger=3)
     )
+    # Stand the agent outside its own grace window: this is a caller speaking
+    # over a reply already in progress, not the agent hearing itself start.
+    conversation.BARGE_IN_GRACE_SECONDS = 0.0
     await conversation.run()
 
     assert sink.flushes >= 1, "playback was not stopped when the caller spoke"
@@ -95,3 +98,44 @@ async def test_turn_completion_records_latency_and_the_hidden_thinking_tokens():
     # Thinking is tracked separately because it is billed and does not appear
     # in totalTokenCount.
     assert record.thinking_tokens == 126
+
+
+async def test_the_agent_does_not_interrupt_itself_the_moment_it_starts():
+    """Echo of the agent's own voice must not read as a barge-in.
+
+    The microphone hears the speaker. Browser echo cancellation removes most of
+    it and not all, and the remainder is speech-shaped - precisely what the VAD
+    exists to detect. Without a grace period the agent flushes its own reply a
+    few frames after starting it, and the caller hears a syllable and then
+    silence, over and over.
+    """
+    sink = FakeSink()
+    source = FakeSource([SILENCE] * 40 + [SPEECH] * 6, keep_open=False)
+    model = StubModel([AudioOut(turn_id=1, pcm=b"the agent answering")], keep_open=True)
+
+    conversation = Conversation(
+        model, source, sink, vad=EnergyVad(speech_frames_to_trigger=3)
+    )
+    await conversation.run()
+
+    # 46 frames at 20 ms is under a second of wall clock, all of it inside the
+    # grace window, so nothing should have been flushed.
+    assert sink.flushes == 0, "the agent interrupted itself"
+    assert b"the agent answering" in b"".join(sink.written)
+
+
+async def test_a_real_interruption_still_lands_once_the_grace_window_passes():
+    sink = FakeSink()
+    model = StubModel([AudioOut(turn_id=1, pcm=b"talking")], keep_open=True)
+    conversation = Conversation(
+        model,
+        FakeSource([SILENCE] * 10 + [SPEECH] * 6),
+        sink,
+        vad=EnergyVad(speech_frames_to_trigger=3),
+    )
+    conversation.BARGE_IN_GRACE_SECONDS = (
+        0.0  # as if the agent had been talking a while
+    )
+    await conversation.run()
+
+    assert sink.flushes >= 1, "a genuine barge-in was ignored"

@@ -25,8 +25,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Protocol
 
-MAX_QUERY_CHARS = 150          # the Worker rejects longer
-MAX_RESULTS_SPOKEN = 3         # nobody can hold a read-out list of more
+MAX_QUERY_CHARS = 150  # the Worker rejects longer
+MAX_RESULTS_SPOKEN = 3  # nobody can hold a read-out list of more
 
 
 class Poster(Protocol):
@@ -90,7 +90,9 @@ class Catalogue:
             name=str(document.get("name") or "").strip() or "Unnamed product",
             price=int(price) if isinstance(price, (int, float)) and price > 0 else None,
             brand=document.get("brand") or None,
-            item_code=str(document.get("item_code")) if document.get("item_code") else None,
+            item_code=str(document.get("item_code"))
+            if document.get("item_code")
+            else None,
             # Both fields had to agree for the Worker to call this in stock,
             # and even then the feed can lag the shop. A hint, not a promise.
             stock_hint=str(document.get("stock_status") or "").lower() == "in stock",
