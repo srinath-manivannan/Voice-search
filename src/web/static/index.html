@@ -50,7 +50,7 @@
   main { flex: 1; display: grid; place-items: center; padding: 10px 20px 24px; width: 100%; }
   .stage { width: 100%; max-width: 560px; text-align: center; }
 
-  /* A lit sphere in Poorvika orange.
+  /* A lit sphere in brushed silver.
      Four things make a circle read as a ball, and leaving any one out makes it
      look like a sticker: light falling off from a point that is not the centre,
      a small hard specular highlight, a terminator opposite it, and - the one
@@ -61,11 +61,11 @@
     position: relative; width: 140px; height: 140px; border-radius: 50%;
     background:
       radial-gradient(circle at 34% 29%,
-        #ffd9bd 0%, #ffa264 22%, #fb7233 42%, #ef5a28 58%, #c8400f 78%, #8f2c08 100%);
+        #ffffff 0%, #eef1f5 20%, #cfd6de 40%, #a8b0ba 58%, #767e89 79%, #4b525b 100%);
     box-shadow:
-      inset -12px -14px 30px rgba(120,40,8,.42),
-      inset  10px  12px 26px rgba(255,220,190,.28),
-      0 16px 26px -10px rgba(124,45,18,.50);
+      inset -12px -14px 30px rgba(30,36,45,.42),
+      inset  10px  12px 26px rgba(255,255,255,.34),
+      0 16px 26px -10px rgba(40,48,58,.42);
   }
   .orb i { position: absolute; inset: 0; display: block; border-radius: 50%; }
   /* specular highlight - small and hard, or it reads as fog */
@@ -76,7 +76,7 @@
   /* rim light: the surroundings bouncing back along the dark edge */
   .orb i:nth-child(2) {
     background: radial-gradient(circle at 74% 80%,
-      rgba(255,176,122,.55) 0%, rgba(255,150,90,.18) 16%, rgba(255,150,90,0) 32%);
+      rgba(228,234,241,.60) 0%, rgba(200,210,222,.20) 16%, rgba(200,210,222,0) 32%);
     animation: sheen 18s linear infinite;
     transform-origin: 50% 50%;
   }
@@ -90,16 +90,17 @@
     to   { transform: rotate(360deg); }
   }
   /* State is the speed the bounce light travels and how lit the ball is.
-     The hue never moves - an orange ball turning blue would read as a fault. */
-  body[data-state="idle"]      .orb { filter: brightness(.94) saturate(.92); }
+     Metal has no hue to shift, which is convenient: there is nothing here that
+     could be mistaken for a colour-coded status. */
+  body[data-state="idle"]      .orb { filter: brightness(.95); }
   body[data-state="idle"]      .orb i:nth-child(2) { animation-duration: 26s; }
   body[data-state="listening"] .orb { filter: brightness(1); }
   body[data-state="listening"] .orb i:nth-child(2) { animation-duration: 14s; }
-  body[data-state="caller"]    .orb { filter: brightness(1.07) saturate(1.06); }
+  body[data-state="caller"]    .orb { filter: brightness(1.06); }
   body[data-state="caller"]    .orb i:nth-child(2) { animation-duration: 6s; }
-  body[data-state="agent"]     .orb { filter: brightness(1.12) saturate(1.1); }
+  body[data-state="agent"]     .orb { filter: brightness(1.11); }
   body[data-state="agent"]     .orb i:nth-child(2) { animation-duration: 2.8s; }
-  body[data-state="error"]     .orb { filter: grayscale(.8) brightness(.8); }
+  body[data-state="error"]     .orb { filter: brightness(.78) contrast(.85); }
   body[data-state="error"]     .orb i:nth-child(2) { animation-play-state: paused; }
 
   h1 { font-size: 20px; margin: 0 0 5px; font-weight: 600; }
