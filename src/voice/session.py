@@ -85,6 +85,13 @@ class Conversation:
         self._agent_started_at = time.monotonic() if agent_opens else 0.0
         self._caller_speaking = False
         self._heard_speech_this_turn = False
+        # One turn in flight at a time. The same trace showed eleven
+        # end_of_speech signals in forty-five seconds and not one completed
+        # turn: every signal makes the model start a reply and abandon the one
+        # before it, so a caller who pauses between phrases is served nothing
+        # at all. After sixteen seconds it had stopped producing audio
+        # entirely.
+        self._awaiting_reply = False
         self._barge_frames = 0
         # Roughly 300 ms. While the microphone is held back these keep the run
         # up to a genuine interruption, so the caller's first syllable is not
@@ -111,6 +118,12 @@ class Conversation:
     # 240 ms.
     BARGE_IN_SPEECH_FRAMES = 12
     BARGE_IN_RMS_FACTOR = 6.0
+    # An absolute floor as well as a relative one. A trace showed a barge-in
+    # firing at rms 103 against a noise floor of 1: in a quiet room the floor
+    # decays to its minimum, at which point "six times the floor" means
+    # "louder than six" and every echo clears it. Real speech into a laptop
+    # microphone sits in the thousands; surviving echo sat at 103.
+    BARGE_IN_MIN_RMS = 800.0
 
     def _past_grace(self) -> bool:
         return (
@@ -119,7 +132,9 @@ class Conversation:
 
     def _is_real_interruption(self, verdict: VadFrame) -> bool:
         """Sustained and loud, or it is the agent hearing itself."""
-        loud = verdict.rms > verdict.noise_floor * self.BARGE_IN_RMS_FACTOR
+        loud = verdict.rms > max(
+            self.BARGE_IN_MIN_RMS, verdict.noise_floor * self.BARGE_IN_RMS_FACTOR
+        )
         if verdict.is_speech and loud:
             self._barge_frames += 1
         else:
@@ -178,7 +193,7 @@ class Conversation:
 
                 if verdict.is_speech:
                     self._heard_speech_this_turn = True
-                elif self._heard_speech_this_turn:
+                elif self._heard_speech_this_turn and not self._awaiting_reply:
                     # The caller has stopped. Say so.
                     #
                     # Leaving this out was the bug behind "sometimes it replies
@@ -192,6 +207,7 @@ class Conversation:
                     # It also starts the latency clock, so first-audio timing
                     # was never measured either.
                     self._heard_speech_this_turn = False
+                    self._awaiting_reply = True
                     self.trace.record("end_of_speech", turn=self._model.turn_id + 1)
                     await self._model.end_of_speech()
 
@@ -200,6 +216,8 @@ class Conversation:
     async def _interrupt(self) -> None:
         """Stop talking over the caller, and remember not to resume."""
         self.trace.record("flush", turn=self._model.turn_id)
+        # The reply we were waiting for is the one being abandoned.
+        self._awaiting_reply = False
         self._agent_speaking = False
         self._abandoned.add(self._model.turn_id)
         await self._sink.flush()

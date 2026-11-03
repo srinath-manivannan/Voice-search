@@ -169,9 +169,24 @@ async def test_silence_alone_never_signals_a_turn():
 
 
 async def test_each_turn_gets_its_own_id_so_abandoning_one_spares_the_next():
+    """Two turns, but only once the model has answered the first.
+
+    Two bursts of speech used to produce two signals regardless. They now
+    produce one, because signalling again while a reply is still being
+    generated is what made the model abandon it - eleven times in a single
+    forty-five second call, which left it producing no audio at all.
+    """
     model = StubModel([], keep_open=True)
-    source = FakeSource([SPEECH] * 10 + [SILENCE] * 40 + [SPEECH] * 10 + [SILENCE] * 40)
-    await Conversation(model, source, FakeSink(), vad=EnergyVad()).run()
+    conversation = Conversation(
+        model, FakeSource([SPEECH] * 10 + [SILENCE] * 40), FakeSink(), vad=EnergyVad()
+    )
+    await conversation._pump_microphone()
+    assert model.ends == 1 and model.turn_id == 2
+
+    # The model replies and finishes, which releases the latch.
+    conversation._awaiting_reply = False
+    conversation._source = FakeSource([SPEECH] * 10 + [SILENCE] * 40)
+    await conversation._pump_microphone()
     assert model.ends == 2 and model.turn_id == 3
 
 
@@ -257,3 +272,59 @@ async def test_without_agent_opens_the_caller_speaks_first_as_before():
 
     assert model.sent, "the caller's audio never reached the model"
     assert model.ends == 1
+
+
+async def test_quiet_echo_does_not_clear_the_barge_in_threshold():
+    """Taken straight from a trace: rms 103 against a noise floor of 1.
+
+    In a quiet room the floor decays to its minimum, and at that point a purely
+    relative threshold - six times the floor - means "louder than six", which
+    every echo clears. The absolute floor is what makes the test mean anything.
+    """
+    import struct
+
+    quiet_echo = struct.pack(
+        f"<{FRAME_SAMPLES}h", *([103, -103] * (FRAME_SAMPLES // 2))
+    )
+    model = StubModel([], keep_open=True)
+    sink = FakeSink()
+    # Loud enough first to get the VAD into speech, then the quiet echo that
+    # used to be mistaken for the caller.
+    conversation = speaking_conversation(model, [SPEECH] * 4 + [quiet_echo] * 30, sink)
+    await conversation._pump_microphone()
+
+    assert sink.flushes == 0, "quiet echo was treated as the caller interrupting"
+
+
+async def test_only_one_turn_is_signalled_until_the_model_answers():
+    """Eleven signals in forty-five seconds, and not one completed turn.
+
+    Every end_of_speech makes the model start a reply and abandon the one in
+    progress. A caller who pauses between phrases was being served nothing at
+    all - after sixteen seconds the model had stopped producing audio.
+    """
+    model = StubModel([], keep_open=True)
+    # Three bursts of speech with pauses between them, as a person talks.
+    frames = ([SPEECH] * 8 + [SILENCE] * 30) * 3
+    conversation = Conversation(model, FakeSource(frames), FakeSink(), vad=EnergyVad())
+    await conversation._pump_microphone()
+
+    assert model.ends == 1, (
+        f"signalled {model.ends} turns while the model had answered none"
+    )
+
+
+async def test_the_latch_releases_when_the_model_finishes():
+    model = StubModel([], keep_open=True)
+    conversation = Conversation(
+        model, FakeSource([SPEECH] * 8 + [SILENCE] * 30), FakeSink(), vad=EnergyVad()
+    )
+    await conversation._pump_microphone()
+    assert model.ends == 1 and conversation._awaiting_reply is True
+
+    # The model answers and completes; the next pause may signal again.
+    conversation._awaiting_reply = False
+    conversation._heard_speech_this_turn = False
+    conversation._source = FakeSource([SPEECH] * 8 + [SILENCE] * 30)
+    await conversation._pump_microphone()
+    assert model.ends == 2
