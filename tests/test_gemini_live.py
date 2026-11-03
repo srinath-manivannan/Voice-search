@@ -205,7 +205,13 @@ async def test_the_agent_greets_first_with_the_exact_wording(config):
     text = sent["turns"][0]["parts"][0]["text"]
     # Pinned, not paraphrased: a greeting that varies run to run is a sample.
     assert GREETING in text
-    assert "word for word" in text
+    # The system instruction caps replies at 15 words and defaults to Tamil.
+    # The greeting is ~13 words of Tanglish, close enough to the cap that the
+    # model shortened it - which is why it kept cutting off. The exemption has
+    # to be in the instruction, not just implied by "exactly".
+    assert "ignore your reply length limit" in text
+    assert "do not translate it" in text.lower()
+    assert "every word of it" in text
 
 
 async def test_the_greeting_takes_a_turn_id_of_its_own(config):

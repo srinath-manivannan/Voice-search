@@ -219,8 +219,12 @@ class GeminiLiveSession:
                                 "role": "user",
                                 "parts": [
                                     {
-                                        "text": "Greet the customer now. Say exactly "
-                                        f"this, word for word, and nothing else: {text}"
+                                        "text": "Greet the customer now. Say this "
+                                        "aloud exactly as written, every word of "
+                                        "it, to the end. Do not shorten it, do "
+                                        "not translate it, do not change its "
+                                        "script, and ignore your reply length "
+                                        f"limit for this one message: {text}"
                                     }
                                 ],
                             }

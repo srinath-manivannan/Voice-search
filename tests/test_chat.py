@@ -155,6 +155,8 @@ def test_both_surfaces_share_one_persona_differing_only_in_delivery():
         # Tamil Nadu retailer, Tamil-speaking customers: Tamil is the default,
         # not whichever language the first exchange happened to land in.
         assert "TAMIL IS YOUR DEFAULT" in text
+        # The greeting must survive the word cap, or it is spoken half-finished.
+        assert "does NOT apply" in text
     assert "speaking out loud" in voice
     assert "chat window" in chat
     # A reader skims; a listener cannot. Text output is also 4.8x cheaper.
