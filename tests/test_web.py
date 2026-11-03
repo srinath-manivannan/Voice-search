@@ -106,4 +106,7 @@ def test_the_page_is_served(config):
     with TestClient(create_app(config)) as client:
         page = client.get("/")
     assert page.status_code == 200
-    assert "Poorvika voice agent" in page.text
+    assert "Talk to Poorvika" in page.text
+    # The page must say plainly what happens to the audio, and it must stay
+    # true: nothing here records or stores a call.
+    assert "Nothing is recorded or stored" in page.text

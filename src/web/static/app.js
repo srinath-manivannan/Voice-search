@@ -19,10 +19,21 @@ const state = {
 
 const el = (id) => document.getElementById(id);
 
+// The orb is the primary state indicator - it is what someone across the room
+// sees. The text line underneath is the detail, not the signal.
+const ORB_STATE = {
+  '': 'idle', live: 'listening', agent: 'agent', bad: 'error',
+};
+
 function setStatus(text, kind) {
   const node = el('status');
   node.textContent = text;
-  node.className = 'status ' + (kind || '');
+  node.className = 'state ' + (kind || '');
+  document.body.dataset.state = ORB_STATE[kind || ''] || 'idle';
+}
+
+function setOrb(name) {
+  document.body.dataset.state = name;
 }
 
 function log(text, kind) {
@@ -80,7 +91,7 @@ async function loadConfig() {
   state.config = await (await fetch('/api/config')).json();
   el('model').textContent = state.config.model;
   el('caps').textContent =
-    state.config.reply_word_cap + '-word cap · thinking budget ' + state.config.thinking_budget;
+    '· ' + state.config.reply_word_cap + '-word cap · thinking budget ' + state.config.thinking_budget;
   return state.config;
 }
 
@@ -97,6 +108,7 @@ async function start() {
     setStatus('microphone blocked', 'bad');
     log('Could not open the microphone: ' + error.message, 'bad');
     el('toggle').disabled = false;
+    el('toggle').textContent = '📞 Start Call';
     return;
   }
 
@@ -117,9 +129,11 @@ async function start() {
       case 'barge_in':   flushPlayback(); log('— you interrupted —', 'dim'); break;
       case 'transcript': log(message.text, 'agent'); break;
       case 'state':
-        if (message.agent_speaking) setStatus('agent speaking', 'agent');
-        else if (message.caller_speaking !== undefined)
-          setStatus(message.caller_speaking ? 'you are speaking' : 'listening', 'live');
+        if (message.agent_speaking) { setStatus('Poorvika is speaking', 'agent'); }
+        else if (message.caller_speaking !== undefined) {
+          setStatus(message.caller_speaking ? 'listening to you' : 'listening', 'live');
+          setOrb(message.caller_speaking ? 'caller' : 'listening');
+        }
         break;
       case 'turn':    addTurn(message); break;
       case 'summary': showCost(message.cost); break;
@@ -143,7 +157,9 @@ async function start() {
     sourceNode.connect(worklet);
     state.running = true;
     el('toggle').disabled = false;
-    el('toggle').textContent = 'Stop';
+    el('toggle').textContent = '■ End Call';
+    el('toggle').classList.add('stop');
+    el('sub').textContent = 'Speak whenever you like — you can talk over it';
   };
 }
 
@@ -155,9 +171,12 @@ function stop() {
   if (state.captureContext) state.captureContext.close();
   if (state.playbackContext) state.playbackContext.close();
   state.socket = state.stream = state.captureContext = state.playbackContext = null;
-  setStatus('stopped');
-  el('toggle').textContent = 'Start conversation';
+  setStatus('');
+  setOrb('idle');
+  el('toggle').textContent = '📞 Start Call';
+  el('toggle').classList.remove('stop');
   el('toggle').disabled = false;
+  el('sub').textContent = 'Click to start a voice conversation';
 }
 
 // --- metrics --------------------------------------------------------------
@@ -174,6 +193,7 @@ function addTurn(turn) {
     '<td class="' + (turn.thinking_tokens ? 'warn' : '') + '">' + turn.thinking_tokens + '</td>';
   el('turns').appendChild(row);
   setStatus('listening', 'live');
+  setOrb('listening');
   updatePercentiles();
 }
 
@@ -197,4 +217,11 @@ function showCost(cost) {
 }
 
 el('toggle').addEventListener('click', () => (state.running ? stop() : start()));
+
+el('share').addEventListener('click', async () => {
+  await navigator.clipboard.writeText(location.href).catch(() => {});
+  const button = el('share');
+  button.textContent = '✓';
+  setTimeout(() => (button.textContent = '⤴'), 1200);
+});
 loadConfig().catch(() => setStatus('cannot reach the server', 'bad'));
