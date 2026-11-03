@@ -29,10 +29,16 @@ class StubModel:
         self._events = list(events)
         self._keep_open = keep_open
         self.sent: list[bytes] = []
+        self.ends = 0
         self.turn_id = 1
 
     async def send_audio(self, pcm: bytes) -> None:
         self.sent.append(pcm)
+
+    async def end_of_speech(self) -> None:
+        # The real adapter advances its turn id here, which is the whole point.
+        self.turn_id += 1
+        self.ends += 1
 
     async def events(self):
         for event in self._events:
@@ -139,3 +145,37 @@ async def test_a_real_interruption_still_lands_once_the_grace_window_passes():
     await conversation.run()
 
     assert sink.flushes >= 1, "a genuine barge-in was ignored"
+
+
+async def test_the_end_of_the_caller_s_turn_is_signalled():
+    """Without this the turn id never advances, and that is fatal.
+
+    Every reply would be tagged turn 0 for the whole call. The first
+    interruption puts turn 0 in the abandoned set, and from then on every chunk
+    the model sends is dropped before it reaches the speaker - the agent falls
+    silent for good while its transcript keeps scrolling. That is exactly the
+    "sometimes it replies, sometimes it does not" this fixes.
+    """
+    model = StubModel([], keep_open=True)
+    # Speech, then enough silence for the VAD to release the turn.
+    source = FakeSource([SILENCE] * 5 + [SPEECH] * 10 + [SILENCE] * 40)
+    await Conversation(model, source, FakeSink(), vad=EnergyVad()).run()
+
+    assert model.ends == 1, "the caller stopping was never signalled"
+    assert model.turn_id == 2, "the turn id did not advance"
+
+
+async def test_silence_alone_never_signals_a_turn():
+    """A quiet line is not a caller who has finished speaking."""
+    model = StubModel([], keep_open=True)
+    await Conversation(
+        model, FakeSource([SILENCE] * 60), FakeSink(), vad=EnergyVad()
+    ).run()
+    assert model.ends == 0
+
+
+async def test_each_turn_gets_its_own_id_so_abandoning_one_spares_the_next():
+    model = StubModel([], keep_open=True)
+    source = FakeSource([SPEECH] * 10 + [SILENCE] * 40 + [SPEECH] * 10 + [SILENCE] * 40)
+    await Conversation(model, source, FakeSink(), vad=EnergyVad()).run()
+    assert model.ends == 2 and model.turn_id == 3

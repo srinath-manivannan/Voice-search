@@ -74,6 +74,7 @@ class Conversation:
         self._agent_speaking = False
         self._agent_started_at = 0.0
         self._caller_speaking = False
+        self._heard_speech_this_turn = False
         self._abandoned: set[int] = set()
         self.result = ConversationResult()
 
@@ -113,6 +114,28 @@ class Conversation:
                 )
                 await self._notify(type="barge_in")
                 await self._interrupt()
+
+            if verdict.is_speech != self._caller_speaking:
+                self._caller_speaking = verdict.is_speech
+                await self._notify(type="state", caller_speaking=verdict.is_speech)
+
+                if verdict.is_speech:
+                    self._heard_speech_this_turn = True
+                elif self._heard_speech_this_turn:
+                    # The caller has stopped. Say so.
+                    #
+                    # Leaving this out was the bug behind "sometimes it replies
+                    # and sometimes it does not". end_of_speech is what advances
+                    # the turn id, so without it every reply was tagged turn 0
+                    # for the whole call - and the first interruption put turn 0
+                    # in the abandoned set, after which every chunk the model
+                    # sent was dropped on the way to the speaker. Silence, with
+                    # a transcript still scrolling.
+                    #
+                    # It also starts the latency clock, so first-audio timing
+                    # was never measured either.
+                    self._heard_speech_this_turn = False
+                    await self._model.end_of_speech()
 
             await self._model.send_audio(frame)
 
