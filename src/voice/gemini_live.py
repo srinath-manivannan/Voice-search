@@ -42,10 +42,46 @@ class Socket(Protocol):
 Connect = Callable[[str], Awaitable[Socket]]
 
 
+class _ClosedSocket(Exception):
+    """The peer closed the stream. Normal at the end of a call."""
+
+
+class _WebsocketAdapter:
+    """Translates the library's close exceptions into one the adapter knows.
+
+    Without this, a perfectly ordinary hang-up surfaces as a
+    `websockets.exceptions.ConnectionClosedOK` traceback in the caller's face,
+    and this module would have to import the library at the top just to name
+    the exception it wants to ignore.
+    """
+
+    def __init__(self, socket: Any) -> None:
+        self._socket = socket
+
+    async def send(self, data: str) -> None:
+        import websockets.exceptions as wse
+
+        try:
+            await self._socket.send(data)
+        except wse.ConnectionClosed as closed:
+            raise _ClosedSocket from closed
+
+    async def recv(self) -> str | bytes:
+        import websockets.exceptions as wse
+
+        try:
+            return await self._socket.recv()
+        except wse.ConnectionClosed as closed:
+            raise _ClosedSocket from closed
+
+    async def close(self) -> None:
+        await self._socket.close()
+
+
 async def _default_connect(url: str) -> Socket:
     import websockets
 
-    return await websockets.connect(url, max_size=None)  # type: ignore[return-value]
+    return _WebsocketAdapter(await websockets.connect(url, max_size=None))
 
 
 class SetupFailed(RuntimeError):
@@ -78,6 +114,11 @@ class GeminiLiveSession:
         self._first_audio_at: float | None = None
         self._pending_usage = TurnUsage()
         self.usage = SessionUsage()
+
+    @property
+    def turn_id(self) -> int:
+        """The turn currently being spoken. Used to discard abandoned audio."""
+        return self._turn_id
 
     def _setup_message(self) -> dict[str, Any]:
         generation: dict[str, Any] = {
@@ -131,24 +172,27 @@ class GeminiLiveSession:
         return self._socket
 
     async def send_audio(self, pcm: bytes) -> None:
-        """Stream one frame of caller audio.
+        """Stream one frame of caller audio. Silent no-op once the peer hangs up.
 
         Phase 0 measured that the server discards silence before tokenising, so
         there is no cost reason to gate this client-side. Gate it for latency or
         turn-detection reasons if at all.
         """
-        await self._require_socket().send(
-            json.dumps(
-                {
-                    "realtimeInput": {
-                        "audio": {
-                            "mimeType": f"audio/pcm;rate={self._config.capture_sample_rate}",
-                            "data": base64.b64encode(pcm).decode("ascii"),
+        try:
+            await self._require_socket().send(
+                json.dumps(
+                    {
+                        "realtimeInput": {
+                            "audio": {
+                                "mimeType": f"audio/pcm;rate={self._config.capture_sample_rate}",
+                                "data": base64.b64encode(pcm).decode("ascii"),
+                            }
                         }
                     }
-                }
+                )
             )
-        )
+        except _ClosedSocket:
+            return
 
     async def end_of_speech(self) -> None:
         """Tell the server the caller stopped talking, and start the latency clock.
@@ -170,7 +214,7 @@ class GeminiLiveSession:
         while True:
             try:
                 raw = await socket.recv()
-            except (StopAsyncIteration, ConnectionError):
+            except (StopAsyncIteration, ConnectionError, _ClosedSocket):
                 return
             if raw is None:
                 return

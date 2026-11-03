@@ -18,18 +18,28 @@ Tests do not call the API and do not spend money. Anything that does is marked
 `live` and excluded by default:
 
 ```bash
-.venv/bin/python -m pytest -m live     # spends money, run deliberately
+.venv/bin/python -m pytest -m live      # spends money, run deliberately
+.venv/bin/python -m pytest -m audio     # needs a microphone and speaker
+```
+
+To actually talk to it:
+
+```bash
+.venv/bin/python -m src.tools.talk --seconds 120
 ```
 
 ## What this branch is not
 
-There is no microphone, no speaker and no telephony. The adapter talks to Gemini
-Live and the cost meter is correct; what is missing is the audio device layer
-either side of it, and the session logic that drives turn-taking.
+There is no telephony. `src/voice/local_audio.py` drives a laptop microphone and
+speaker through `arecord` and `aplay`, which is throwaway scaffolding behind the
+transport seam — Phase 2 replaces both classes and nothing above
+`src/voice/transport.py` changes.
 
-The latency and word-cap assertions in the live tests are single samples. They
-are enough to show the target is reachable and would catch a regression. They are
-not the p50/p95 measurement Phase 1 completes on.
+**Phase 1 is not complete.** `src.tools.talk` runs and reports p50/p95, but
+nobody has yet sat down and done the 10 Tamil + 10 Tanglish turns that the phase
+completes on. Until that run exists, the latency numbers here are single samples
+— enough to show the target is reachable and to catch a regression, not a
+measurement.
 
 ## Folder structure
 
@@ -51,8 +61,12 @@ tests/           committed, unlike search-proxy's.
 | Pipecat 0.0.108 on Python 3.10 | ✅ imports, `GeminiLiveLLMService` present |
 | Gemini Live adapter | ✅ 9 offline tests + 3 against the real API |
 | Thinking off, verified on the wire | ✅ `thoughtsTokenCount == 0` |
-| First-audio latency under 2 s | ✅ single Tamil turn; not yet a p95 |
-| Local mic in / speakers out | ⬜ next |
+| Transport seam (`AudioSource` / `AudioSink`) | ✅ what Phase 2 swaps |
+| Local mic in / speaker out | ✅ ALSA, no native dependency |
+| Barge-in flush | ✅ measured under 300 ms on real hardware |
+| Energy VAD | ✅ 60 ms to trigger, holds through a 400 ms pause |
+| `python -m src.tools.talk` | ✅ runnable; prints p50/p95 and ₹/min |
+| p50/p95 over 10 Tamil + 10 Tanglish turns | ⬜ **the Phase 1 completion criterion** |
 | Telephony | ⬜ Phase 2 |
 
 ## What was reused, and what was deliberately not
