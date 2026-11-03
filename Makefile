@@ -7,7 +7,7 @@
 VENV := .venv/bin
 PY   := $(VENV)/python
 
-.PHONY: help install talk test audio live check fmt mic
+.PHONY: help install ui talk test audio live check fmt mic
 
 help:                    ## show this list
 	@grep -E '^[a-z-]+:.*?##' $(MAKEFILE_LIST) | sed 's/:.*##/|/' | column -t -s'|'
@@ -17,7 +17,10 @@ install:                 ## create the venv and install everything
 	$(VENV)/pip install -q -r requirements.txt -r requirements-dev.txt
 	@echo "done. copy .env.example to .env and add your key."
 
-talk:                    ## talk to the agent through the microphone (costs money)
+ui:                      ## browser UI at http://localhost:8080 (costs money)
+	$(VENV)/uvicorn --factory src.web.server:create_app --host 127.0.0.1 --port 8080 --reload
+
+talk:                    ## talk to the agent in the terminal (costs money)
 	$(PY) -m src.tools.talk --seconds 180
 
 test:                    ## the fast tests - no API, no devices, no money

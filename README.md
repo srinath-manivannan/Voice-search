@@ -18,13 +18,18 @@ make test
 
 | | |
 |---|---|
-| `make talk` | talk to the agent through the microphone — **costs money** |
+| `make ui` | **browser UI at http://localhost:8080** — costs money |
+| `make talk` | same thing in the terminal — costs money |
 | `make test` | the fast tests: no API, no devices, no money |
 | `make audio` | device tests — needs a microphone and speaker |
 | `make live` | real Gemini Live calls — spends a few cents |
 | `make check` | everything CI runs, in the same order |
 | `make fmt` | reformat in place |
 | `make mic` | switch capture to the built-in microphone array |
+
+`make ui` is the one to use for the Phase 1 measurement run: it shows which side
+is speaking, what the agent said, and per-turn latency and tokens as they
+happen, with a running p50/p95 against the targets.
 
 `make test` does not call the API and does not spend money. Anything that does
 is marked `live` and excluded by default, so neither CI nor a careless `make
@@ -68,6 +73,8 @@ tests/           committed, unlike search-proxy's.
 | Barge-in flush | ✅ measured under 300 ms on real hardware |
 | Energy VAD | ✅ 60 ms to trigger, holds through a 400 ms pause |
 | `python -m src.tools.talk` | ✅ runnable; prints p50/p95 and ₹/min |
+| Browser UI (`make ui`) | ✅ transcript, live p50/p95, per-turn tokens |
+| Transport seam carries a 2nd implementation | ✅ browser as well as ALSA |
 | p50/p95 over 10 Tamil + 10 Tanglish turns | ⬜ **the Phase 1 completion criterion** |
 | Telephony | ⬜ Phase 2 |
 

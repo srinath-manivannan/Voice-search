@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Poorvika voice agent</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --line: #262b35;
+    --text: #e6e8ec; --dim: #8b93a1;
+    --good: #4ade80; --warn: #fbbf24; --bad: #f87171; --live: #60a5fa;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body {
+    margin: 0; padding: 24px 16px; background: var(--bg); color: var(--text);
+    font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; }
+  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+  h1 { font-size: 20px; margin: 0; font-weight: 600; }
+  .meta { color: var(--dim); font-size: 13px; }
+  .bar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin: 20px 0; }
+  button {
+    background: var(--live); color: #0b1020; border: 0; border-radius: 8px;
+    padding: 12px 22px; font-size: 15px; font-weight: 600; cursor: pointer;
+  }
+  button:disabled { opacity: .5; cursor: default; }
+  .status { font-size: 14px; color: var(--dim); }
+  .status.live  { color: var(--live); }
+  .status.agent { color: var(--good); }
+  .status.bad   { color: var(--bad); }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  .panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em;
+              color: var(--dim); margin: 0 0 10px; font-weight: 600; }
+  #transcript { height: 260px; overflow-y: auto; font-size: 14px; }
+  .line { padding: 3px 0; }
+  .line.agent { color: var(--text); }
+  .line.dim   { color: var(--dim); font-style: italic; }
+  .line.bad   { color: var(--bad); }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+       color: var(--dim); font-weight: 600; padding-bottom: 6px; }
+  td { padding: 3px 0; font-size: 14px; }
+  .good { color: var(--good); } .warn { color: var(--warn); } .bad { color: var(--bad); }
+  .summary { display: flex; gap: 24px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+  .summary div span { display: block; font-size: 11px; color: var(--dim);
+                      text-transform: uppercase; letter-spacing: .06em; }
+  .summary strong { font-size: 18px; font-weight: 600; }
+  footer { margin-top: 18px; color: var(--dim); font-size: 12.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Poorvika voice agent</h1>
+    <span class="meta" id="model">—</span>
+    <span class="meta" id="caps"></span>
+  </header>
+  <p class="meta">Tamil · English · Tanglish. Speak when it says listening; talk over it to test barge-in.</p>
+
+  <div class="bar">
+    <button id="toggle">Start conversation</button>
+    <span class="status" id="status">idle</span>
+  </div>
+
+  <div class="grid">
+    <div class="panel">
+      <h2>What the agent said</h2>
+      <div id="transcript"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Per turn</h2>
+      <table>
+        <thead><tr><th>#</th><th>First audio</th><th>Reply tok</th><th>Thinking</th></tr></thead>
+        <tbody id="turns"></tbody>
+      </table>
+      <div class="summary">
+        <div><span>p50</span><strong id="p50">—</strong></div>
+        <div><span>p95</span><strong id="p95">—</strong></div>
+        <div><span>target 1s / 2s</span><strong id="verdict">—</strong></div>
+      </div>
+      <div class="summary" id="cost" hidden>
+        <div><span>₹/min billed once</span><strong id="cost-once">—</strong></div>
+        <div><span>₹/min re-billed</span><strong id="cost-rebilled">—</strong></div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    Model cost only — telephony, hosting and GST are not in these figures. Two
+    numbers are shown because whether Gemini re-bills accumulated context per
+    turn is still unverified; see BILLING-VERIFICATION.md.
+  </footer>
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>

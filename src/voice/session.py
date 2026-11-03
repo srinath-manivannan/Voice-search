@@ -24,7 +24,10 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 
-from src.voice.events import AudioOut, TurnComplete, TurnInterrupted
+from collections.abc import Awaitable, Callable
+from typing import Any
+
+from src.voice.events import AudioOut, TurnComplete, Transcript, TurnInterrupted
 from src.voice.gemini_live import GeminiLiveSession
 from src.voice.transport import AudioSink, AudioSource
 from src.voice.vad import EnergyVad
@@ -58,14 +61,23 @@ class Conversation:
         source: AudioSource,
         sink: AudioSink,
         vad: EnergyVad | None = None,
+        on_update: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     ) -> None:
         self._model = model
         self._source = source
         self._sink = sink
         self._vad = vad or EnergyVad()
+        # Optional, because the CLI does not need it and the telephony
+        # transport will not have a screen to update.
+        self._on_update = on_update
         self._agent_speaking = False
+        self._caller_speaking = False
         self._abandoned: set[int] = set()
         self.result = ConversationResult()
+
+    async def _notify(self, **payload: Any) -> None:
+        if self._on_update is not None:
+            await self._on_update(payload)
 
     async def _pump_microphone(self) -> None:
         """Caller audio to the model, with a local ear for barge-in.
@@ -101,8 +113,13 @@ class Conversation:
                     # reach the speaker, however late it arrives.
                     if turn_id in self._abandoned:
                         continue
-                    self._agent_speaking = True
+                    if not self._agent_speaking:
+                        self._agent_speaking = True
+                        await self._notify(type="state", agent_speaking=True)
                     await self._sink.write(pcm)
+
+                case Transcript(text=text):
+                    await self._notify(type="transcript", text=text)
 
                 case TurnInterrupted(turn_id=turn_id):
                     self._abandoned.add(turn_id)

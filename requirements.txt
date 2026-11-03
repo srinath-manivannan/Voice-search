@@ -10,3 +10,8 @@ pipecat-ai[google]==0.0.108
 websockets==15.0.1
 
 python-dotenv==1.1.1
+
+# The browser UI. Pinned to the same versions search-proxy uses, so a developer
+# moving between the two repos meets one FastAPI, not two.
+fastapi==0.143.0
+uvicorn[standard]==0.38.0
