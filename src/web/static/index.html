@@ -47,66 +47,65 @@
   .tab:disabled { opacity: .45; cursor: not-allowed; }
 
   /* stage -------------------------------------------------------------- */
-  main { flex: 1; display: grid; place-items: center; padding: 28px 20px 40px; }
+  main { flex: 1; display: grid; place-items: center; padding: 10px 20px 24px; }
   .stage { width: 100%; max-width: 560px; text-align: center; }
 
-  .orb-wrap { height: 230px; display: grid; place-items: center; margin-bottom: 6px; }
-  .orb { position: relative; width: 210px; height: 210px; }
-  /* Three ellipses at different tilts, heavily blurred. A circle reads as a
-     flat ring; ellipses at an angle read as a ribbon seen obliquely, which is
-     the shape we want. */
+  /* Small and wispy, not a big solid donut. The ring is thin relative to the
+     orb and blurred by more than its own width, so it reads as light rather
+     than as a shape with an edge. Sized to leave the button above the fold on
+     a laptop - having to scroll to find the one control is a bug. */
+  .orb-wrap { height: 170px; display: grid; place-items: center; }
+  .orb { position: relative; width: 150px; height: 150px; }
   .orb i {
     position: absolute; inset: 0; display: block;
-    border: 30px solid var(--aura);
-    border-radius: 50% / 38%;
-    filter: blur(20px); opacity: .5;
-    transform: rotate(-18deg);
-    animation: spin 10s linear infinite;
+    border: 10px solid var(--aura);
+    border-radius: 50% / 40%;
+    filter: blur(14px); opacity: .55;
+    transform: rotate(-20deg);
+    animation: spin 11s linear infinite;
   }
   .orb i:nth-child(2) {
-    border-color: var(--aura2); border-width: 24px;
-    border-radius: 42% / 50%;
-    animation-duration: 14s; animation-direction: reverse; opacity: .42;
+    border-color: var(--aura2); border-width: 7px;
+    border-radius: 44% / 50%; transform: rotate(40deg) scale(.88);
+    animation-duration: 15s; animation-direction: reverse; opacity: .45;
   }
   .orb i:nth-child(3) {
-    border-width: 16px; border-color: #818cf8;
-    border-radius: 50% / 30%;
-    animation-duration: 7.5s; opacity: .5;
+    border-width: 5px; border-color: #a5b4fc;
+    border-radius: 50% / 34%; transform: rotate(-60deg) scale(.74);
+    animation-duration: 8s; opacity: .5;
   }
   @keyframes spin {
-    0%   { transform: rotate(-18deg)  scale(1);    }
-    50%  { transform: rotate(162deg)  scale(1.06); }
-    100% { transform: rotate(342deg)  scale(1);    }
+    0%   { transform: rotate(-20deg) scale(1);    }
+    50%  { transform: rotate(160deg) scale(1.08); }
+    100% { transform: rotate(340deg) scale(1);    }
   }
-  /* The orb is the state indicator, so each state has to look different at a
-     glance from across a desk - speed and opacity, not just colour. */
-  body[data-state="idle"]      .orb i { animation-duration: 16s; opacity: .3; }
-  body[data-state="listening"] .orb i { opacity: .55; }
-  body[data-state="caller"]    .orb i { animation-duration: 4s; opacity: .75; }
-  body[data-state="agent"]     .orb i { animation-duration: 2.4s; opacity: .95; border-color: var(--aura2); }
-  body[data-state="error"]     .orb i { animation-play-state: paused; border-color: #cbd5e1; opacity: .4; }
+  body[data-state="idle"]      .orb i { animation-duration: 18s; opacity: .45; }
+  body[data-state="listening"] .orb i { opacity: .62; }
+  body[data-state="caller"]    .orb i { animation-duration: 5s; opacity: .8; }
+  body[data-state="agent"]     .orb i { animation-duration: 3s; opacity: 1; border-color: var(--aura2); }
+  body[data-state="error"]     .orb i { animation-play-state: paused; border-color: #cbd5e1; opacity: .3; }
 
-  h1 { font-size: 21px; margin: 0 0 6px; font-weight: 600; }
-  .sub { color: var(--dim); margin: 0 0 20px; font-size: 14.5px; }
-  .fine { color: #a3a3a3; font-size: 12.5px; max-width: 420px; margin: 0 auto 20px; }
+  h1 { font-size: 20px; margin: 0 0 5px; font-weight: 600; }
+  .sub { color: var(--dim); margin: 0 0 14px; font-size: 14px; }
+  .fine { color: #a3a3a3; font-size: 12px; max-width: 400px; margin: 0 auto 16px; line-height: 1.5; }
 
   .cta {
     background: #111; color: #fff; border: 0; border-radius: 999px;
-    padding: 14px 30px; font-size: 15px; font-weight: 500; cursor: pointer;
+    padding: 12px 26px; font-size: 14.5px; font-weight: 500; cursor: pointer;
     display: inline-flex; align-items: center; gap: 9px;
   }
   .cta:hover { background: #000; }
   .cta:disabled { opacity: .5; cursor: default; }
   .cta.stop { background: #dc2626; }
 
-  .state { margin-top: 14px; font-size: 13.5px; color: var(--dim); min-height: 20px; }
+  .state { margin-top: 12px; font-size: 13.5px; color: var(--dim); min-height: 20px; }
   .state.live  { color: var(--aura); }
   .state.agent { color: var(--good); }
   .state.bad   { color: var(--bad); }
 
   /* transcript --------------------------------------------------------- */
   #transcript {
-    margin: 22px auto 0; max-width: 520px; text-align: left; max-height: 190px;
+    margin: 16px auto 0; max-width: 520px; text-align: left; max-height: 150px;
     overflow-y: auto; font-size: 14.5px;
   }
   #transcript:empty { display: none; }
