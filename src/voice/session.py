@@ -92,6 +92,14 @@ class Conversation:
         # at all. After sixteen seconds it had stopped producing audio
         # entirely.
         self._awaiting_reply = False
+        # The opening greeting is protected from interruption. A trace caught
+        # it being cut at 3.2 seconds by a frame at rms 949 - loud enough to
+        # clear the threshold, and impossible to tell from a louder speaker.
+        # It is one short sentence, it is the first thing a customer hears,
+        # and losing it reads as a broken line. Everything after it can be
+        # interrupted normally. Reverse this if callers complain they cannot
+        # cut the greeting off.
+        self._in_greeting = agent_opens
         self._barge_frames = 0
         # Roughly 300 ms. While the microphone is held back these keep the run
         # up to a genuine interruption, so the caller's first syllable is not
@@ -132,6 +140,8 @@ class Conversation:
 
     def _is_real_interruption(self, verdict: VadFrame) -> bool:
         """Sustained and loud, or it is the agent hearing itself."""
+        if self._in_greeting:
+            return False
         loud = verdict.rms > max(
             self.BARGE_IN_MIN_RMS, verdict.noise_floor * self.BARGE_IN_RMS_FACTOR
         )
@@ -255,13 +265,37 @@ class Conversation:
                     turn_id=turn_id, usage=usage, first_audio_ms=first_audio_ms
                 ):
                     self._agent_speaking = False
-                    self.result.turns.append(
-                        TurnRecord(
-                            turn_id=turn_id,
-                            first_audio_ms=first_audio_ms,
-                            response_tokens=usage.response_audio + usage.response_text,
-                            thinking_tokens=usage.thoughts,
-                        )
+                    # The greeting is over; normal interruption resumes.
+                    self._in_greeting = False
+                    # Release the latch. Without this the first turn is the
+                    # only turn: _awaiting_reply stays set for the rest of the
+                    # call and the caller's later speech is never signalled.
+                    # A trace showed one end_of_speech across forty seconds.
+                    self._awaiting_reply = False
+                    # Echo gathered while the agent spoke is not the caller.
+                    self._held.clear()
+                    self._barge_frames = 0
+                    record = TurnRecord(
+                        turn_id=turn_id,
+                        first_audio_ms=first_audio_ms,
+                        response_tokens=usage.response_audio + usage.response_text,
+                        thinking_tokens=usage.thoughts,
+                    )
+                    self.result.turns.append(record)
+                    self.trace.record(
+                        "turn_complete",
+                        turn=turn_id,
+                        first_audio_ms=first_audio_ms,
+                        response_tokens=record.response_tokens,
+                        thinking_tokens=record.thinking_tokens,
+                    )
+                    await self._notify(
+                        type="turn",
+                        turn_id=record.turn_id,
+                        first_audio_ms=record.first_audio_ms,
+                        response_tokens=record.response_tokens,
+                        thinking_tokens=record.thinking_tokens,
+                        agent_speaking=False,
                     )
 
     async def run(self) -> ConversationResult:

@@ -328,3 +328,68 @@ async def test_the_latch_releases_when_the_model_finishes():
     conversation._source = FakeSource([SPEECH] * 8 + [SILENCE] * 30)
     await conversation._pump_microphone()
     assert model.ends == 2
+
+
+async def test_the_latch_is_released_when_the_model_finishes_its_turn():
+    """Without this the first turn is the only turn.
+
+    A trace of a forty-second call showed one end_of_speech and four separate
+    stretches of agent audio: the caller spoke repeatedly and the model was
+    told once. _awaiting_reply was set and never cleared, because the line
+    clearing it had silently failed to apply.
+    """
+    usage = TurnUsage(response_audio=100)
+    model = StubModel(
+        [TurnComplete(turn_id=1, usage=usage, first_audio_ms=700.0)], keep_open=False
+    )
+    conversation = Conversation(
+        model, FakeSource([], keep_open=True), FakeSink(), vad=EnergyVad()
+    )
+    conversation._awaiting_reply = True
+
+    await conversation._pump_model()
+
+    assert conversation._awaiting_reply is False, "the latch was never released"
+    assert conversation.trace.summary()["turns"] == 1
+
+
+async def test_a_completed_turn_is_recorded_in_the_trace():
+    """turns read 0 on a call where turns plainly completed."""
+    usage = TurnUsage(response_audio=120, thoughts=0)
+    model = StubModel(
+        [TurnComplete(turn_id=2, usage=usage, first_audio_ms=880.0)], keep_open=False
+    )
+    conversation = Conversation(
+        model, FakeSource([], keep_open=True), FakeSink(), vad=EnergyVad()
+    )
+    await conversation._pump_model()
+
+    summary = conversation.trace.summary()
+    assert summary["turns"] == 1
+    assert summary["p50_first_audio_ms"] == 880.0
+
+
+async def test_the_opening_greeting_cannot_be_cut_off():
+    """It is one sentence, and losing it reads as a broken line.
+
+    A trace caught it ending at 3.2 seconds on a frame at rms 949 - loud
+    enough to clear the threshold and impossible to separate from a louder
+    speaker. Everything after the greeting can still be interrupted.
+    """
+    model = StubModel([], keep_open=True)
+    sink = FakeSink()
+    conversation = speaking_conversation(model, [SPEECH] * 40, sink)
+    conversation._in_greeting = True
+    await conversation._pump_microphone()
+
+    assert sink.flushes == 0, "the greeting was interrupted"
+
+
+async def test_interruption_works_again_once_the_greeting_is_done():
+    model = StubModel([], keep_open=True)
+    sink = FakeSink()
+    conversation = speaking_conversation(model, [SPEECH] * 40, sink)
+    conversation._in_greeting = False
+    await conversation._pump_microphone()
+
+    assert sink.flushes >= 1, "a genuine interruption was ignored after the greeting"
