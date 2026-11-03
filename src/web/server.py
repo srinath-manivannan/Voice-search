@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +33,8 @@ from src.chat.session import ChatSession
 from src.config import Config, load
 from src.voice.gemini_live import GeminiLiveSession
 from src.voice.session import Conversation
+from src.voice.budget import BudgetExceeded, SessionBudget
+from src.voice.usage import SessionUsage
 from src.voice.web_transport import BrowserSink, BrowserSource
 
 log = logging.getLogger(__name__)
@@ -90,10 +93,39 @@ def create_app(config: Config | None = None) -> FastAPI:
         sink = BrowserSink(websocket, settings.playback_sample_rate)
         # Declared here so the finally can reach it however we leave.
         talking: Conversation | None = None
+        budget = SessionBudget(
+            max_turns=settings.max_session_turns,
+            max_minutes=settings.max_session_minutes,
+            max_inr=settings.max_session_inr,
+        )
+        opened_at = time.monotonic()
+        # Set once the session exists; push() runs before that on the ready
+        # message, so it has to tolerate None.
+        usage: SessionUsage | None = None
 
         async def push(payload: dict[str, Any]) -> None:
             with contextlib.suppress(Exception):
                 await websocket.send_json(payload)
+
+            # Checked on every completed turn, which is the only moment the
+            # spend figure has moved and the only clean point to stop.
+            if payload.get("type") != "turn" or talking is None or usage is None:
+                return
+            # The re-billed reading, deliberately: until the billing console
+            # settles which applies, a ceiling should assume the dearer one.
+            spent = (usage.input_usd_rebilled + usage.output_usd) * settings.usd_inr
+            try:
+                budget.check(
+                    turns=len(talking.result.turns),
+                    minutes=(time.monotonic() - opened_at) / 60,
+                    inr=spent,
+                )
+            except BudgetExceeded as stop:
+                log.warning("session stopped: %s", stop.reason)
+                talking.trace.record("budget_exceeded", reason=stop.reason)
+                with contextlib.suppress(Exception):
+                    await websocket.send_json({"type": "ended", "message": stop.spoken})
+                raise
 
         async def read_microphone() -> None:
             """Binary is audio, JSON is control. Nothing else arrives."""
@@ -106,6 +138,7 @@ def create_app(config: Config | None = None) -> FastAPI:
 
         try:
             async with GeminiLiveSession(settings) as model:
+                usage = model.usage
                 await push({"type": "ready"})
                 # Speak first. A call that answers and then says nothing until
                 # the caller speaks sounds like a dead line.

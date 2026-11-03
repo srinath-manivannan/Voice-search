@@ -36,6 +36,12 @@ class Config:
     usd_inr: float
     gst_rate: float
 
+    # Ceilings that end a session. A Google Cloud budget only emails; these
+    # actually stop it.
+    max_session_turns: int
+    max_session_minutes: float
+    max_session_inr: float
+
     log_level: str
     env: str
 
@@ -95,6 +101,9 @@ def load(env: str | None = None) -> Config:
         capture_sample_rate=int(os.environ.get("CAPTURE_SAMPLE_RATE", "16000")),
         playback_sample_rate=int(os.environ.get("PLAYBACK_SAMPLE_RATE", "24000")),
         usd_inr=float(os.environ.get("USD_INR", "89.0")),
+        max_session_turns=int(os.environ.get("MAX_SESSION_TURNS", "40")),
+        max_session_minutes=float(os.environ.get("MAX_SESSION_MINUTES", "10")),
+        max_session_inr=float(os.environ.get("MAX_SESSION_INR", "20")),
         gst_rate=float(os.environ.get("GST_RATE", "0.18")),
         log_level=os.environ.get("LOG_LEVEL", defaults.LOG_LEVEL),
         env=env,

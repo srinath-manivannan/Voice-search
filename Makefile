@@ -18,7 +18,7 @@ install:                 ## create the venv and install everything
 	@echo "done. copy .env.example to .env and add your key."
 
 ui:                      ## browser UI at http://localhost:8080 (costs money)
-	$(VENV)/uvicorn --factory src.web.server:create_app --host 127.0.0.1 --port 8080 --reload
+	$(VENV)/uvicorn --factory src.web.server:create_app --host 127.0.0.1 --port 8080 --reload --reload-dir src
 
 talk:                    ## talk to the agent in the terminal (costs money)
 	$(PY) -m src.tools.talk --seconds 180

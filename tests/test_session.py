@@ -219,7 +219,11 @@ async def test_the_microphone_is_held_back_while_the_agent_speaks():
     conversation = speaking_conversation(model, [SILENCE] * 30)
     await conversation._pump_microphone()
 
-    assert model.sent == [], "the agent's own audio window was forwarded to the model"
+    # Silence goes out, the caller's audio does not. Sending nothing at all
+    # would leave the connection idle for the length of every reply.
+    assert all(f == bytes(len(f)) for f in model.sent), (
+        "the agent's own audio window was forwarded to the model"
+    )
 
 
 async def test_a_confirmed_interruption_forwards_the_run_up():
@@ -254,9 +258,9 @@ async def test_the_floor_is_held_from_the_moment_the_agent_is_asked_to_speak():
     )
     await conversation._pump_microphone()
 
-    # Nothing forwarded and, crucially, no end-of-turn signalled - the model
-    # is left to finish its greeting.
-    assert model.sent == []
+    # Only silence forwarded and, crucially, no end-of-turn signalled - the
+    # model is left to finish its greeting.
+    assert all(f == bytes(len(f)) for f in model.sent)
     assert model.ends == 0, "the greeting was cut short by a false end of turn"
 
 
@@ -393,3 +397,23 @@ async def test_interruption_works_again_once_the_greeting_is_done():
     await conversation._pump_microphone()
 
     assert sink.flushes >= 1, "a genuine interruption was ignored after the greeting"
+
+
+async def test_silence_is_sent_while_the_gate_is_shut_not_nothing():
+    """A stream that goes quiet can be timed out and closed.
+
+    A trace showed 440 frames held and not a single byte sent to the model
+    across eleven seconds. Withholding the caller's audio is right - it
+    carries the agent's own echo - but sending nothing at all leaves the
+    connection idle for the length of every reply. Silence keeps it alive,
+    and Phase 0 measured that silence is not billed.
+    """
+    model = StubModel([], keep_open=True)
+    conversation = speaking_conversation(model, [SPEECH] * 20)
+    conversation._in_greeting = True
+    await conversation._pump_microphone()
+
+    assert len(model.sent) == 20, "the model was sent nothing while the gate was shut"
+    assert all(frame == bytes(len(frame)) for frame in model.sent), (
+        "the caller's own audio was forwarded instead of silence"
+    )

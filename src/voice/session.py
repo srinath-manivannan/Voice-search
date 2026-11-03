@@ -177,6 +177,15 @@ class Conversation:
                     self.trace.record(
                         "gate_held", rms=int(verdict.rms), run=self._barge_frames
                     )
+                    # Silence, not nothing. Withholding frames entirely leaves
+                    # the model receiving no audio at all for the length of a
+                    # reply - a trace showed 440 held frames and not one byte
+                    # sent across eleven seconds - and a stream that goes quiet
+                    # is a stream that can be timed out and closed. Silence
+                    # keeps it alive, carries no echo for the model to mistake
+                    # for the caller, and Phase 0 measured that it is not
+                    # billed.
+                    await self._model.send_audio(bytes(len(frame)))
                     continue
 
                 log.debug(
