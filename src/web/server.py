@@ -88,6 +88,8 @@ def create_app(config: Config | None = None) -> FastAPI:
         await websocket.accept()
         source = BrowserSource(settings.capture_sample_rate)
         sink = BrowserSink(websocket, settings.playback_sample_rate)
+        # Declared here so the finally can reach it however we leave.
+        talking: Conversation | None = None
 
         async def push(payload: dict[str, Any]) -> None:
             with contextlib.suppress(Exception):
@@ -127,7 +129,13 @@ def create_app(config: Config | None = None) -> FastAPI:
                 cost = model.usage.report_inr(
                     settings.usd_inr, settings.gst_rate, minutes
                 )
-                await push({"type": "summary", "cost": cost})
+                await push(
+                    {
+                        "type": "summary",
+                        "cost": cost,
+                        "trace": talking.trace.summary(),
+                    }
+                )
         except WebSocketDisconnect:
             log.info("browser disconnected")
         except Exception:
@@ -136,6 +144,16 @@ def create_app(config: Config | None = None) -> FastAPI:
                 {"type": "error", "message": "the conversation ended unexpectedly"}
             )
         finally:
+            # In the finally, not on the happy path. The calls worth having a
+            # trace of are the ones that fell over, and saving it only where
+            # everything went right loses exactly those.
+            if talking is not None:
+                saved = talking.trace.save(TRACES)
+                log.info("call trace written to %s", saved)
+                with contextlib.suppress(Exception):
+                    await websocket.send_json(
+                        {"type": "trace_saved", "trace_file": saved.name}
+                    )
             await source.close()
             await sink.close()
 
