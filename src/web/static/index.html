@@ -59,58 +59,63 @@
   main { flex: 1; display: grid; place-items: center; padding: 10px 20px 24px; width: 100%; }
   .stage { width: 100%; max-width: 560px; text-align: center; }
 
-  /* A lit sphere in brushed silver.
-     Four things make a circle read as a ball, and leaving any one out makes it
-     look like a sticker: light falling off from a point that is not the centre,
-     a small hard specular highlight, a terminator opposite it, and - the one
-     usually missed - a rim light along the dark edge where the surroundings
-     bounce back. The contact shadow underneath sits it on the page. */
-  .orb-wrap { height: 170px; display: grid; place-items: center; }
+  /* A soft morphing blob, not a rendered ball.
+     A hard-edged sphere with a specular highlight looks like an object sitting
+     on the page. What makes the ChatGPT orb feel alive is that it has no edge
+     to speak of and that it moves with the voice - so this is three blurred
+     gradient layers morphing on different clocks, and its scale and glow come
+     from the real audio level rather than from a timer.
+     --level is written straight to style by a requestAnimationFrame loop. It
+     changes fifty times a second and must never go near application state. */
+  .orb-wrap { height: 164px; display: grid; place-items: center; }
   .orb {
-    position: relative; width: 140px; height: 140px; border-radius: 50%;
-    background:
-      radial-gradient(circle at 34% 29%,
-        #ffffff 0%, #eef1f5 20%, #cfd6de 40%, #a8b0ba 58%, #767e89 79%, #4b525b 100%);
-    box-shadow:
-      inset -12px -14px 30px rgba(30,36,45,.42),
-      inset  10px  12px 26px rgba(255,255,255,.34),
-      0 16px 26px -10px rgba(40,48,58,.42);
+    position: relative; width: 138px; height: 138px;
+    --level: 0;
+    transform: scale(calc(1 + var(--level) * 0.16));
+    transition: transform .09s ease-out;
+    filter: drop-shadow(0 6px calc(14px + var(--level) * 30px) rgba(110,130,160,.40));
   }
-  .orb i { position: absolute; inset: 0; display: block; border-radius: 50%; }
-  /* specular highlight - small and hard, or it reads as fog */
+  .orb i {
+    position: absolute; inset: 0; display: block;
+    filter: blur(7px);
+    animation: morph 11s ease-in-out infinite;
+  }
   .orb i:nth-child(1) {
-    background: radial-gradient(circle at 31% 25%,
-      rgba(255,255,255,.92) 0%, rgba(255,255,255,.45) 7%, rgba(255,255,255,0) 17%);
+    background: radial-gradient(circle at 36% 30%,
+      #ffffff 0%, #e4eaf2 26%, #bdc8d8 54%, #92a0b5 80%, #6f7f96 100%);
+    opacity: 1;
   }
-  /* rim light: the surroundings bouncing back along the dark edge */
   .orb i:nth-child(2) {
-    background: radial-gradient(circle at 74% 80%,
-      rgba(228,234,241,.60) 0%, rgba(200,210,222,.20) 16%, rgba(200,210,222,0) 32%);
-    animation: sheen 18s linear infinite;
-    transform-origin: 50% 50%;
+    background: radial-gradient(circle at 72% 70%,
+      rgba(255,190,158,.75) 0%, rgba(255,150,105,.28) 34%, rgba(255,150,105,0) 62%);
+    animation-duration: 8s; animation-direction: reverse; opacity: .9;
   }
-  /* a faint sheen band, so state has something to move */
   .orb i:nth-child(3) {
-    background: linear-gradient(118deg,
-      rgba(255,255,255,0) 38%, rgba(255,255,255,.16) 50%, rgba(255,255,255,0) 62%);
+    background: radial-gradient(circle at 42% 24%,
+      rgba(255,255,255,1) 0%, rgba(255,255,255,.35) 22%, rgba(255,255,255,0) 46%);
+    animation-duration: 14s; opacity: .95;
   }
-  @keyframes sheen {
-    from { transform: rotate(0deg); }
-    to   { transform: rotate(360deg); }
+  /* Organic, not circular. The radii never all match, so the silhouette never
+     settles into a circle and the eye keeps reading it as alive. */
+  @keyframes morph {
+    0%, 100% { border-radius: 52% 48% 46% 54% / 48% 52% 48% 52%; transform: rotate(0deg)   scale(1);    }
+    25%      { border-radius: 44% 56% 58% 42% / 56% 44% 56% 44%; transform: rotate(90deg)  scale(1.04); }
+    50%      { border-radius: 58% 42% 44% 56% / 42% 58% 42% 58%; transform: rotate(180deg) scale(.97);  }
+    75%      { border-radius: 47% 53% 55% 45% / 54% 47% 53% 46%; transform: rotate(270deg) scale(1.03); }
   }
-  /* State is the speed the bounce light travels and how lit the ball is.
-     Metal has no hue to shift, which is convenient: there is nothing here that
-     could be mistaken for a colour-coded status. */
-  body[data-state="idle"]      .orb { filter: brightness(.95); }
-  body[data-state="idle"]      .orb i:nth-child(2) { animation-duration: 26s; }
-  body[data-state="listening"] .orb { filter: brightness(1); }
-  body[data-state="listening"] .orb i:nth-child(2) { animation-duration: 14s; }
-  body[data-state="caller"]    .orb { filter: brightness(1.06); }
-  body[data-state="caller"]    .orb i:nth-child(2) { animation-duration: 6s; }
-  body[data-state="agent"]     .orb { filter: brightness(1.11); }
-  body[data-state="agent"]     .orb i:nth-child(2) { animation-duration: 2.8s; }
-  body[data-state="error"]     .orb { filter: brightness(.78) contrast(.85); }
-  body[data-state="error"]     .orb i:nth-child(2) { animation-play-state: paused; }
+  /* State changes how restless it is, nothing else. The level does the talking. */
+  body[data-state="idle"]      .orb i { animation-duration: 16s; }
+  body[data-state="idle"]      .orb   { opacity: .82; }
+  body[data-state="listening"] .orb i { animation-duration: 11s; }
+  body[data-state="caller"]    .orb i { animation-duration: 6s; }
+  body[data-state="agent"]     .orb i { animation-duration: 4s; }
+  body[data-state="error"]     .orb i { animation-play-state: paused; }
+  body[data-state="error"]     .orb   { opacity: .4; filter: grayscale(1); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .orb i { animation: none; border-radius: 50%; }
+    .orb { transition: none; }
+  }
 
   h1 { font-size: 20px; margin: 0 0 5px; font-weight: 600; }
   .sub { color: var(--dim); margin: 0 0 14px; font-size: 14px; }
@@ -197,7 +202,7 @@
 
 <header>
   <img class="logo" src="/static/logo.svg" alt="Poorvika">
-  <div class="who"><b>Poorvika</b><span id="model">—</span></div>
+  <div class="who"><b>Poorvika</b><span>AI Assistant</span></div>
   <div class="spacer"></div>
   <button class="icon-btn" id="share" title="Copy link" aria-label="Copy link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg></button>
 </header>
@@ -235,7 +240,7 @@
 </main>
 
 <details class="drawer">
-  <summary>Developer · latency and cost <span id="caps"></span></summary>
+  <summary>Developer · latency and cost</summary>
   <div class="drawer-body">
     <table>
       <thead><tr><th>#</th><th>First audio</th><th>Reply tok</th><th>Thinking</th></tr></thead>

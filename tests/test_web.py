@@ -87,17 +87,26 @@ async def test_a_closed_sink_stops_sending_rather_than_raising():
     assert socket.binary == [] and socket.json == []
 
 
-def test_the_config_endpoint_never_exposes_the_key(config):
+def test_the_config_endpoint_publishes_nothing_about_the_stack(config):
+    """Which model Poorvika runs on is commercial information.
+
+    This project read the reference implementation's entire stack - vendor,
+    model id, orchestration framework - straight off a config blob its public
+    page served. The same blob here would hand ours over the same way.
+    """
     from src.web.server import create_app
 
     with TestClient(create_app(config)) as client:
         body = client.get("/api/config").json()
 
-    assert "test-key-not-real" not in str(body)
-    assert "gemini_api_key" not in body
-    # What the page legitimately needs to set up audio.
+    serialised = str(body).lower()
+    assert "test-key-not-real" not in serialised
+    for leak in ("gemini", "model", "thinking", "word_cap", "api_key", "flash"):
+        assert leak not in serialised, f"/api/config leaks {leak!r}"
+
+    # Exactly what the browser needs to open its audio devices, and no more.
+    assert set(body) == {"capture_sample_rate", "playback_sample_rate", "greeting"}
     assert body["capture_sample_rate"] == 16000
-    assert body["thinking_budget"] == 0
 
 
 def test_the_page_is_served(config):

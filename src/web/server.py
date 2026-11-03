@@ -63,19 +63,20 @@ def create_app(config: Config | None = None) -> FastAPI:
 
     @app.get("/api/config")
     async def config_summary() -> dict[str, Any]:
-        """What the page needs to set up audio, and to show what it is running.
+        """Only what the browser needs to open its audio devices.
 
-        The key is not here and never will be - the browser talks to this
-        server, and only this server talks to Gemini.
+        Deliberately no model names, no word caps, no thinking budget. Which
+        vendor and which model Poorvika runs on is commercial information, and
+        a public page has no reason to publish it - this project learned the
+        reference implementation's entire stack by reading exactly such a blob
+        off its page. Not repeating that mistake outward.
+
+        The key is not here and never will be: the browser talks to this
+        server, and only this server talks to the model.
         """
         return {
-            "model": settings.gemini_live_model,
             "capture_sample_rate": settings.capture_sample_rate,
             "playback_sample_rate": settings.playback_sample_rate,
-            "reply_word_cap": settings.reply_word_cap,
-            "chat_word_cap": settings.chat_word_cap,
-            "thinking_budget": settings.thinking_budget,
-            "text_model": settings.gemini_text_model,
             "greeting": GREETING,
         }
 

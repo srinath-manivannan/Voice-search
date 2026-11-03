@@ -7,6 +7,10 @@
 
 const state = {
   socket: null,
+  micAnalyser: null,
+  agentAnalyser: null,
+  playbackBus: null,
+  levelFrame: null,
   captureContext: null,
   playbackContext: null,
   stream: null,
@@ -44,6 +48,56 @@ function log(text, kind) {
   el('transcript').scrollTop = el('transcript').scrollHeight;
 }
 
+// --- audio level ----------------------------------------------------------
+//
+// What makes the orb read as alive is that it moves with the actual voice, not
+// with a timer. Two analysers - one on the microphone, one on the agent's
+// playback - and whichever is louder drives it.
+//
+// The value is written straight to a CSS custom property. It changes about
+// sixty times a second, and routing that through any kind of application state
+// would re-render the page at 60Hz to animate one blob.
+
+function analyserFor(context, node) {
+  const analyser = context.createAnalyser();
+  analyser.fftSize = 256;
+  analyser.smoothingTimeConstant = 0.75;
+  if (node) node.connect(analyser);
+  return analyser;
+}
+
+function readLevel(analyser) {
+  if (!analyser) return 0;
+  const bins = new Uint8Array(analyser.frequencyBinCount);
+  analyser.getByteTimeDomainData(bins);
+  let sum = 0;
+  for (let i = 0; i < bins.length; i++) {
+    const v = (bins[i] - 128) / 128;
+    sum += v * v;
+  }
+  // Root mean square, then a curve - speech sits low in a linear scale and the
+  // orb would barely move.
+  return Math.min(1, Math.sqrt(sum / bins.length) * 3.2);
+}
+
+function startLevelLoop() {
+  const orb = document.querySelector('.orb');
+  const tick = () => {
+    const level = Math.max(readLevel(state.micAnalyser), readLevel(state.agentAnalyser));
+    orb.style.setProperty('--level', level.toFixed(3));
+    state.levelFrame = requestAnimationFrame(tick);
+  };
+  tick();
+}
+
+function stopLevelLoop() {
+  if (state.levelFrame) cancelAnimationFrame(state.levelFrame);
+  state.levelFrame = null;
+  state.micAnalyser = state.agentAnalyser = state.playbackBus = null;
+  const orb = document.querySelector('.orb');
+  if (orb) orb.style.setProperty('--level', '0');
+}
+
 // --- playback -------------------------------------------------------------
 
 function play(pcmBytes) {
@@ -55,9 +109,15 @@ function play(pcmBytes) {
   const channel = buffer.getChannelData(0);
   for (let i = 0; i < samples.length; i++) channel[i] = samples[i] / 0x8000;
 
+  if (!state.playbackBus) {
+    state.playbackBus = ctx.createGain();
+    state.agentAnalyser = analyserFor(ctx, state.playbackBus);
+    state.playbackBus.connect(ctx.destination);
+  }
+
   const node = ctx.createBufferSource();
   node.buffer = buffer;
-  node.connect(ctx.destination);
+  node.connect(state.playbackBus);
 
   // Schedule back-to-back. Starting every chunk at "now" would overlap them
   // into noise whenever chunks arrive faster than they play.
@@ -87,11 +147,10 @@ function flushPlayback() {
 // Show what we are running before anyone clicks anything - if the word cap or
 // the thinking budget is not what was intended, that should be visible before
 // money is spent, not after.
+// Sample rates and the greeting, nothing else. The page has no business
+// knowing which model is behind it, and anything it knows is public.
 async function loadConfig() {
   state.config = await (await fetch('/api/config')).json();
-  el('model').textContent = state.config.model;
-  el('caps').textContent =
-    '· ' + state.config.reply_word_cap + '-word cap · thinking budget ' + state.config.thinking_budget;
   return state.config;
 }
 
@@ -146,6 +205,8 @@ async function start() {
 
   state.socket.onopen = () => {
     const sourceNode = state.captureContext.createMediaStreamSource(state.stream);
+    state.micAnalyser = analyserFor(state.captureContext, sourceNode);
+    startLevelLoop();
     const worklet = new AudioWorkletNode(state.captureContext, 'capture-processor', {
       processorOptions: { frameMs: 20 },
     });
@@ -165,6 +226,7 @@ async function start() {
 
 function stop() {
   state.running = false;
+  stopLevelLoop();
   flushPlayback();
   if (state.socket) state.socket.close();
   if (state.stream) state.stream.getTracks().forEach((t) => t.stop());  // releases the OS mic light
