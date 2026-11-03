@@ -102,6 +102,9 @@ def create_app(config: Config | None = None) -> FastAPI:
         try:
             async with GeminiLiveSession(settings) as model:
                 await push({"type": "ready"})
+                # Speak first. A call that answers and then says nothing until
+                # the caller speaks sounds like a dead line.
+                await model.greet(GREETING)
                 talking = Conversation(model, source, sink, on_update=push)
                 reader = asyncio.create_task(read_microphone(), name="browser-reader")
                 runner = asyncio.create_task(talking.run(), name="conversation")

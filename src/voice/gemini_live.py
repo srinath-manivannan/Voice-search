@@ -194,6 +194,43 @@ class GeminiLiveSession:
         except _ClosedSocket:
             return
 
+    async def greet(self, text: str) -> None:
+        """Have the agent speak first, saying exactly this.
+
+        Without it a caller hears nothing until they speak, which on a phone
+        line reads as a dead call - the one thing an answered call must never
+        sound like. The chat tab already opened with this sentence; voice
+        waited in silence.
+
+        The wording is pinned rather than left to the model, because a greeting
+        that varies run to run is not a greeting, it is a sample. This counts
+        as a turn, so its audio carries an id of its own and a later
+        interruption cannot retroactively discard it.
+        """
+        self._turn_id += 1
+        self._speech_ended_at = self._clock()
+        self._first_audio_at = None
+        await self._require_socket().send(
+            json.dumps(
+                {
+                    "clientContent": {
+                        "turns": [
+                            {
+                                "role": "user",
+                                "parts": [
+                                    {
+                                        "text": "Greet the customer now. Say exactly "
+                                        f"this, word for word, and nothing else: {text}"
+                                    }
+                                ],
+                            }
+                        ],
+                        "turnComplete": True,
+                    }
+                }
+            )
+        )
+
     async def end_of_speech(self) -> None:
         """Tell the server the caller stopped talking, and start the latency clock.
 

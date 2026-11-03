@@ -190,3 +190,30 @@ async def test_send_audio_uses_the_configured_capture_rate(config):
 async def test_sending_before_connecting_fails_clearly(config):
     with pytest.raises(RuntimeError, match="not connected"):
         await GeminiLiveSession(config).send_audio(b"\x00")
+
+
+async def test_the_agent_greets_first_with_the_exact_wording(config):
+    """A call that answers and then waits in silence sounds like a dead line."""
+    from src.agent.persona import GREETING
+
+    sock = FakeSocket([{"setupComplete": {}}])
+    async with GeminiLiveSession(config, connect=connector(sock)) as session:
+        await session.greet(GREETING)
+
+    sent = sock.sent[-1]["clientContent"]
+    assert sent["turnComplete"] is True
+    text = sent["turns"][0]["parts"][0]["text"]
+    # Pinned, not paraphrased: a greeting that varies run to run is a sample.
+    assert GREETING in text
+    assert "word for word" in text
+
+
+async def test_the_greeting_takes_a_turn_id_of_its_own(config):
+    """Otherwise a later interruption would discard the greeting's audio."""
+    from src.agent.persona import GREETING
+
+    sock = FakeSocket([{"setupComplete": {}}])
+    async with GeminiLiveSession(config, connect=connector(sock)) as session:
+        assert session.turn_id == 0
+        await session.greet(GREETING)
+        assert session.turn_id == 1
