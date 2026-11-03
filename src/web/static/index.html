@@ -59,61 +59,79 @@
   main { flex: 1; display: grid; place-items: center; padding: 10px 20px 24px; width: 100%; }
   .stage { width: 100%; max-width: 560px; text-align: center; }
 
-  /* A soft morphing blob, not a rendered ball.
-     A hard-edged sphere with a specular highlight looks like an object sitting
-     on the page. What makes the ChatGPT orb feel alive is that it has no edge
-     to speak of and that it moves with the voice - so this is three blurred
-     gradient layers morphing on different clocks, and its scale and glow come
-     from the real audio level rather than from a timer.
+  /* Clip the blur; do not blur the clip.
+     The previous attempt blurred the whole element, silhouette included, which
+     on a white page leaves a smudge with no edge. What the ChatGPT orb
+     actually does is hold a crisp circular outline while everything inside it
+     drifts and bleeds. So: a hard-edged circle with overflow hidden, and
+     oversized blurred colour blobs drifting around inside it.
      --level is written straight to style by a requestAnimationFrame loop. It
-     changes fifty times a second and must never go near application state. */
+     changes sixty times a second and must never reach application state. */
   .orb-wrap { height: 164px; display: grid; place-items: center; }
   .orb {
-    position: relative; width: 138px; height: 138px;
     --level: 0;
-    transform: scale(calc(1 + var(--level) * 0.16));
+    position: relative; width: 138px; height: 138px;
+    border-radius: 50%; overflow: hidden; isolation: isolate;
+    background: radial-gradient(circle at 50% 45%, #fdfdfe 0%, #eef1f6 55%, #dde3ec 100%);
+    transform: scale(calc(1 + var(--level) * 0.14));
     transition: transform .09s ease-out;
-    filter: drop-shadow(0 6px calc(14px + var(--level) * 30px) rgba(110,130,160,.40));
+    box-shadow:
+      0 10px 30px rgba(120,140,170,.26),
+      0 0 calc(12px + var(--level) * 34px) rgba(244,120,60,calc(.12 + var(--level) * .40)),
+      inset 0 1px 2px rgba(255,255,255,.9);
   }
+  /* Oversized so the blurred edges never cross back into view, and offset so
+     each colour sits somewhere different. */
   .orb i {
-    position: absolute; inset: 0; display: block;
-    filter: blur(7px);
-    animation: morph 11s ease-in-out infinite;
+    position: absolute; width: 150%; height: 150%; border-radius: 50%;
+    filter: blur(20px);
+    will-change: transform;
   }
   .orb i:nth-child(1) {
-    background: radial-gradient(circle at 36% 30%,
-      #ffffff 0%, #e4eaf2 26%, #bdc8d8 54%, #92a0b5 80%, #6f7f96 100%);
-    opacity: 1;
+    left: -34%; top: -28%;
+    background: radial-gradient(circle, #ff7a34 0%, rgba(255,122,52,.68) 40%, rgba(255,122,52,0) 70%);
+    animation: drift-a 9s ease-in-out infinite;
   }
   .orb i:nth-child(2) {
-    background: radial-gradient(circle at 72% 70%,
-      rgba(255,190,158,.75) 0%, rgba(255,150,105,.28) 34%, rgba(255,150,105,0) 62%);
-    animation-duration: 8s; animation-direction: reverse; opacity: .9;
+    right: -36%; bottom: -30%;
+    background: radial-gradient(circle, #7b97d4 0%, rgba(123,151,212,.62) 42%, rgba(123,151,212,0) 72%);
+    animation: drift-b 12s ease-in-out infinite;
   }
   .orb i:nth-child(3) {
-    background: radial-gradient(circle at 42% 24%,
-      rgba(255,255,255,1) 0%, rgba(255,255,255,.35) 22%, rgba(255,255,255,0) 46%);
-    animation-duration: 14s; opacity: .95;
+    left: -10%; top: -36%;
+    background: radial-gradient(circle, rgba(255,255,255,.92) 0%, rgba(255,255,255,.30) 26%, rgba(255,255,255,0) 50%);
+    animation: drift-c 7s ease-in-out infinite;
   }
-  /* Organic, not circular. The radii never all match, so the silhouette never
-     settles into a circle and the eye keeps reading it as alive. */
-  @keyframes morph {
-    0%, 100% { border-radius: 52% 48% 46% 54% / 48% 52% 48% 52%; transform: rotate(0deg)   scale(1);    }
-    25%      { border-radius: 44% 56% 58% 42% / 56% 44% 56% 44%; transform: rotate(90deg)  scale(1.04); }
-    50%      { border-radius: 58% 42% 44% 56% / 42% 58% 42% 58%; transform: rotate(180deg) scale(.97);  }
-    75%      { border-radius: 47% 53% 55% 45% / 54% 47% 53% 46%; transform: rotate(270deg) scale(1.03); }
+  @keyframes drift-a {
+    0%,100% { transform: translate(0,0)        scale(1);    }
+    33%     { transform: translate(26%, 18%)   scale(1.14); }
+    66%     { transform: translate(10%, 34%)   scale(.92);  }
   }
-  /* State changes how restless it is, nothing else. The level does the talking. */
-  body[data-state="idle"]      .orb i { animation-duration: 16s; }
-  body[data-state="idle"]      .orb   { opacity: .82; }
-  body[data-state="listening"] .orb i { animation-duration: 11s; }
-  body[data-state="caller"]    .orb i { animation-duration: 6s; }
-  body[data-state="agent"]     .orb i { animation-duration: 4s; }
+  @keyframes drift-b {
+    0%,100% { transform: translate(0,0)        scale(1);    }
+    40%     { transform: translate(-30%,-16%)  scale(1.12); }
+    70%     { transform: translate(-12%,-32%)  scale(.94);  }
+  }
+  @keyframes drift-c {
+    0%,100% { transform: translate(0,0)        scale(1);    }
+    50%     { transform: translate(18%, 26%)   scale(1.18); }
+  }
+  /* State is how fast the inside moves. The silhouette never changes, so the
+     orb never looks like it is loading something. */
+  body[data-state="idle"]      .orb i { animation-duration: 18s, 22s, 14s; }
+  body[data-state="idle"]      .orb   { filter: saturate(.92); }
+  body[data-state="listening"] .orb   { filter: saturate(1.05); }
+  body[data-state="caller"]    .orb i:nth-child(1) { animation-duration: 4s; }
+  body[data-state="caller"]    .orb i:nth-child(2) { animation-duration: 5s; }
+  body[data-state="caller"]    .orb i:nth-child(3) { animation-duration: 3s; }
+  body[data-state="agent"]     .orb i:nth-child(1) { animation-duration: 2.6s; }
+  body[data-state="agent"]     .orb i:nth-child(2) { animation-duration: 3.4s; }
+  body[data-state="agent"]     .orb i:nth-child(3) { animation-duration: 2s; }
   body[data-state="error"]     .orb i { animation-play-state: paused; }
-  body[data-state="error"]     .orb   { opacity: .4; filter: grayscale(1); }
+  body[data-state="error"]     .orb   { filter: grayscale(1) opacity(.5); }
 
   @media (prefers-reduced-motion: reduce) {
-    .orb i { animation: none; border-radius: 50%; }
+    .orb i { animation: none; }
     .orb { transition: none; }
   }
 
