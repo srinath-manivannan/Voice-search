@@ -9,24 +9,26 @@ Phase 1 of six. See `../PHASE0-REPORT.md` for the architecture decision and
 ## Run it
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt -r requirements-dev.txt
+make install            # venv + dependencies
 cp .env.example .env    # then put the real GEMINI_API_KEY in it
-.venv/bin/python -m pytest
+make test
 ```
 
-Tests do not call the API and do not spend money. Anything that does is marked
-`live` and excluded by default:
+`make` on its own lists everything:
 
-```bash
-.venv/bin/python -m pytest -m live      # spends money, run deliberately
-.venv/bin/python -m pytest -m audio     # needs a microphone and speaker
-```
+| | |
+|---|---|
+| `make talk` | talk to the agent through the microphone — **costs money** |
+| `make test` | the fast tests: no API, no devices, no money |
+| `make audio` | device tests — needs a microphone and speaker |
+| `make live` | real Gemini Live calls — spends a few cents |
+| `make check` | everything CI runs, in the same order |
+| `make fmt` | reformat in place |
+| `make mic` | switch capture to the built-in microphone array |
 
-To actually talk to it:
-
-```bash
-.venv/bin/python -m src.tools.talk --seconds 120
-```
+`make test` does not call the API and does not spend money. Anything that does
+is marked `live` and excluded by default, so neither CI nor a careless `make
+test` can run up a bill.
 
 ## What this branch is not
 
