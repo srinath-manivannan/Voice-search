@@ -1,0 +1,12 @@
+# Exact pins, no caret, the way search-proxy pins wrangler. A floating minor
+# version of a voice framework can change audio behaviour between a reviewed
+# branch and production without a line of this repo changing.
+
+pipecat-ai[google]==0.0.108
+
+# Our own Live API adapter speaks the websocket protocol directly rather than
+# through the framework, so the dependency is declared here too rather than
+# relied on transitively.
+websockets==15.0.1
+
+python-dotenv==1.1.1

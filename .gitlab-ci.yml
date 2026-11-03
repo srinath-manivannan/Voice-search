@@ -1,0 +1,54 @@
+# search-proxy runs a single deploy stage with no checks in front of it. That
+# gap is deliberately closed here: nothing reaches an environment without
+# formatting, typing, tests and a secret scan passing first.
+#
+# Paid Gemini calls are marked `live` in pytest and excluded by default, so CI
+# never spends money. Run them by hand before a release.
+
+stages:
+  - check
+  - deploy
+
+.python:
+  image: python:3.10.12
+  before_script:
+    - pip install -r requirements.txt -r requirements-dev.txt
+
+lint:
+  extends: .python
+  stage: check
+  script:
+    - ruff check src tests
+    - ruff format --check src tests
+
+typecheck:
+  extends: .python
+  stage: check
+  script:
+    - mypy src
+
+test:
+  extends: .python
+  stage: check
+  script:
+    - pytest
+
+secrets:
+  stage: check
+  image: python:3.10.12
+  script:
+    - pip install detect-secrets==1.5.0
+    - detect-secrets scan --baseline .secrets.baseline
+
+deploy-code:
+  stage: deploy
+  image: python:3.10.12
+  environment:
+    name: ${CI_COMMIT_REF_NAME}
+  script:
+    - chmod +x deploy.sh
+    - bash deploy.sh ${CI_COMMIT_REF_NAME}
+  only:
+    - development
+    - stage
+    - main

@@ -1,0 +1,32 @@
+# Secrets. The key never leaves the server, never reaches a log, never a commit.
+.env
+*.env.local
+*-service-key.json
+
+.claude/
+
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+logs/
+*.log
+
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Measurement output. Recordings and transcripts carry customer speech, so they
+# stay on the machine that made them until a retention policy exists.
+out/
+**/results/
+*-measurement.json
+
+.DS_Store
+.idea/
+.vscode/
+
+# NOTE: `tests/` is deliberately NOT ignored here. search-proxy gitignores it,
+# which leaves its tests unversioned and unreviewable. Ours are committed.
