@@ -559,3 +559,46 @@ def test_the_struck_through_price_is_the_mrp_and_not_the_price_list_figure():
         29999,
         23,
     )
+
+
+async def test_a_feature_word_does_not_empty_the_shelf():
+    """ "30,000 kulla camera phone" found nothing on the running server.
+
+    The query is matched against product names, and no phone is called
+    "camera" - the index states a camera on 2,397 of 12,926 products and never
+    in the name. So the customer was told there are none, for one of the
+    commonest questions there is.
+    """
+    from src.agent.tools.catalogue import Catalogue
+
+    answers = [hits(), hits(document("45902", "Vivo Y200 Pro 5G", 29999))]
+
+    class Changing:
+        async def post(self, url, *, json=None, headers=None):  # noqa: A002
+            return FakeResponse(answers.pop(0))
+
+    tools = ToolSession(
+        Catalogue("https://example.invalid", "token", poster_factory=Changing),
+        estate=FakeEstate({"45902": priced("45902", 22999)}),
+    )
+
+    found = await tools.run(
+        "search_products",
+        {"query": "camera", "category": "phone", "max_price": 30000},
+    )
+    assert [p["name"] for p in found["products"]] == ["Vivo Y200 Pro 5G"]
+
+
+async def test_a_name_that_matches_nothing_with_no_band_to_fall_back_on():
+    """Without a category or a budget there is nothing else to search on."""
+    from src.agent.tools.catalogue import Catalogue
+
+    class Empty:
+        async def post(self, url, *, json=None, headers=None):  # noqa: A002
+            return FakeResponse(hits())
+
+    tools = ToolSession(
+        Catalogue("https://example.invalid", "token", poster_factory=Empty)
+    )
+    found = await tools.run("search_products", {"query": "nokia 3310"})
+    assert found["products"] == []

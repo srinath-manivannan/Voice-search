@@ -129,14 +129,32 @@ class ToolSession:
 
         max_price = _money(args.get("max_price"))
         min_price = _money(args.get("min_price"))
+        asked = str(args.get("query") or "").strip()
+        limit = CANDIDATES if self._estate else SHORTLIST
         try:
             found = await self._catalogue.search(
-                query=str(args.get("query") or "*"),
+                query=asked or "*",
                 category=args.get("category"),
                 min_price=min_price,
                 max_price=max_price,
-                limit=CANDIDATES if self._estate else SHORTLIST,
+                limit=limit,
             )
+            # "30,000 kulla camera phone" put "camera" in the query, which is
+            # matched against product names and matches nothing - the index
+            # states a camera on 2,397 of 12,926 products and never in the
+            # name. The customer heard "we have none", for the commonest
+            # question there is. A feature word is not a model name, so when
+            # a query finds nothing and there is still a category or a budget
+            # to search on, the words are dropped rather than the shelf.
+            if found.found_nothing and asked and (args.get("category") or max_price):
+                log.info("no name matched %r; searching the band instead", asked)
+                found = await self._catalogue.search(
+                    query="*",
+                    category=args.get("category"),
+                    min_price=min_price,
+                    max_price=max_price,
+                    limit=limit,
+                )
         except CatalogueUnavailable as down:
             log.warning("catalogue unavailable: %s", down)
             return {"error": "catalogue_unavailable"}
