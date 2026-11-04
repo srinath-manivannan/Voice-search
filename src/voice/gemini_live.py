@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any, Protocol
@@ -27,6 +28,8 @@ from typing import Any, Protocol
 from src.config import Config
 from src.voice.events import AudioOut, Event, Transcript, TurnComplete, TurnInterrupted
 from src.voice.usage import SessionUsage, TurnUsage
+
+log = logging.getLogger(__name__)
 
 HOST = "generativelanguage.googleapis.com"
 PATH = "/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
@@ -113,6 +116,8 @@ class GeminiLiveSession:
         self._speech_ended_at: float | None = None
         self._first_audio_at: float | None = None
         self._pending_usage = TurnUsage()
+        # Set at connect time: did the server let us switch thinking off?
+        self.thinking_disabled = False
         self.usage = SessionUsage()
 
     @property
@@ -120,7 +125,7 @@ class GeminiLiveSession:
         """The turn currently being spoken. Used to discard abandoned audio."""
         return self._turn_id
 
-    def _setup_message(self) -> dict[str, Any]:
+    def _setup_message(self, with_thinking_config: bool = True) -> dict[str, Any]:
         generation: dict[str, Any] = {
             "responseModalities": ["AUDIO"],
             "temperature": 0.7,
@@ -128,7 +133,10 @@ class GeminiLiveSession:
         # A budget of 0 switches thinking off entirely; measured, not assumed.
         # Omitting the key leaves the model's default on, which costs money and
         # latency, so this is set explicitly even when the value is the default.
-        generation["thinkingConfig"] = {"thinkingBudget": self._config.thinking_budget}
+        if with_thinking_config:
+            generation["thinkingConfig"] = {
+                "thinkingBudget": self._config.thinking_budget
+            }
 
         return {
             "setup": {
@@ -142,14 +150,51 @@ class GeminiLiveSession:
         }
 
     async def __aenter__(self) -> GeminiLiveSession:
+        """Connect, preferring to switch thinking off, but not insisting.
+
+        thinkingConfig was accepted on this model and measured to work - 126
+        thinking tokens a turn down to zero - and then started being refused
+        with "Thinking budget is not supported for this model", closing the
+        socket at setup. The capability came and went without notice, which is
+        what a preview model is entitled to do.
+
+        So it is attempted and not depended on. If the server refuses it, the
+        session reconnects without it rather than failing the call. Thinking
+        then costs what it costs - roughly Rs 0.14 a minute by the Phase 0
+        measurement - and `thinking_disabled` says which happened.
+        """
+        self.thinking_disabled = await self._open(with_thinking_config=True)
+        if not self.thinking_disabled:
+            log.warning(
+                "model refused thinkingConfig; reconnected without it. "
+                "Thinking tokens are billed and absent from totalTokenCount."
+            )
+        return self
+
+    async def _open(self, with_thinking_config: bool) -> bool:
+        """Returns True when the session was opened with thinking switched off."""
         url = f"wss://{HOST}{PATH}?key={self._config.gemini_api_key}"
         self._socket = await self._connect(url)
-        await self._socket.send(json.dumps(self._setup_message()))
+        try:
+            await self._socket.send(
+                json.dumps(self._setup_message(with_thinking_config))
+            )
+            return await self._await_setup(with_thinking_config)
+        except _ClosedSocket:
+            # The server closes the socket on a setup it will not accept, so
+            # the refusal arrives as a close rather than an error message.
+            if not with_thinking_config:
+                raise SetupFailed(
+                    "Live API closed the connection during setup"
+                ) from None
+            await self._open(with_thinking_config=False)
+            return False
 
+    async def _await_setup(self, with_thinking_config: bool) -> bool:
         while True:
-            message = self._decode(await self._socket.recv())
+            message = self._decode(await self._socket.recv())  # type: ignore[union-attr]
             if "setupComplete" in message:
-                return self
+                return with_thinking_config
             if "error" in message:
                 # Never include the raw message verbatim - the URL carries the
                 # API key as a query parameter and servers echo it back.

@@ -223,3 +223,60 @@ async def test_the_greeting_takes_a_turn_id_of_its_own(config):
         assert session.turn_id == 0
         await session.greet(GREETING)
         assert session.turn_id == 1
+
+
+class RefusingSocket(FakeSocket):
+    """Closes the connection the way the server does on a setup it rejects."""
+
+    def __init__(self, refuse_thinking: bool) -> None:
+        super().__init__([{"setupComplete": {}}])
+        self.refuse_thinking = refuse_thinking
+
+    async def send(self, data: str) -> None:
+        import json as _json
+
+        from src.voice.gemini_live import _ClosedSocket
+
+        payload = _json.loads(data)
+        wants_thinking = "thinkingConfig" in (
+            payload.get("setup", {}).get("generationConfig", {})
+        )
+        if self.refuse_thinking and wants_thinking:
+            raise _ClosedSocket
+        await super().send(data)
+
+
+async def test_a_refused_thinking_config_reconnects_without_it(config):
+    """It was accepted, measured to work, and then refused without notice.
+
+    A preview model is entitled to do that. Depending on the capability turned
+    every call into a failed setup and a dead line, so it is attempted and not
+    relied on.
+    """
+    sockets = [
+        RefusingSocket(refuse_thinking=True),
+        RefusingSocket(refuse_thinking=True),
+    ]
+    opened = []
+
+    async def connect(_url):
+        socket = sockets.pop(0)
+        opened.append(socket)
+        return socket
+
+    async with GeminiLiveSession(config, connect=connect) as session:
+        assert session.thinking_disabled is False, "the fallback was not recorded"
+
+    assert len(opened) == 2, "it did not reconnect"
+    # The retry went out without the field the server refused.
+    retry = opened[1].sent[0]["setup"]["generationConfig"]
+    assert "thinkingConfig" not in retry
+
+
+async def test_thinking_config_is_still_sent_when_the_model_accepts_it(config):
+    sock = FakeSocket([{"setupComplete": {}}])
+    async with GeminiLiveSession(config, connect=connector(sock)) as session:
+        assert session.thinking_disabled is True
+
+    generation = sock.sent[0]["setup"]["generationConfig"]
+    assert generation["thinkingConfig"]["thinkingBudget"] == 0
