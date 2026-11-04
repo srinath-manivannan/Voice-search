@@ -48,6 +48,27 @@ STATIC = Path(__file__).parent / "static"
 TRACES = Path(__file__).resolve().parents[2] / "out" / "traces"
 
 
+def _outcome(result: dict[str, Any]) -> dict[str, Any]:
+    """What a tool answered, small enough to keep and enough to debug with.
+
+    Counts and states, not products and prices. The states are the whole
+    point: "the agent said there were no offers" and "the agent could not
+    check offers" look identical in a transcript and are different bugs.
+    """
+    if error := result.get("error"):
+        return {"error": error}
+    if (products := result.get("products")) is not None:
+        return {"products": len(products), "total": result.get("total_matching")}
+    states = {
+        part: value.get("state")
+        for part, value in result.items()
+        if isinstance(value, dict) and "state" in value
+    }
+    if could_not := result.get("could_not_check"):
+        states["could_not_check"] = could_not
+    return states
+
+
 def _catalogue(settings: Config) -> Catalogue | None:
     """Product search, when a token for it exists. Both sockets build one."""
     if not settings.catalogue_token:
@@ -156,7 +177,27 @@ def create_app(config: Config | None = None) -> FastAPI:
             tools = ToolSession(_catalogue(settings), estate_api.build(settings))
 
             async def call_tool(name: str, args: dict[str, Any]) -> dict[str, Any]:
-                return await tools.run(name, args)
+                """Run it, and put it in the trace.
+
+                The first call trace of a conversation with tools showed six
+                turns, their latencies and not one tool call - so whether the
+                agent checked stock or answered from memory was invisible,
+                which is the only thing worth knowing about these turns. What
+                is recorded is the decision and the shape of the answer, never
+                the payload: a trace is a call record, not a copy of the
+                catalogue.
+                """
+                started = time.perf_counter()
+                result = await tools.run(name, args)
+                if talking is not None:
+                    talking.trace.record(
+                        "tool_call",
+                        tool=name,
+                        args=args,
+                        took_ms=round((time.perf_counter() - started) * 1000),
+                        outcome=_outcome(result),
+                    )
+                return result
 
             async with GeminiLiveSession(
                 settings,

@@ -602,3 +602,34 @@ async def test_a_name_that_matches_nothing_with_no_band_to_fall_back_on():
     )
     found = await tools.run("search_products", {"query": "nokia 3310"})
     assert found["products"] == []
+
+
+def test_a_traced_outcome_keeps_the_states_and_not_the_catalogue():
+    """ "no offers" and "could not check offers" are different bugs.
+
+    In a transcript they read the same, so the trace has to carry the state.
+    What it must not carry is the products: a call trace is a record of
+    decisions, not a copy of the shelf.
+    """
+    from src.web.server import _outcome
+
+    assert _outcome({"products": [1, 2, 3], "total_matching": 8}) == {
+        "products": 3,
+        "total": 8,
+    }
+    assert _outcome(
+        {
+            "product": "Vivo Y200 Pro 5G",
+            "price_inr": 22999,
+            "stock": {"state": "unknown", "reason": "no ci host"},
+            "emi": {"state": "known", "from_inr_per_month": 652},
+            "could_not_check": ["stock"],
+        }
+    ) == {
+        "stock": "unknown",
+        "emi": "known",
+        "could_not_check": ["stock"],
+    }
+    assert _outcome({"error": "details_unavailable"}) == {
+        "error": "details_unavailable"
+    }
