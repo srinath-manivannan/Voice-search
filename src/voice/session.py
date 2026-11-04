@@ -133,6 +133,12 @@ class Conversation:
     # microphone sits in the thousands; surviving echo sat at 103.
     BARGE_IN_MIN_RMS = 800.0
 
+    # How much speech counts as the caller taking their turn. Eight 20 ms
+    # frames is 160 ms - shorter than any syllable, long enough that the tail
+    # of the agent's own sentence leaking through the speaker does not
+    # qualify.
+    SPEECH_FRAMES_FOR_A_TURN = 8
+
     def _past_grace(self) -> bool:
         return (
             time.monotonic() - self._agent_started_at
@@ -206,13 +212,26 @@ class Conversation:
                 self._held.clear()
                 self._barge_frames = 0
 
+            # A run of speech, not one frame of it. TurnComplete means the
+            # model stopped generating, not that the speaker stopped playing:
+            # the browser still has audio queued, the gate opens, and the
+            # microphone hears the agent's own tail. One such frame used to be
+            # enough to count as "the caller spoke", and the next quiet frame
+            # then fired end_of_speech four milliseconds after the agent
+            # finished - a turn boundary for a turn nobody spoke in. It also
+            # started the latency clock, so the next real reply was timed from
+            # a moment the caller had not yet opened their mouth, which is
+            # where a p95 of eight seconds came from.
+            if verdict.speech_run >= self.SPEECH_FRAMES_FOR_A_TURN:
+                self._heard_speech_this_turn = True
+
             if verdict.is_speech != self._caller_speaking:
                 self._caller_speaking = verdict.is_speech
                 await self._notify(type="state", caller_speaking=verdict.is_speech)
 
-                if verdict.is_speech:
-                    self._heard_speech_this_turn = True
-                elif self._heard_speech_this_turn and not self._awaiting_reply:
+                if not verdict.is_speech and (
+                    self._heard_speech_this_turn and not self._awaiting_reply
+                ):
                     # The caller has stopped. Say so.
                     #
                     # Leaving this out was the bug behind "sometimes it replies

@@ -692,3 +692,27 @@ async def test_the_shortlist_carries_a_reason_to_mention_each_phone():
     product = (await tools.run("search_products", {"query": "vivo"}))["products"][0]
     assert product["specs"]["camera"] == "60MP+"
     assert product["price_inr"] == 22999
+
+
+async def test_a_phone_cheaper_than_asked_is_still_offered():
+    """Measured on a real call, and the worst outcome there is.
+
+        search_products {"query": "Vivo", "min_price": 25000, "max_price": 30000}
+          -> {"products": 0, "total": 1}
+
+    The index had exactly one Vivo in that band; the price list said 22,999,
+    and it was dropped for being too cheap. The customer was told nothing was
+    available. Over the ceiling is a problem - under the floor is a bargain,
+    and "innum kammi, 22,999" is a sentence that sells.
+    """
+    tools = ToolSession(
+        catalogue_of(document("45902", "Vivo Y200 Pro 5G", 29999)),
+        estate=FakeEstate({"45902": priced("45902", 22999)}),
+    )
+
+    found = await tools.run(
+        "search_products",
+        {"query": "Vivo", "category": "phone", "min_price": 25000, "max_price": 30000},
+    )
+    assert [p["name"] for p in found["products"]] == ["Vivo Y200 Pro 5G"]
+    assert found["products"][0]["price_inr"] == 22999

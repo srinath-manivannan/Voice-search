@@ -417,3 +417,33 @@ async def test_silence_is_sent_while_the_gate_is_shut_not_nothing():
     assert all(frame == bytes(len(frame)) for frame in model.sent), (
         "the caller's own audio was forwarded instead of silence"
     )
+
+
+async def test_the_tail_of_the_agent_s_own_sentence_does_not_end_a_turn():
+    """Measured: end_of_speech fired 4 ms after the agent stopped.
+
+    TurnComplete means the model stopped generating, not that the speaker
+    stopped playing - the browser still has audio queued when the gate opens,
+    and the microphone hears the last of the agent's own sentence. One such
+    frame counted as "the caller spoke", and the next quiet frame signalled
+    the end of a turn nobody had taken.
+
+    It also started the latency clock, so the next genuine reply was timed
+    from before the caller had opened their mouth. That is where a p95 of
+    eight seconds came from, and most of it was never dead air at all.
+    """
+    model = StubModel([], keep_open=True)
+    # Four frames is 80 ms - an echo tail, not a syllable.
+    source = FakeSource([SILENCE] * 5 + [SPEECH] * 4 + [SILENCE] * 40)
+    await Conversation(model, source, FakeSink(), vad=EnergyVad()).run()
+
+    assert model.ends == 0, "an 80 ms burst was taken for the caller's turn"
+
+
+async def test_a_real_syllable_still_ends_the_turn():
+    """The guard must not swallow short answers. "Aamaa" is a whole turn."""
+    model = StubModel([], keep_open=True)
+    source = FakeSource([SILENCE] * 5 + [SPEECH] * 12 + [SILENCE] * 40)
+    await Conversation(model, source, FakeSink(), vad=EnergyVad()).run()
+
+    assert model.ends == 1

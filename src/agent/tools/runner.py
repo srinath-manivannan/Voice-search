@@ -161,7 +161,7 @@ class ToolSession:
             log.warning("catalogue unavailable: %s", down)
             return {"error": "catalogue_unavailable"}
 
-        shortlist, priced = await self._price(found.products, min_price, max_price)
+        shortlist, priced = await self._price(found.products, max_price)
         self._shortlist = shortlist
 
         out: dict[str, Any] = {
@@ -192,7 +192,7 @@ class ToolSession:
         return out
 
     async def _price(
-        self, products: list[Product], min_price: int | None, max_price: int | None
+        self, products: list[Product], max_price: int | None
     ) -> tuple[list[Candidate], bool]:
         """Replace index prices with the price in force, and drop the misfits.
 
@@ -235,7 +235,7 @@ class ToolSession:
             price = in_force.selling if in_force else product.price
             if in_force:
                 confirmed += 1
-                if price is not None and _outside(price, min_price, max_price):
+                if price is not None and _outside(price, max_price):
                     log.info(
                         "dropping %s: price list says %s, outside the asked band",
                         product.item_code,
@@ -340,18 +340,21 @@ def _money(value: Any) -> int | None:
         return None
 
 
-def _outside(price: int, low: int | None, high: int | None) -> bool:
-    """A budget is a budget.
+def _outside(price: int, high: int | None) -> bool:
+    """Over the ceiling is a problem. Under the floor is a bargain.
 
-    This carried a 5% margin for a while, on the theory that a phone slightly
-    over is one a customer would still look at. What it actually did was let a
-    30,999 phone through a 20,000-30,000 question and have the agent present
-    it as being inside the range. A salesperson may offer to stretch a budget;
-    they do not do it silently, and an agent that cannot ask should not.
+    The ceiling is strict. A 5% margin here let a 30,999 phone through a
+    20,000-30,000 question and the agent presented it as inside the range; a
+    salesperson may offer to stretch a budget, but not silently.
+
+    The floor is not a filter at all, and making it one was a worse bug than
+    the one it was copied from. A customer asked for a Vivo between 25,000 and
+    30,000, the index had exactly one, the price list said 22,999 - and it was
+    dropped for being too cheap. They were told nothing was available. Nobody
+    asking for a phone under 30,000 is disappointed by one at 22,999, and
+    "innum kammi - 22,999" is a sentence that sells.
     """
-    if high is not None and price > high:
-        return True
-    return low is not None and price < low
+    return high is not None and price > high
 
 
 def _why(state: str, reason: str | None) -> dict[str, Any]:
