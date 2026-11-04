@@ -151,10 +151,10 @@ def test_both_surfaces_share_one_persona_differing_only_in_delivery():
 
     for text in (voice, chat):
         assert "Never invent a price" in text
+        # Tamil script by default, Tanglish when they write in Latin letters,
+        # English never - Poorvika's customers are Tamil speakers.
+        assert "NEVER REPLY IN ENGLISH" in text
         assert "Tanglish" in text
-        # Tamil Nadu retailer, Tamil-speaking customers: Tamil is the default,
-        # not whichever language the first exchange happened to land in.
-        assert "TAMIL IS YOUR DEFAULT" in text
         # The greeting must survive the word cap, or it is spoken half-finished.
         assert "does NOT apply" in text
     assert "speaking out loud" in voice
