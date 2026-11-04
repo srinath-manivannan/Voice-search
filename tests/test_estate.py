@@ -716,3 +716,44 @@ async def test_a_phone_cheaper_than_asked_is_still_offered():
     )
     assert [p["name"] for p in found["products"]] == ["Vivo Y200 Pro 5G"]
     assert found["products"][0]["price_inr"] == 22999
+
+
+async def test_nothing_inside_the_budget_still_offers_the_nearest():
+    """Measured: {"products": 0, "total": 1} and the customer heard nothing.
+
+    One Samsung matched and the price list put it over the ceiling. Dropping
+    it is right; leaving the agent with an empty list and no reason is not -
+    there is nothing to build a sentence from, so it says "ethuvum illa" and
+    the call ends there.
+    """
+    tools = ToolSession(
+        catalogue_of(document("52064", "Samsung Galaxy A17 5G", 25499)),
+        estate=FakeEstate({"52064": priced("52064", 35499)}),
+    )
+
+    found = await tools.run(
+        "search_products",
+        {"query": "Samsung", "category": "phone", "max_price": 30000},
+    )
+    assert found["products"] == []
+    assert found["nothing_inside_budget"] is True
+    assert found["nearest_above_budget"] == {
+        "name": "Samsung Galaxy A17 5G",
+        "price_inr": 35499,
+    }
+
+
+async def test_without_a_budget_only_the_shortlist_is_priced():
+    """Six priced to speak three is three upstream calls bought for nothing.
+
+    Nothing can be dropped without a ceiling, and the caller waits for the
+    slowest of them: 1,313ms for six against 502-568ms with a budget.
+    """
+    estate = FakeEstate({str(c): priced(str(c), 20000 + c) for c in range(1, 9)})
+    tools = ToolSession(
+        catalogue_of(*(document(str(c), f"Phone {c}", 25000) for c in range(1, 9))),
+        estate=estate,
+    )
+
+    await tools.run("search_products", {"query": "phone"})
+    assert len(estate.asked) == 3, "priced more candidates than it can speak"

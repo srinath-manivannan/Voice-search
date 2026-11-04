@@ -45,9 +45,13 @@ from src.agent.tools.catalogue import Catalogue, CatalogueUnavailable, Product
 log = logging.getLogger(__name__)
 
 SHORTLIST = 3  # nobody can hold a longer list read aloud
-# More than the shortlist, because the index's own price is sometimes wrong by
-# enough to put a phone outside the budget it was found for, and those have to
-# be droppable without leaving the customer with one option.
+# More than the shortlist, but only when there is a ceiling to drop against:
+# the index's own price is sometimes wrong by enough to put a phone outside
+# the budget it was found for, and those have to be droppable without leaving
+# the customer with one option. With no budget nothing can be dropped, so
+# pricing six to speak three is three upstream calls bought for nothing - and
+# the slowest of six is what the caller waits for. Measured at 1,313ms for six
+# against 502-568ms for the searches that had a budget.
 CANDIDATES = 6
 
 # What each thing the customer might ask needs fetched. Ordinary code, not the
@@ -132,7 +136,9 @@ class ToolSession:
         max_price = _money(args.get("max_price"))
         min_price = _money(args.get("min_price"))
         asked = str(args.get("query") or "").strip()
-        limit = CANDIDATES if self._estate else SHORTLIST
+        # Only a ceiling can drop a candidate, so only a ceiling earns the
+        # extra ones.
+        limit = CANDIDATES if self._estate and max_price else SHORTLIST
         try:
             found = await self._catalogue.search(
                 query=asked or "*",
@@ -161,7 +167,7 @@ class ToolSession:
             log.warning("catalogue unavailable: %s", down)
             return {"error": "catalogue_unavailable"}
 
-        shortlist, priced = await self._price(found.products, max_price)
+        shortlist, priced, over = await self._price(found.products, max_price)
         self._shortlist = shortlist
 
         out: dict[str, Any] = {
@@ -185,15 +191,23 @@ class ToolSession:
                 for c in shortlist
             ],
         }
-        if not priced:
-            # The agent has to know the difference, because an index price is
-            # a list price and sometimes a stale one.
+        if shortlist and not priced:
+            # Only when there is a price to quote. The agent has to know the
+            # difference, because an index price is a list price and sometimes
+            # a stale one.
             out["price_note"] = "approximate - confirm before quoting"
+        if over and not shortlist:
+            # Everything matched and everything was dearer than they asked.
+            # Saying only "nothing found" wastes the one thing we do know, and
+            # "Samsung-la 25-30k-la ethuvum illa, 35,499-ku Galaxy A17 irukku"
+            # is the answer a salesperson gives.
+            out["nothing_inside_budget"] = True
+            out["nearest_above_budget"] = over[0]
         return out
 
     async def _price(
         self, products: list[Product], max_price: int | None
-    ) -> tuple[list[Candidate], bool]:
+    ) -> tuple[list[Candidate], bool, list[dict[str, Any]]]:
         """Replace index prices with the price in force, and drop the misfits.
 
         Measured on four phones the index offered inside 20,000-30,000: two of
@@ -207,9 +221,14 @@ class ToolSession:
         """
         estate = self._estate
         if estate is None:
-            return [
-                _candidate(str(i + 1), p, p.price, None) for i, p in enumerate(products)
-            ], False
+            return (
+                [
+                    _candidate(str(i + 1), p, p.price, None)
+                    for i, p in enumerate(products)
+                ],
+                False,
+                [],
+            )
 
         async def selling(
             product: Product,
@@ -230,6 +249,7 @@ class ToolSession:
         )
 
         kept: list[Candidate] = []
+        over: list[dict[str, Any]] = []
         confirmed = 0
         for product, in_force in answered:
             price = in_force.selling if in_force else product.price
@@ -237,10 +257,11 @@ class ToolSession:
                 confirmed += 1
                 if price is not None and _outside(price, max_price):
                     log.info(
-                        "dropping %s: price list says %s, outside the asked band",
+                        "dropping %s: price list says %s, over the ceiling",
                         product.item_code,
                         price,
                     )
+                    over.append({"name": product.name, "price_inr": price})
                     continue
             # The former price is the price list's own MRP. The index's figure
             # is a different object and disagrees often enough that pairing it
@@ -257,8 +278,9 @@ class ToolSession:
             if len(kept) == SHORTLIST:
                 break
 
+        over.sort(key=lambda o: o["price_inr"])
         # Every price spoken is a real one only if every survivor was answered.
-        return kept, confirmed >= len(kept) and bool(kept)
+        return kept, confirmed >= len(kept) and bool(kept), over
 
     # ── one item ──────────────────────────────────────────────────────────
 
