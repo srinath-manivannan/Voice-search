@@ -16,3 +16,16 @@ REPLY_WORD_CAP = 15
 CHAT_WORD_CAP = 45
 THINKING_BUDGET = 0
 LOG_LEVEL = "DEBUG"
+
+# The per-item estate: PIM pricing, Central Inventory, the offers rule engine
+# and the EMI calculator the shop's own product page calls. Measured on
+# 2026-11-04: production answers price, offers and EMI and has no working
+# stock credential; stage answers stock and has no EMI host at all. One
+# environment is chosen whole, because production pricing spoken beside
+# staging stock is the failure worth designing against.
+ESTATE_API_ENV = "production"
+# "inprocess" runs the Worker's own product service here; "worker" calls
+# POST /product on a deployed one; "off" disables per-item facts entirely.
+ESTATE_BACKEND = "inprocess"
+# Relative to this repository's root, not the working directory.
+ESTATE_SRC_PATH = "../../Search-proxy/products-search-engine"

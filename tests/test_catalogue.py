@@ -195,31 +195,71 @@ def test_what_is_spoken_carries_no_item_code():
 
 async def test_both_surfaces_run_the_same_tool_implementation():
     """Two copies would drift, and the drift would be two different answers."""
-    from src.agent.tools.runner import run_tool
+    from src.agent.tools.runner import ToolSession
 
     cat, _ = catalogue_with(FakeResponse(PAYLOAD))
-    result = await run_tool(
-        cat, "search_products", {"category": "phone", "max_price": 30000}
+    result = await ToolSession(cat).run(
+        "search_products", {"category": "phone", "max_price": 30000}
     )
 
     assert result["total_matching"] == 8
     assert len(result["products"]) == 3
     # Named a hint everywhere it is exposed, so it cannot be read as a promise.
     assert "in_stock_hint" in result["products"][0]
+    # A ref, not the item code: the code must never reach a sentence.
+    assert [p["ref"] for p in result["products"]] == ["1", "2", "3"]
+    assert not any("item_code" in p for p in result["products"])
+
+
+async def test_without_an_estate_prices_are_marked_unconfirmed():
+    """The index price is a list price and sometimes a stale one.
+
+    Measured: two of four index prices inside a 20,000-30,000 band disagreed
+    with the price list, one by 10,000 upward. If nothing re-asked the price
+    list, the agent has to say so rather than quote with confidence.
+    """
+    from src.agent.tools.runner import ToolSession
+
+    cat, _ = catalogue_with(FakeResponse(PAYLOAD))
+    result = await ToolSession(cat, estate=None).run("search_products", {})
+    assert result["price_note"] == "approximate - confirm before quoting"
 
 
 async def test_an_unknown_tool_is_refused_rather_than_guessed_at():
-    from src.agent.tools.runner import run_tool
+    from src.agent.tools.runner import ToolSession
 
     cat, _ = catalogue_with(FakeResponse(PAYLOAD))
-    assert await run_tool(cat, "check_emi", {}) == {"error": "unknown_tool"}
+    assert await ToolSession(cat).run("check_emi", {}) == {"error": "unknown_tool"}
+
+
+async def test_details_without_a_search_cannot_invent_a_product():
+    """A ref only means something against a shortlist this session produced."""
+    from src.agent.tools.runner import ToolSession
+
+    cat, _ = catalogue_with(FakeResponse(PAYLOAD))
+    answer = await ToolSession(cat, estate=_Estate({})).run(
+        "product_details", {"ref": "2", "want": ["stock"]}
+    )
+    assert answer["error"] == "no_such_product"
 
 
 async def test_an_outage_reaches_the_model_as_an_outage():
     """Not as an empty shelf, which the agent would report as 'nothing found'."""
-    from src.agent.tools.runner import run_tool
+    from src.agent.tools.runner import ToolSession
 
     cat, _ = catalogue_with(TimeoutError("down"))
-    assert await run_tool(cat, "search_products", {}) == {
+    assert await ToolSession(cat).run("search_products", {}) == {
         "error": "catalogue_unavailable"
     }
+
+
+class _Estate:
+    """A backend that answers with a fixed payload. No network, no money."""
+
+    def __init__(self, payload: dict) -> None:
+        self.payload = payload
+        self.asked: list[tuple[str, tuple[str, ...]]] = []
+
+    async def product(self, item_code: str, sections: tuple[str, ...]) -> dict:
+        self.asked.append((item_code, sections))
+        return self.payload

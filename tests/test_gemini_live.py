@@ -298,7 +298,7 @@ async def test_declared_tools_reach_the_setup_message(config):
     setup = sock.sent[0]["setup"]
     assert "tools" in setup
     names = [f["name"] for f in setup["tools"][0]["functionDeclarations"]]
-    assert names == ["search_products"]
+    assert names == ["search_products", "product_details"]
 
 
 async def test_a_tool_call_is_executed_and_answered_on_the_same_socket(config):

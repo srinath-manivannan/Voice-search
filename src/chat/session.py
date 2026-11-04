@@ -19,8 +19,7 @@ from dataclasses import dataclass, field
 import logging
 from typing import Any
 
-from src.agent.tools.catalogue import Catalogue
-from src.agent.tools.runner import run_tool
+from src.agent.tools.runner import ToolSession
 from src.chat.gemini_text import GeminiTextModel
 from src.voice.usage import FLASH_LITE, SessionUsage
 
@@ -41,19 +40,21 @@ class ChatResult:
 
 
 class ChatSession:
-    # One round of tool calling. The model asks, we search, it answers. A
-    # second round would mean it rejected its own results, which is a prompt
-    # problem rather than something to paper over with another API call.
-    MAX_TOOL_ROUNDS = 1
+    # Two rounds, because one question can genuinely need two lookups:
+    # "20,000-30,000 kulla phone, stock irukka?" is a search and then a stock
+    # check on one of its results, and the second depends on the first. A
+    # third round would mean the model rejected its own results, which is a
+    # prompt problem rather than something to paper over with another call.
+    MAX_TOOL_ROUNDS = 2
 
     def __init__(
         self,
         model: GeminiTextModel,
-        catalogue: Catalogue | None = None,
+        tools: ToolSession | None = None,
         max_history_messages: int = 12,
     ) -> None:
         self._model = model
-        self._catalogue = catalogue
+        self._tools = tools
         # Twelve messages is six exchanges. Enough that "what about the other
         # one" still resolves, short enough that the prompt stops growing.
         self._max_history = max_history_messages
@@ -104,8 +105,10 @@ class ChatSession:
                     "parts": [turn.function_call_part or {"functionCall": call}],
                 }
             )
-            result = await run_tool(
-                self._catalogue, call.get("name", ""), call.get("args") or {}
+            result = (
+                await self._tools.run(call.get("name", ""), call.get("args") or {})
+                if self._tools is not None
+                else {"error": "catalogue_not_configured"}
             )
             self._history.append(
                 {

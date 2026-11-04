@@ -47,6 +47,18 @@ class Config:
     catalogue_token: str
     catalogue_origin: str
 
+    # The per-item estate - price in force, live stock, card offers, bank EMI.
+    # `estate.py` explains the two backends and why one environment is chosen
+    # whole rather than per service.
+    estate_backend: str
+    estate_api_env: str
+    estate_src_path: str
+    estate_worker_url: str
+    estate_worker_token: str
+    # Passed through to the Worker's own `env` binding under the names it
+    # reads, so the mapping lives here rather than being spelled out twice.
+    estate_secrets: dict[str, str]
+
     log_level: str
     env: str
 
@@ -113,6 +125,31 @@ def load(env: str | None = None) -> Config:
         catalogue_url=os.environ.get("CATALOGUE_URL", defaults.CATALOGUE_URL),
         catalogue_token=os.environ.get("CATALOGUE_TOKEN", ""),
         catalogue_origin=os.environ.get("CATALOGUE_ORIGIN", "bot"),
+        estate_backend=os.environ.get("ESTATE_BACKEND", defaults.ESTATE_BACKEND),
+        estate_api_env=os.environ.get("ESTATE_API_ENV", defaults.ESTATE_API_ENV),
+        estate_src_path=os.environ.get("ESTATE_SRC_PATH", defaults.ESTATE_SRC_PATH),
+        estate_worker_url=os.environ.get("ESTATE_WORKER_URL", ""),
+        estate_worker_token=os.environ.get("ESTATE_WORKER_TOKEN", ""),
+        estate_secrets={
+            name: os.environ.get(name, "")
+            for name in (
+                "PIM_ACCESS_TOKEN",
+                "OFFERS_API_KEY",
+                "CI_AUTH_TOKEN",
+                # Host overrides, for the two the estate table has no entry
+                # for. Empty means "not configured", which is reported rather
+                # than guessed around.
+                "CI_HOST",
+                "EMI_HOST",
+                "PIM_HOST",
+                "OFFERS_HOST",
+                # The CI gateway verifies its token with a secret chosen by
+                # this header, so the same token is accepted under one mode
+                # and rejected as "signature is invalid" under another.
+                "CI_MODE",
+                "OFFERS_MODE",
+            )
+        },
         log_level=os.environ.get("LOG_LEVEL", defaults.LOG_LEVEL),
         env=env,
     )

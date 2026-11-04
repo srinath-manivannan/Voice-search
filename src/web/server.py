@@ -28,9 +28,10 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from src.agent.persona import GREETING
+from src.agent.tools import estate as estate_api
 from src.agent.tools.catalogue import Catalogue
 from src.agent.tools.declarations import tool_config
-from src.agent.tools.runner import run_tool
+from src.agent.tools.runner import ToolSession
 from src.chat.gemini_text import GeminiTextModel
 from src.chat.session import ChatSession
 from src.config import Config, load
@@ -45,6 +46,17 @@ STATIC = Path(__file__).parent / "static"
 # Gitignored. Traces hold decisions and timings, never audio or speech, but
 # they are still call records and belong on the machine that made them.
 TRACES = Path(__file__).resolve().parents[2] / "out" / "traces"
+
+
+def _catalogue(settings: Config) -> Catalogue | None:
+    """Product search, when a token for it exists. Both sockets build one."""
+    if not settings.catalogue_token:
+        return None
+    return Catalogue(
+        settings.catalogue_url,
+        settings.catalogue_token,
+        settings.catalogue_origin,
+    )
 
 
 def create_app(config: Config | None = None) -> FastAPI:
@@ -140,18 +152,11 @@ def create_app(config: Config | None = None) -> FastAPI:
                     source.offer(pcm)
 
         try:
-            voice_catalogue = (
-                Catalogue(
-                    settings.catalogue_url,
-                    settings.catalogue_token,
-                    settings.catalogue_origin,
-                )
-                if settings.catalogue_token
-                else None
-            )
+            # One per call, so a shortlist cannot leak between customers.
+            tools = ToolSession(_catalogue(settings), estate_api.build(settings))
 
             async def call_tool(name: str, args: dict[str, Any]) -> dict[str, Any]:
-                return await run_tool(voice_catalogue, name, args)
+                return await tools.run(name, args)
 
             async with GeminiLiveSession(
                 settings,
@@ -226,16 +231,10 @@ def create_app(config: Config | None = None) -> FastAPI:
             system_instruction=settings.chat_instruction,
             tools=tool_config() if settings.catalogue_token else None,
         )
-        catalogue = (
-            Catalogue(
-                settings.catalogue_url,
-                settings.catalogue_token,
-                settings.catalogue_origin,
-            )
-            if settings.catalogue_token
-            else None
+        session = ChatSession(
+            model,
+            tools=ToolSession(_catalogue(settings), estate_api.build(settings)),
         )
-        session = ChatSession(model, catalogue=catalogue)
 
         try:
             await websocket.send_json({"type": "ready", "greeting": GREETING})
