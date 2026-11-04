@@ -30,6 +30,7 @@ from fastapi.staticfiles import StaticFiles
 from src.agent.persona import GREETING
 from src.agent.tools.catalogue import Catalogue
 from src.agent.tools.declarations import tool_config
+from src.agent.tools.runner import run_tool
 from src.chat.gemini_text import GeminiTextModel
 from src.chat.session import ChatSession
 from src.config import Config, load
@@ -139,7 +140,24 @@ def create_app(config: Config | None = None) -> FastAPI:
                     source.offer(pcm)
 
         try:
-            async with GeminiLiveSession(settings) as model:
+            voice_catalogue = (
+                Catalogue(
+                    settings.catalogue_url,
+                    settings.catalogue_token,
+                    settings.catalogue_origin,
+                )
+                if settings.catalogue_token
+                else None
+            )
+
+            async def call_tool(name: str, args: dict[str, Any]) -> dict[str, Any]:
+                return await run_tool(voice_catalogue, name, args)
+
+            async with GeminiLiveSession(
+                settings,
+                tools=tool_config() if settings.catalogue_token else None,
+                on_tool_call=call_tool,
+            ) as model:
                 usage = model.usage
                 await push({"type": "ready"})
                 # Speak first. A call that answers and then says nothing until

@@ -47,8 +47,12 @@ class FakePoster:
 def hit(name, price, code, avail="In Stock", stock="In Stock", brand="Samsung"):
     return {
         "document": {
-            "name": name, "price": price, "item_code": code,
-            "availability": avail, "stock_status": stock, "brand_name": brand,
+            "name": name,
+            "price": price,
+            "item_code": code,
+            "availability": avail,
+            "stock_status": stock,
+            "brand_name": brand,
         }
     }
 
@@ -58,9 +62,24 @@ PAYLOAD = {
         {
             "found": 8,
             "hits": [
-                hit("Vivo Y200 Pro 5G ( Silky Black, 8GB-128GB )", 29999, "45902", brand="Vivo"),
-                hit("Realme 14 Pro Lite 5G ( Glass Gold,8GB-128GB )", 25999, "48652", brand="Realme"),
-                hit("Poco M8 5G ( Carbon Black, 6GB-128GB )", 21999, "52330", brand="Poco"),
+                hit(
+                    "Vivo Y200 Pro 5G ( Silky Black, 8GB-128GB )",
+                    29999,
+                    "45902",
+                    brand="Vivo",
+                ),
+                hit(
+                    "Realme 14 Pro Lite 5G ( Glass Gold,8GB-128GB )",
+                    25999,
+                    "48652",
+                    brand="Realme",
+                ),
+                hit(
+                    "Poco M8 5G ( Carbon Black, 6GB-128GB )",
+                    21999,
+                    "52330",
+                    brand="Poco",
+                ),
                 hit("A fourth that must not be read aloud", 20100, "99999"),
             ],
         }
@@ -125,8 +144,22 @@ async def test_the_shortlist_is_bounded_to_what_can_be_spoken():
 
 
 async def test_stock_is_true_only_when_both_fields_say_so():
-    disagreeing = {"results": [{"found": 1, "hits": [
-        hit("Disagreeing phone", 24999, "1", avail="In Stock", stock="Out Of Stock")]}]}
+    disagreeing = {
+        "results": [
+            {
+                "found": 1,
+                "hits": [
+                    hit(
+                        "Disagreeing phone",
+                        24999,
+                        "1",
+                        avail="In Stock",
+                        stock="Out Of Stock",
+                    )
+                ],
+            }
+        ]
+    }
     cat, _ = catalogue_with(FakeResponse(disagreeing))
     product = (await cat.search()).products[0]
     assert product.in_stock is False
@@ -134,7 +167,9 @@ async def test_stock_is_true_only_when_both_fields_say_so():
 
 async def test_a_rejected_query_is_an_error_not_an_empty_shelf():
     """The proxy answers 200 with the error inside the result."""
-    rejected = {"results": [{"code": 400, "error": "Could not find a filter field named `x`"}]}
+    rejected = {
+        "results": [{"code": 400, "error": "Could not find a filter field named `x`"}]
+    }
     cat, _ = catalogue_with(FakeResponse(rejected))
     with pytest.raises(CatalogueUnavailable, match="rejected"):
         await cat.search(category="phone")
@@ -156,3 +191,35 @@ def test_what_is_spoken_carries_no_item_code():
     spoken = Product("52330", "Poco M8 5G", 21999, "Poco", True).spoken()
     assert "52330" not in spoken
     assert "₹21,999" in spoken
+
+
+async def test_both_surfaces_run_the_same_tool_implementation():
+    """Two copies would drift, and the drift would be two different answers."""
+    from src.agent.tools.runner import run_tool
+
+    cat, _ = catalogue_with(FakeResponse(PAYLOAD))
+    result = await run_tool(
+        cat, "search_products", {"category": "phone", "max_price": 30000}
+    )
+
+    assert result["total_matching"] == 8
+    assert len(result["products"]) == 3
+    # Named a hint everywhere it is exposed, so it cannot be read as a promise.
+    assert "in_stock_hint" in result["products"][0]
+
+
+async def test_an_unknown_tool_is_refused_rather_than_guessed_at():
+    from src.agent.tools.runner import run_tool
+
+    cat, _ = catalogue_with(FakeResponse(PAYLOAD))
+    assert await run_tool(cat, "check_emi", {}) == {"error": "unknown_tool"}
+
+
+async def test_an_outage_reaches_the_model_as_an_outage():
+    """Not as an empty shelf, which the agent would report as 'nothing found'."""
+    from src.agent.tools.runner import run_tool
+
+    cat, _ = catalogue_with(TimeoutError("down"))
+    assert await run_tool(cat, "search_products", {}) == {
+        "error": "catalogue_unavailable"
+    }

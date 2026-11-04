@@ -22,6 +22,7 @@ import base64
 import json
 import logging
 import time
+import contextlib
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any, Protocol
 
@@ -107,8 +108,16 @@ class GeminiLiveSession:
         config: Config,
         connect: Connect | None = None,
         clock: Callable[[], float] = time.perf_counter,
+        tools: dict[str, Any] | None = None,
+        on_tool_call: Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]]
+        | None = None,
     ) -> None:
         self._config = config
+        # Declared to the model at setup; executed by the injected callback.
+        # The adapter stays ignorant of what the tools actually do, which is
+        # what lets the product logic outlive a change of provider.
+        self._tools = tools
+        self._on_tool_call = on_tool_call
         self._connect = connect or _default_connect
         self._clock = clock
         self._socket: Socket | None = None
@@ -138,16 +147,15 @@ class GeminiLiveSession:
                 "thinkingBudget": self._config.thinking_budget
             }
 
-        return {
-            "setup": {
-                "model": f"models/{self._config.gemini_live_model}",
-                "generationConfig": generation,
-                "systemInstruction": {
-                    "parts": [{"text": self._config.system_instruction}]
-                },
-                "outputAudioTranscription": {},
-            }
+        setup: dict[str, Any] = {
+            "model": f"models/{self._config.gemini_live_model}",
+            "generationConfig": generation,
+            "systemInstruction": {"parts": [{"text": self._config.system_instruction}]},
+            "outputAudioTranscription": {},
         }
+        if self._tools:
+            setup["tools"] = [self._tools]
+        return {"setup": setup}
 
     async def __aenter__(self) -> GeminiLiveSession:
         """Connect, preferring to switch thinking off, but not insisting.
@@ -311,6 +319,12 @@ class GeminiLiveSession:
             if usage_metadata := message.get("usageMetadata"):
                 self._pending_usage = self.usage.record(usage_metadata)
 
+            # The model asking for a tool. Run it and answer on the same
+            # socket; the model then speaks with the result in hand.
+            if tool_call := message.get("toolCall"):
+                await self._answer_tool_call(tool_call)
+                continue
+
             server_content = message.get("serverContent") or {}
 
             if server_content.get("interrupted"):
@@ -334,6 +348,32 @@ class GeminiLiveSession:
                     turn_id=turn_id,
                     usage=self._pending_usage,
                     first_audio_ms=self._first_audio_ms(),
+                )
+
+    async def _answer_tool_call(self, tool_call: dict[str, Any]) -> None:
+        """Execute what the model asked for and send the result straight back.
+
+        A failure is reported as a failure, not as an empty result: the model
+        must be able to tell "nothing matched" from "the lookup did not
+        happen", because those are different things to say to a customer.
+        """
+        responses = []
+        for call in tool_call.get("functionCalls") or []:
+            name = call.get("name", "")
+            if self._on_tool_call is None:
+                result: dict[str, Any] = {"error": "no_tool_handler"}
+            else:
+                try:
+                    result = await self._on_tool_call(name, call.get("args") or {})
+                except Exception:  # noqa: BLE001 - the call must still be answered
+                    log.exception("tool %s failed", name)
+                    result = {"error": "tool_failed"}
+            responses.append({"id": call.get("id"), "name": name, "response": result})
+
+        if responses:
+            with contextlib.suppress(_ClosedSocket):
+                await self._require_socket().send(
+                    json.dumps({"toolResponse": {"functionResponses": responses}})
                 )
 
     def _first_audio_ms(self) -> float | None:

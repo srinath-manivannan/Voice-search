@@ -19,7 +19,8 @@ from dataclasses import dataclass, field
 import logging
 from typing import Any
 
-from src.agent.tools.catalogue import Catalogue, CatalogueUnavailable
+from src.agent.tools.catalogue import Catalogue
+from src.agent.tools.runner import run_tool
 from src.chat.gemini_text import GeminiTextModel
 from src.voice.usage import FLASH_LITE, SessionUsage
 
@@ -74,39 +75,6 @@ class ChatSession:
         if excess > 0:
             self._history = self._history[excess + (excess % 2) :]
 
-    async def _run_search(self, args: dict[str, Any]) -> dict[str, Any]:
-        """Execute the one tool, and report failure as failure.
-
-        A catalogue that is down must not come back as an empty shelf - the
-        agent would tell the customer there is nothing matching when the truth
-        is that we could not look.
-        """
-        if self._catalogue is None:
-            return {"error": "catalogue_not_configured"}
-        try:
-            found = await self._catalogue.search(
-                query=str(args.get("query") or "*"),
-                category=args.get("category"),
-                min_price=args.get("min_price"),
-                max_price=args.get("max_price"),
-            )
-        except CatalogueUnavailable as down:
-            log.warning("catalogue unavailable: %s", down)
-            return {"error": "catalogue_unavailable"}
-
-        return {
-            "total_matching": found.total,
-            "products": [
-                {
-                    "name": p.name,
-                    "price_inr": p.price,
-                    "brand": p.brand,
-                    "in_stock": p.in_stock,
-                }
-                for p in found.products
-            ],
-        }
-
     async def send(self, text: str) -> AsyncIterator[str]:
         """Add the customer's message, stream the reply, record what it cost."""
         self._history.append({"role": "user", "parts": [{"text": text}]})
@@ -136,7 +104,9 @@ class ChatSession:
                     "parts": [turn.function_call_part or {"functionCall": call}],
                 }
             )
-            result = await self._run_search(call.get("args") or {})
+            result = await run_tool(
+                self._catalogue, call.get("name", ""), call.get("args") or {}
+            )
             self._history.append(
                 {
                     "role": "user",

@@ -280,3 +280,93 @@ async def test_thinking_config_is_still_sent_when_the_model_accepts_it(config):
 
     generation = sock.sent[0]["setup"]["generationConfig"]
     assert generation["thinkingConfig"]["thinkingBudget"] == 0
+
+
+async def test_declared_tools_reach_the_setup_message(config):
+    """They silently did not, and the model answered from nothing instead.
+
+    Without `tools` in setup the model cannot call anything, so it falls back
+    on the persona - which at the time still said it had no catalogue, so it
+    politely offered to check and never did.
+    """
+    from src.agent.tools.declarations import tool_config
+
+    sock = FakeSocket([{"setupComplete": {}}])
+    async with GeminiLiveSession(config, connect=connector(sock), tools=tool_config()):
+        pass
+
+    setup = sock.sent[0]["setup"]
+    assert "tools" in setup
+    names = [f["name"] for f in setup["tools"][0]["functionDeclarations"]]
+    assert names == ["search_products"]
+
+
+async def test_a_tool_call_is_executed_and_answered_on_the_same_socket(config):
+    asked = []
+
+    async def handler(name, args):
+        asked.append((name, args))
+        return {"total_matching": 8, "products": [{"name": "Vivo Y200 Pro 5G"}]}
+
+    sock = FakeSocket(
+        [
+            {"setupComplete": {}},
+            {
+                "toolCall": {
+                    "functionCalls": [
+                        {
+                            "id": "c1",
+                            "name": "search_products",
+                            "args": {"category": "phone", "max_price": 30000},
+                        }
+                    ]
+                }
+            },
+            {"serverContent": {"turnComplete": True}},
+        ]
+    )
+    session = GeminiLiveSession(
+        config,
+        connect=connector(sock),
+        tools={"functionDeclarations": []},
+        on_tool_call=handler,
+    )
+    async with session:
+        [e async for e in session.events()]
+
+    assert asked == [("search_products", {"category": "phone", "max_price": 30000})]
+    answer = sock.sent[-1]["toolResponse"]["functionResponses"][0]
+    assert answer["id"] == "c1"
+    assert answer["response"]["total_matching"] == 8
+
+
+async def test_a_failing_tool_is_still_answered(config):
+    """Leaving a toolCall unanswered strands the model mid-turn."""
+
+    async def explodes(name, args):
+        raise RuntimeError("upstream on fire")
+
+    sock = FakeSocket(
+        [
+            {"setupComplete": {}},
+            {
+                "toolCall": {
+                    "functionCalls": [
+                        {"id": "c9", "name": "search_products", "args": {}}
+                    ]
+                }
+            },
+            {"serverContent": {"turnComplete": True}},
+        ]
+    )
+    session = GeminiLiveSession(
+        config,
+        connect=connector(sock),
+        tools={"functionDeclarations": []},
+        on_tool_call=explodes,
+    )
+    async with session:
+        [e async for e in session.events()]
+
+    answer = sock.sent[-1]["toolResponse"]["functionResponses"][0]
+    assert answer["response"] == {"error": "tool_failed"}

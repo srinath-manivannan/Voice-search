@@ -177,16 +177,31 @@ async def test_a_reply_that_is_only_a_tool_call_still_reaches_the_caller():
     The stream yielded only on text, so the loop never ran, the caller never
     saw the turn, and the agent appeared to say nothing.
     """
-    call_only = sse({
-        "candidates": [{"content": {"parts": [
-            {"functionCall": {"name": "search_products", "args": {"max_price": 30000}},
-             "thoughtSignature": "sig-abc"}
-        ]}}],
-        "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 5},
-    })
+    call_only = sse(
+        {
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            {
+                                "functionCall": {
+                                    "name": "search_products",
+                                    "args": {"max_price": 30000},
+                                },
+                                "thoughtSignature": "sig-abc",
+                            }
+                        ]
+                    }
+                }
+            ],
+            "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 5},
+        }
+    )
     model, _ = model_with(FakeResponse(call_only))
     turn = None
-    async for _delta, streamed in model.stream([{"role": "user", "parts": [{"text": "hi"}]}]):
+    async for _delta, streamed in model.stream(
+        [{"role": "user", "parts": [{"text": "hi"}]}]
+    ):
         turn = streamed
 
     assert turn is not None
