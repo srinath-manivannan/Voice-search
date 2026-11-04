@@ -28,6 +28,8 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from src.agent.persona import GREETING
+from src.agent.tools.catalogue import Catalogue
+from src.agent.tools.declarations import tool_config
 from src.chat.gemini_text import GeminiTextModel
 from src.chat.session import ChatSession
 from src.config import Config, load
@@ -204,8 +206,18 @@ def create_app(config: Config | None = None) -> FastAPI:
             api_key=settings.gemini_api_key,
             model=settings.gemini_text_model,
             system_instruction=settings.chat_instruction,
+            tools=tool_config() if settings.catalogue_token else None,
         )
-        session = ChatSession(model)
+        catalogue = (
+            Catalogue(
+                settings.catalogue_url,
+                settings.catalogue_token,
+                settings.catalogue_origin,
+            )
+            if settings.catalogue_token
+            else None
+        )
+        session = ChatSession(model, catalogue=catalogue)
 
         try:
             await websocket.send_json({"type": "ready", "greeting": GREETING})

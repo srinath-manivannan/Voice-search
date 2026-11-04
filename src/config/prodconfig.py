@@ -7,6 +7,10 @@ environments is a bug that only shows up in one of them.
 
 GEMINI_LIVE_MODEL = "gemini-3.8-live"
 GEMINI_TEXT_MODEL = "gemini-3.5-flash-lite"
+
+# Product List API. Staging for now - production needs its own URL
+# and token, and neither has been confirmed.
+CATALOGUE_URL = "https://stage-proxy.poorvika.in/mMBVOUVdxJWP"
 REPLY_WORD_CAP = 15
 CHAT_WORD_CAP = 45
 THINKING_BUDGET = 0

@@ -115,7 +115,11 @@ async def test_text_streams_in_pieces_and_the_turn_carries_usage():
         deltas.append(delta)
         turn = streamed
 
-    assert deltas == ["Vanakkam! ", "Check panni sollren."]
+    # A trailing empty delta is deliberate: the turn is always handed back
+    # once at the end, because a reply that is only a functionCall produces no
+    # text and would otherwise never reach the caller at all.
+    assert [d for d in deltas if d] == ["Vanakkam! ", "Check panni sollren."]
+    assert deltas[-1] == ""
     assert turn is not None and turn.text == "Vanakkam! Check panni sollren."
     assert turn.usage["promptTokenCount"] == 120
 
@@ -164,3 +168,29 @@ def test_both_surfaces_share_one_persona_differing_only_in_delivery():
     # at 100, against 15.3 at a cap of 15 - so raising it buys finished answers
     # rather than longer ones, and costs nothing measurable.
     assert CHAT_WORD_CAP == VOICE_WORD_CAP == 100
+
+
+async def test_a_reply_that_is_only_a_tool_call_still_reaches_the_caller():
+    """It produced nothing at all before.
+
+    Gemini answers a product question with a functionCall part and no text.
+    The stream yielded only on text, so the loop never ran, the caller never
+    saw the turn, and the agent appeared to say nothing.
+    """
+    call_only = sse({
+        "candidates": [{"content": {"parts": [
+            {"functionCall": {"name": "search_products", "args": {"max_price": 30000}},
+             "thoughtSignature": "sig-abc"}
+        ]}}],
+        "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 5},
+    })
+    model, _ = model_with(FakeResponse(call_only))
+    turn = None
+    async for _delta, streamed in model.stream([{"role": "user", "parts": [{"text": "hi"}]}]):
+        turn = streamed
+
+    assert turn is not None
+    assert turn.function_call["args"]["max_price"] == 30000
+    # The whole part, signature included - Gemini rejects the follow-up with a
+    # 400 if the thoughtSignature is not echoed back.
+    assert turn.function_call_part["thoughtSignature"] == "sig-abc"

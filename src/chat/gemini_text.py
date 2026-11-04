@@ -65,13 +65,18 @@ class UpstreamError(RuntimeError):
 class ChatTurn:
     """One model reply, streamed.
 
-    Collects text as it arrives and holds the usage block that comes with the
-    final chunk.
+    Collects text as it arrives, holds the usage block from the final chunk,
+    and carries any tool the model asked us to call.
     """
 
     def __init__(self) -> None:
         self.text = ""
         self.usage: dict[str, Any] = {}
+        self.function_call: dict[str, Any] | None = None
+        # The whole part, not just the call. Gemini returns a
+        # thoughtSignature beside the functionCall and rejects the follow-up
+        # request with a 400 if it is not echoed back verbatim.
+        self.function_call_part: dict[str, Any] | None = None
 
 
 class GeminiTextModel:
@@ -81,14 +86,16 @@ class GeminiTextModel:
         model: str,
         system_instruction: str,
         streamer_factory: Callable[[], Streamer] | None = None,
+        tools: dict[str, Any] | None = None,
     ) -> None:
         self._api_key = api_key
         self._model = model
         self._system = system_instruction
         self._streamer_factory = streamer_factory or _default_streamer
+        self._tools = tools
 
     def _payload(self, history: list[dict[str, Any]]) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "contents": history,
             "systemInstruction": {"parts": [{"text": self._system}]},
             # No thinkingConfig. The voice path sets thinkingBudget 0 because
@@ -98,6 +105,9 @@ class GeminiTextModel:
             # and is the reason the upstream body is now in the error.
             "generationConfig": {"temperature": 0.7},
         }
+        if self._tools:
+            payload["tools"] = [self._tools]
+        return payload
 
     async def stream(
         self, history: list[dict[str, Any]]
@@ -131,6 +141,15 @@ class GeminiTextModel:
 
                 for candidate in chunk.get("candidates") or []:
                     for part in (candidate.get("content") or {}).get("parts") or []:
+                        if call := part.get("functionCall"):
+                            turn.function_call = call
+                            turn.function_call_part = part
                         if text := part.get("text"):
                             turn.text += text
                             yield text, turn
+
+        # Always hand the turn back once at the end, even with no text.
+        # A reply that is only a functionCall produces no text at all, so a
+        # loop that yields solely on text never runs and the caller never sees
+        # the turn - which looked exactly like the model saying nothing.
+        yield "", turn

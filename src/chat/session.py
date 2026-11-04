@@ -16,10 +16,14 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
+import logging
 from typing import Any
 
+from src.agent.tools.catalogue import Catalogue, CatalogueUnavailable
 from src.chat.gemini_text import GeminiTextModel
 from src.voice.usage import FLASH_LITE, SessionUsage
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -36,8 +40,19 @@ class ChatResult:
 
 
 class ChatSession:
-    def __init__(self, model: GeminiTextModel, max_history_messages: int = 12) -> None:
+    # One round of tool calling. The model asks, we search, it answers. A
+    # second round would mean it rejected its own results, which is a prompt
+    # problem rather than something to paper over with another API call.
+    MAX_TOOL_ROUNDS = 1
+
+    def __init__(
+        self,
+        model: GeminiTextModel,
+        catalogue: Catalogue | None = None,
+        max_history_messages: int = 12,
+    ) -> None:
         self._model = model
+        self._catalogue = catalogue
         # Twelve messages is six exchanges. Enough that "what about the other
         # one" still resolves, short enough that the prompt stops growing.
         self._max_history = max_history_messages
@@ -59,6 +74,39 @@ class ChatSession:
         if excess > 0:
             self._history = self._history[excess + (excess % 2) :]
 
+    async def _run_search(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Execute the one tool, and report failure as failure.
+
+        A catalogue that is down must not come back as an empty shelf - the
+        agent would tell the customer there is nothing matching when the truth
+        is that we could not look.
+        """
+        if self._catalogue is None:
+            return {"error": "catalogue_not_configured"}
+        try:
+            found = await self._catalogue.search(
+                query=str(args.get("query") or "*"),
+                category=args.get("category"),
+                min_price=args.get("min_price"),
+                max_price=args.get("max_price"),
+            )
+        except CatalogueUnavailable as down:
+            log.warning("catalogue unavailable: %s", down)
+            return {"error": "catalogue_unavailable"}
+
+        return {
+            "total_matching": found.total,
+            "products": [
+                {
+                    "name": p.name,
+                    "price_inr": p.price,
+                    "brand": p.brand,
+                    "in_stock": p.in_stock,
+                }
+                for p in found.products
+            ],
+        }
+
     async def send(self, text: str) -> AsyncIterator[str]:
         """Add the customer's message, stream the reply, record what it cost."""
         self._history.append({"role": "user", "parts": [{"text": text}]})
@@ -66,10 +114,42 @@ class ChatSession:
 
         reply = ""
         turn = None
-        async for delta, streamed in self._model.stream(self._history):
-            turn = streamed
-            reply += delta
-            yield delta
+        for _round in range(self.MAX_TOOL_ROUNDS + 1):
+            reply = ""
+            turn = None
+            async for delta, streamed in self._model.stream(self._history):
+                turn = streamed
+                reply += delta
+                yield delta
+
+            if turn is None or not (call := turn.function_call):
+                break
+
+            # The model asked for a search. Record the ask, run it, record the
+            # answer, and let it speak again with real products in hand.
+            # The part verbatim, thoughtSignature included: without it the
+            # follow-up request is rejected with a 400 saying the signature
+            # is required for tools to work.
+            self._history.append(
+                {
+                    "role": "model",
+                    "parts": [turn.function_call_part or {"functionCall": call}],
+                }
+            )
+            result = await self._run_search(call.get("args") or {})
+            self._history.append(
+                {
+                    "role": "user",
+                    "parts": [
+                        {
+                            "functionResponse": {
+                                "name": call.get("name", "search_products"),
+                                "response": result,
+                            }
+                        }
+                    ],
+                }
+            )
 
         self._history.append({"role": "model", "parts": [{"text": reply}]})
 

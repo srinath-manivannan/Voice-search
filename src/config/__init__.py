@@ -42,6 +42,11 @@ class Config:
     max_session_minutes: float
     max_session_inr: float
 
+    # Product search. The token is a secret; the URL is not.
+    catalogue_url: str
+    catalogue_token: str
+    catalogue_origin: str
+
     log_level: str
     env: str
 
@@ -105,6 +110,9 @@ def load(env: str | None = None) -> Config:
         max_session_minutes=float(os.environ.get("MAX_SESSION_MINUTES", "10")),
         max_session_inr=float(os.environ.get("MAX_SESSION_INR", "20")),
         gst_rate=float(os.environ.get("GST_RATE", "0.18")),
+        catalogue_url=os.environ.get("CATALOGUE_URL", defaults.CATALOGUE_URL),
+        catalogue_token=os.environ.get("CATALOGUE_TOKEN", ""),
+        catalogue_origin=os.environ.get("CATALOGUE_ORIGIN", "bot"),
         log_level=os.environ.get("LOG_LEVEL", defaults.LOG_LEVEL),
         env=env,
     )
