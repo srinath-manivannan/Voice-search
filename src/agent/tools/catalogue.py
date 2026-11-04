@@ -19,11 +19,21 @@ none it returns hundreds, most of them unbuyable.
 
 Even then the feed can lag the shop - Search Blocks found 7 of 12 sampled
 out of stock despite both fields agreeing - so nothing here promises stock.
+
+The documents carry 83 fields, among them the specifications a customer
+chooses between: camera, battery, memory, processor, display. Returning only
+name and price is what made the agent answer "nalla camera features
+irundhadhala idhai sonnen" about products it had been told nothing about -
+asked to recommend, with nothing to recommend on, it invented a reason. The
+specifications are numeric bands rather than exact figures ("45.1MP -
+59.9MP"), so they are spoken as a floor: 45MP and up is true of everything in
+that band.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 from typing import Any, Callable, Protocol
 
 COLLECTION = "productsnew"
@@ -63,6 +73,11 @@ class CatalogueUnavailable(RuntimeError):
     """
 
 
+# A rating is worth quoting when enough people left one. 4.5 from two reviews
+# is noise presented as a recommendation.
+RATINGS_NEEDED = 20
+
+
 @dataclass(frozen=True)
 class Product:
     item_code: str
@@ -70,6 +85,8 @@ class Product:
     price: int | None
     brand: str | None
     in_stock: bool
+    specs: dict[str, str] = field(default_factory=dict)
+    rating: float | None = None
 
     def spoken(self) -> str:
         """What the agent may say. No item code - that is internal."""
@@ -119,18 +136,53 @@ class Catalogue:
         return " && ".join(clauses)
 
     @staticmethod
+    def _specs(document: dict[str, Any]) -> dict[str, str]:
+        """The handful a customer actually chooses between.
+
+        Five, not eighty-three. A voice agent that can read out a spec sheet
+        will, and nobody listening to a phone call wants one - the job here is
+        to give it one true thing to say about each product.
+        """
+        specs: dict[str, str] = {}
+        if camera := _floor(document.get("primary_camera"), "MP"):
+            specs["camera"] = camera
+        if battery := _floor(document.get("battery_capacity"), "mAh"):
+            specs["battery"] = battery
+        ram, storage = (
+            _first(document.get("ram")),
+            _first(document.get("internal_storage")),
+        )
+        if ram and storage:
+            specs["memory"] = f"{ram} RAM, {storage} storage"
+        if processor := _first(document.get("processor_brand")):
+            specs["processor"] = processor
+        if _first(document.get("cellulartechnology")) == "5G":
+            specs["network"] = "5G"
+        return specs
+
+    @staticmethod
     def _product(document: dict[str, Any]) -> Product:
         price = document.get("price")
         both_agree = (
             str(document.get("availability") or "").lower() == "in stock"
             and str(document.get("stock_status") or "").lower() == "in stock"
         )
+        reviews = document.get("review_count") or 0
+        rating = document.get("rating")
         return Product(
             item_code=str(document.get("item_code") or ""),
             name=str(document.get("name") or "").strip() or "Unnamed product",
             price=int(price) if isinstance(price, (int, float)) and price > 0 else None,
             brand=document.get("brand_name") or None,
             in_stock=both_agree,
+            specs=Catalogue._specs(document),
+            rating=(
+                float(rating)
+                if isinstance(rating, (int, float))
+                and isinstance(reviews, (int, float))
+                and reviews >= RATINGS_NEEDED
+                else None
+            ),
         )
 
     async def search(
@@ -186,3 +238,30 @@ class Catalogue:
             products=[self._product(h.get("document") or {}) for h in hits[:limit]],
             total=int(result.get("found") or 0),
         )
+
+
+def _first(value: Any) -> str | None:
+    """These fields are single-element lists more often than they are strings."""
+    if isinstance(value, list):
+        value = value[0] if value else None
+    text = str(value or "").strip()
+    return text or None
+
+
+_NUMBER = re.compile(r"\d+(?:\.\d+)?")
+
+
+def _floor(value: Any, unit: str) -> str | None:
+    """ "45.1MP - 59.9MP" -> "45MP+". The band's floor is true of all of it.
+
+    Quoting the midpoint, or either end as if it were exact, states a figure
+    the index does not have. The floor with a plus is the strongest claim the
+    data supports.
+    """
+    text = _first(value)
+    if not text:
+        return None
+    numbers = _NUMBER.findall(text)
+    if not numbers:
+        return None
+    return f"{int(float(numbers[0]))}{unit}+"

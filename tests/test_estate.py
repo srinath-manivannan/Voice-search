@@ -633,3 +633,62 @@ def test_a_traced_outcome_keeps_the_states_and_not_the_catalogue():
     assert _outcome({"error": "details_unavailable"}) == {
         "error": "details_unavailable"
     }
+
+
+def test_a_specification_band_is_spoken_as_its_floor():
+    """The index gives "60.1MP - 64.9MP", not a figure.
+
+    Quoting either end as exact states something the index does not have. The
+    floor with a plus is the strongest claim the data supports, and it is what
+    lets the agent say "60MP camera" about a phone truthfully.
+    """
+    from src.agent.tools.catalogue import Catalogue
+
+    specs = Catalogue._specs(
+        {
+            "primary_camera": ["60.1MP - 64.9MP"],
+            "battery_capacity": ["4500 mAh - 5499 mAh"],
+            "ram": ["8GB"],
+            "internal_storage": ["128GB"],
+            "processor_brand": ["Qualcomm Snapdragon"],
+            "cellulartechnology": ["5G"],
+        }
+    )
+    assert specs == {
+        "camera": "60MP+",
+        "battery": "4500mAh+",
+        "memory": "8GB RAM, 128GB storage",
+        "processor": "Qualcomm Snapdragon",
+        "network": "5G",
+    }
+
+
+def test_a_product_with_no_specifications_offers_none_rather_than_guesses():
+    from src.agent.tools.catalogue import Catalogue
+
+    assert Catalogue._specs({"name": "Something", "price": 999}) == {}
+
+
+def test_a_rating_from_two_reviews_is_not_a_recommendation():
+    """4.5 out of 5, from two people, read aloud as if it meant something."""
+    from src.agent.tools.catalogue import Catalogue
+
+    assert Catalogue._product({"rating": 4.5, "review_count": 2}).rating is None
+    assert Catalogue._product({"rating": 4.3, "review_count": 180}).rating == 4.3
+
+
+async def test_the_shortlist_carries_a_reason_to_mention_each_phone():
+    """Without one, asked why it suggested something, it invented a camera."""
+    tools = ToolSession(
+        catalogue_of(
+            {
+                **document("45902", "Vivo Y200 Pro 5G", 29999),
+                "primary_camera": ["60.1MP - 64.9MP"],
+            }
+        ),
+        estate=FakeEstate({"45902": priced("45902", 22999)}),
+    )
+
+    product = (await tools.run("search_products", {"query": "vivo"}))["products"][0]
+    assert product["specs"]["camera"] == "60MP+"
+    assert product["price_inr"] == 22999

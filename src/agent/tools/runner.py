@@ -95,6 +95,8 @@ class Candidate:
     was: int | None
     brand: str | None
     in_stock_hint: bool
+    specs: dict[str, str]
+    rating: float | None
 
 
 class ToolSession:
@@ -171,6 +173,11 @@ class ToolSession:
                     "price_inr": c.price,
                     "was_inr": c.was if c.was and c.was != c.price else None,
                     "brand": c.brand,
+                    # The reason this phone is worth mentioning, and the only
+                    # one the agent is allowed to give. Without it, asked why
+                    # it suggested something, it made a camera up.
+                    "specs": c.specs,
+                    "rating_out_of_5": c.rating,
                     # Named a hint, not a promise: the feed can lag the shop
                     # even when both of its stock fields agree.
                     "in_stock_hint": c.in_stock_hint,
@@ -321,6 +328,8 @@ def _candidate(
         was=was if was and was != price else None,
         brand=product.brand,
         in_stock_hint=product.in_stock,
+        specs=dict(product.specs),
+        rating=product.rating,
     )
 
 
