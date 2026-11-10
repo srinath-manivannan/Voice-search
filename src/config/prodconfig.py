@@ -67,5 +67,19 @@ ESTATE_SRC_PATH = "../../Search-proxy/products-search-engine"
 # said before: compression is a brake on long calls, not the big lever. The
 # levers that survive are the size of this prompt and the number of
 # generations a turn takes. Trigger 0 switches compression off entirely.
+#
+# One more thing, found after the probes and worth more than they are:
+# Google's Cloud documentation gives a MINIMUM for this field. "Maximum
+# context length (trigger_tokens): minimum value 5,000, maximum 128,000."
+# 3,000 is below it. It held across eight turns and two compressions here,
+# but so did 400 for exactly one turn, and nothing documents what the API
+# does with an out-of-range value - it is not rejected at setup.
+#
+# That minimum has a consequence bigger than this setting. A three-minute
+# call accumulates about 6,500 tokens in total, so a trigger at the
+# documented floor of 5,000 barely fires before the caller hangs up.
+# In-spec compression is built for long sessions, not for making a short
+# call cheaper. If another 1007 ever appears, raise this to 5,000 first -
+# and expect the bill to go up, not down.
 CONTEXT_TRIGGER_TOKENS = 3000
 CONTEXT_TARGET_TOKENS = 2400

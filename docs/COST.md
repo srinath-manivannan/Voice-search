@@ -86,21 +86,49 @@ hundred times.
 
 | generations/min | caller voice + audio history | prompt + tools + text history | agent voice | thinking | **total Rs/min** |
 |---|---|---|---|---|---|
-| 4.0 | 1.28 | 0.53 | 1.19 | 0.17 | **3.17** |
-| 5.0 | 1.60 | 0.66 | 1.19 | 0.22 | **3.67** |
-| 5.73 *(measured caller)* | 1.83 | 0.76 | 1.19 | 0.25 | **4.03** |
-| 6.5 | 2.08 | 0.86 | 1.19 | 0.28 | **4.41** |
-| 8.09 *(measured, incl. tool turns)* | 2.59 | 1.07 | 1.19 | 0.35 | **5.20** |
+| 6.07 *(no tool calls at all)* | 2.07 | 0.86 | 1.19 | 0.28 | **4.20** |
+| 8.24 *(measured, after the tool fix)* | 2.64 | 1.09 | 1.19 | 0.36 | **5.28** |
+| 8.42 *(the call as it ran)* | 2.69 | 1.11 | 1.19 | 0.37 | **5.36** |
+| 10.36 *(a tool-heavy stretch)* | 3.18 | 1.31 | 1.19 | 0.45 | **6.33** |
 
-Generations, not caller turns: every tool call is a silent generation of its
-own and re-bills the window like any other.
+**Generations, not caller turns**, and the distinction is the whole table.
+The measured caller spoke 5.73 times a minute; with the greeting and the tool
+calls that is 8.24 generations, and every one of them re-bills the window.
+An earlier version of this file read 5.73 off the trace and wrote it in this
+column, which understated the rate by about a rupee.
 
-Poorvika's target is Rs 2.50. **We are over it**, by about Rs 1.50 a minute
-at the measured caller's pace. The incumbent vendor charges Rs 4.85 a minute,
-so the shipped configuration is close to it rather than comfortably under.
-The target is shown on screen and coloured against; the session ceiling that
-actually ends a call sits at Rs 8, because hanging up on a customer
-mid-sentence does not refund the rupee.
+Poorvika's target is Rs 2.50. **We are over it, and over the incumbent's
+Rs 4.85 as well.** The target is shown on screen and coloured against; the
+session ceiling that actually ends a call sits at Rs 8, because hanging up on
+a customer mid-sentence does not refund the rupee.
+
+### One lever at a time, from Rs 5.28
+
+| lever | Rs/min | change |
+|---|---|---|
+| prompt 1,430 -> 900 tokens | 4.93 | -0.34 |
+| prompt 1,430 -> 700 tokens | 4.80 | -0.47 |
+| window 3,000/2,400 -> 2,600/2,100 | 4.51 | -0.77 |
+| generations 1.38 -> 1.10 per caller turn | 4.48 | -0.80 |
+| agent talks 53% of the call, not 63% | 5.09 | -0.19 |
+| thinking halved | 5.10 | -0.18 |
+| caller speaks half as often | 3.64 | -1.64 |
+
+The last one is the caller's, not ours. The two before it are refused: the
+agent's replies are not being clipped, and `thinkingConfig` is rejected by
+this model outright. Everything we control, pulled together and pulled hard,
+lands near **Rs 3.40** - and carries risk, because 2,600/2,100 is one step
+above a window measured to lose the conversation.
+
+### Why compression cannot be the answer on a three-minute call
+
+Google's Cloud documentation gives `trigger_tokens` a **minimum of 5,000**.
+A three-minute call accumulates roughly 6,500 tokens in total, so a trigger
+at the documented floor fires about once before the caller hangs up.
+Compression is built to keep long sessions alive, not to make short calls
+cheap. Every setting that does make a short call meaningfully cheaper is
+below Google's stated minimum - including the 3,000 shipped here, which is
+measured working and is not documented to work.
 
 ### What the window is worth, and what it costs to go smaller
 
@@ -117,23 +145,61 @@ conversation in it.
 
 ### What would actually close the gap
 
-Not this knob. The window cannot go below the prompt, and the prompt is
-charged on every generation whatever it is set to.
+Not this knob, and not the answers. Within the Live API, the window cannot
+go below the prompt, the prompt is charged on every generation, and the
+agent's own voice is charged once at a rate nothing discounts.
 
-1. **Fewer generations.** Everything standing in the window is re-billed per
-   generation, so the rate is close to linear in them. The tool-turn work
-   took a measured conversation from 1.75 generations per caller turn to
-   1.38, and stock and offers now cost no round trip at all.
-2. **A smaller prompt.** 1,430 tokens, every generation, forever. It also
-   sets the floor under the window, so cutting it twice.
-3. **Not native audio for the whole call.** Text in and out on a cheaper
-   model is roughly a tenth of these rates. That is an architecture decision,
-   not a setting, and it is the only route to Rs 2.50 that the numbers
-   support.
+**1. Fewer generations.** Everything in the window is re-billed per
+generation, so the rate is close to linear in them. The tool-turn work took a
+measured conversation from 1.75 generations per caller turn to 1.38, and
+stock and offers now cost no round trip at all. Another 0.28 off that ratio
+is worth Rs 0.80 a minute.
+
+**2. A smaller prompt.** 1,430 tokens, every generation, forever - and it
+sets the floor under the window, so it cuts twice. Worth about Rs 0.47 if it
+comes down to 700.
+
+Those two together, with a tighter window, reach roughly **Rs 3.40**. They do
+not reach Rs 2.50, and nothing inside this architecture does.
+
+**3. Stop using native audio for the whole call.** Transcribe the caller,
+reason in text, speak with a TTS engine. History then lives as text at
+$0.30/M instead of audio at $3.00/M, which is where four fifths of the bill
+currently goes.
+
+| component | per connected minute |
+|---|---|
+| STT - flash-lite audio in, transcript out | Rs 0.11 |
+| text turn - prompt and history re-billed | Rs 0.76 |
+| text turn - reply and thinking | Rs 0.39 |
+| TTS - Chirp 3: HD, $30/M characters | Rs 1.43 |
+| TTS - Neural2, $16/M characters | Rs 0.76 |
+| TTS - Standard, $4/M characters | Rs 0.19 |
+
+| build | Rs/min |
+|---|---|
+| cascade with Chirp 3: HD | **2.69** |
+| cascade with Neural2 | **2.03** |
+| cascade with Standard voices | **1.46** |
+| Live native audio, today | 5.28 |
+
+Rates read 2026-11-10 from Google's Text-to-Speech pricing and the Gemini
+API pricing page. Two things this costing does not price, and both are real:
+
+- **Tanglish does not survive a TTS engine.** The agent writes Tamil in
+  English letters, and a synthesiser handed "Edhu paakkalaam?" will read it
+  as English. Going cascade means committing to Tamil script for the voice
+  surface and keeping the romanised form for chat.
+- **Latency roughly doubles.** Native audio answers in about 500 ms today.
+  Transcribe, reason, then synthesise is nearer 900-1,400 ms - inside the
+  Phase 1 target of 1 s p50 and 2 s p95, with far less room.
+
+Barge-in and endpointing would have to be ours as well, which they nearly
+already are: the VAD and the microphone gate exist.
 
 ### The floor
 
-₹1.39 a minute is physics and no setting touches it: the caller's microphone
+Rs 1.39 a minute is physics and no setting touches it: the caller's microphone
 at 42% of wall clock and the agent's mouth at 63%. One minute of continuous
 agent speech is ₹1.89 at the published $0.018/min. Everything above the floor
 is re-processing, and only that part can be engineered away.
