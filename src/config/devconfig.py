@@ -29,3 +29,13 @@ ESTATE_API_ENV = "production"
 ESTATE_BACKEND = "inprocess"
 # Relative to this repository's root, not the working directory.
 ESTATE_SRC_PATH = "../../Search-proxy/products-search-engine"
+
+# Context window compression. Audio is 25 tokens a second, so a three-minute
+# call accumulates roughly 4,500 tokens of itself on top of the instruction -
+# and a trigger of 8,000 would barely fire before a real call has ended.
+# 4,000 starts compressing around ninety seconds in, which is where a call
+# begins carrying the weight of itself. A sliding window keeps the recent
+# exchanges, and the shortlist a caller refers back to is held on our side in
+# ToolSession, so compression cannot take it away. Trigger 0 switches it off.
+CONTEXT_TRIGGER_TOKENS = 4000
+CONTEXT_TARGET_TOKENS = 2000

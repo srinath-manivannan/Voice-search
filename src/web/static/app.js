@@ -277,13 +277,19 @@ window.audioDiagnostics = () => ({
 function addTurn(turn) {
   state.turns.push(turn);
   const row = document.createElement('tr');
+  const voice = turn.voice_inr_per_minute;
   const latency = turn.first_audio_ms == null ? '—' : Math.round(turn.first_audio_ms) + ' ms';
   const slow = turn.first_audio_ms != null && turn.first_audio_ms > 2000;
   row.innerHTML =
     '<td>' + turn.turn_id + '</td>' +
     '<td class="' + (slow ? 'bad' : '') + '">' + latency + '</td>' +
     '<td>' + turn.response_tokens + '</td>' +
-    '<td class="' + (turn.thinking_tokens ? 'warn' : '') + '">' + turn.thinking_tokens + '</td>';
+    '<td class="' + (turn.thinking_tokens ? 'warn' : '') + '">' + turn.thinking_tokens + '</td>' +
+    // Voice in plus voice out, per connected minute, tax included. The
+    // ceiling is ₹2 and this is the figure it is measured against, so it
+    // belongs on screen while the call is happening rather than after it.
+    '<td class="' + (voice != null && voice >= 2 ? 'bad' : '') + '">' +
+      (voice == null ? '—' : '₹' + voice.toFixed(2)) + '</td>';
   el('turns').appendChild(row);
   setStatus('listening', 'live');
   setOrb('listening');

@@ -31,6 +31,12 @@ class Config:
     capture_sample_rate: int
     playback_sample_rate: int
 
+    # Context window compression. Audio costs 25 tokens a second and the
+    # prompt is cumulative, so a long call carries all of itself; these keep
+    # the window bounded. Zero switches it off.
+    context_trigger_tokens: int
+    context_target_tokens: int
+
     # Assumptions, not measurements. Named so a reviewer can see what the cost
     # report rests on.
     usd_inr: float
@@ -116,6 +122,12 @@ def load(env: str | None = None) -> Config:
             os.environ.get("THINKING_BUDGET", defaults.THINKING_BUDGET)
         ),
         capture_sample_rate=int(os.environ.get("CAPTURE_SAMPLE_RATE", "16000")),
+        context_trigger_tokens=int(
+            os.environ.get("CONTEXT_TRIGGER_TOKENS", defaults.CONTEXT_TRIGGER_TOKENS)
+        ),
+        context_target_tokens=int(
+            os.environ.get("CONTEXT_TARGET_TOKENS", defaults.CONTEXT_TARGET_TOKENS)
+        ),
         playback_sample_rate=int(os.environ.get("PLAYBACK_SAMPLE_RATE", "24000")),
         usd_inr=float(os.environ.get("USD_INR", "89.0")),
         max_session_turns=int(os.environ.get("MAX_SESSION_TURNS", "40")),

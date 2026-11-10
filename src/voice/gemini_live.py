@@ -153,6 +153,25 @@ class GeminiLiveSession:
             "systemInstruction": {"parts": [{"text": self._config.system_instruction}]},
             "outputAudioTranscription": {},
         }
+        # Keep the session's context from growing for the whole call.
+        #
+        # Audio is billed at 25 tokens a second, and the prompt the server
+        # charges for is CUMULATIVE: a three-minute call ends up carrying
+        # every second of itself. Whether that whole window is charged again
+        # on every turn is the open question, and the answer decides whether
+        # a long call costs Rs 1.36 a minute or Rs 7. Rather than wait for
+        # the answer, keep the window small enough that it does not matter.
+        #
+        # A sliding window drops the oldest exchanges and keeps the recent
+        # ones, which is what a phone conversation can afford to lose. The
+        # shortlist a caller refers back to - "second one", "antha Vivo" -
+        # does not live in this window at all: it is held in ToolSession on
+        # our side, so compression cannot take it away.
+        if self._config.context_trigger_tokens:
+            setup["contextWindowCompression"] = {
+                "triggerTokens": self._config.context_trigger_tokens,
+                "slidingWindow": {"targetTokens": self._config.context_target_tokens},
+            }
         if self._tools:
             setup["tools"] = [self._tools]
         return {"setup": setup}

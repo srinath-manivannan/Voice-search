@@ -370,3 +370,35 @@ async def test_a_failing_tool_is_still_answered(config):
 
     answer = sock.sent[-1]["toolResponse"]["functionResponses"][0]
     assert answer["response"] == {"error": "tool_failed"}
+
+
+async def test_the_session_asks_for_a_bounded_context_window(config):
+    """A call that carries all of itself is what made a long call expensive.
+
+    Audio is billed at 25 tokens a second and the prompt the server charges
+    for is cumulative, so by the third minute a call is carrying every second
+    of itself. Whether that whole window is charged again on every turn is
+    still unsettled - this keeps it small enough that the answer does not
+    decide the bill.
+    """
+    sock = FakeSocket([{"setupComplete": {}}])
+    async with GeminiLiveSession(config, connect=connector(sock)):
+        pass
+
+    compression = sock.sent[0]["setup"]["contextWindowCompression"]
+    assert compression["triggerTokens"] == config.context_trigger_tokens
+    assert compression["slidingWindow"]["targetTokens"] == (
+        config.context_target_tokens
+    )
+
+
+async def test_compression_can_be_switched_off(config):
+    """Zero means off, and means the key is absent rather than zeroed."""
+    import dataclasses
+
+    sock = FakeSocket([{"setupComplete": {}}])
+    off = dataclasses.replace(config, context_trigger_tokens=0)
+    async with GeminiLiveSession(off, connect=connector(sock)):
+        pass
+
+    assert "contextWindowCompression" not in sock.sent[0]["setup"]
