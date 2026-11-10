@@ -220,6 +220,30 @@
   .stats strong { font-size: 17px; font-weight: 600; }
   .good { color: var(--good); } .warn { color: var(--warn); } .bad { color: var(--bad); }
   .note { color: #a3a3a3; font-size: 11.5px; max-width: 330px; }
+
+  /* cost panel --------------------------------------------------------- */
+  #cost { display: block; min-width: 340px; }
+  .cost-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 2px; }
+  .cost-head strong { font-size: 26px; font-weight: 600; line-height: 1; }
+  .cost-head em { font-style: normal; font-size: 12px; color: var(--dim); }
+  .cost-sub { font-size: 11.5px; color: var(--dim); margin: 0 0 10px; }
+  #cost table { min-width: 340px; }
+  #cost td { padding: 3px 12px 3px 0; vertical-align: middle; }
+  #cost td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  /* The bar is the point of the table: share of the bill, at a glance, so
+     the line to go and fix is simply the longest one. */
+  #cost td.bar { width: 108px; position: relative; padding-right: 0; }
+  #cost td.bar i {
+    display: inline-block; height: 7px; border-radius: 4px;
+    background: var(--brand); vertical-align: middle; min-width: 1px;
+    max-width: 78px;
+  }
+  #cost td.bar b { font-size: 10.5px; color: var(--dim); font-weight: 500; margin-left: 6px; }
+  .qm {
+    display: inline-block; width: 13px; height: 13px; border-radius: 50%;
+    background: #e8e8e8; color: #6b6b6b; font-size: 9.5px; line-height: 13px;
+    text-align: center; cursor: help; vertical-align: text-top;
+  }
 </style>
 </head>
 <body data-state="idle">
@@ -267,7 +291,7 @@
   <summary>Developer · latency and cost</summary>
   <div class="drawer-body">
     <table>
-      <thead><tr><th>#</th><th>First audio</th><th>Reply tok</th><th>Thinking</th><th>Voice ₹/min</th></tr></thead>
+      <thead><tr><th>#</th><th>First audio</th><th>Reply tok</th><th>Thinking</th><th>₹/min</th></tr></thead>
       <tbody id="turns"></tbody>
     </table>
     <div class="stats">
@@ -283,14 +307,27 @@
       <div><span>model interrupts</span><strong id="t-model">—</strong></div>
       <div><span>trace file</span><strong id="t-file" style="font-size:12px">—</strong></div>
     </div>
-    <div class="stats" id="cost" hidden>
-      <div><span>₹/min billed once</span><strong id="cost-once">—</strong></div>
-      <div><span>₹/min re-billed</span><strong id="cost-rebilled">—</strong></div>
+    <div id="cost" hidden>
+      <div class="cost-head">
+        <strong id="cost-total">—</strong>
+        <em>per connected minute, GST included · ceiling <span id="cost-ceiling">—</span>
+          · <span id="cost-pct">—</span></em>
+      </div>
+      <p class="cost-sub">
+        <span id="cost-call">—</span> this call · <span id="cost-mins">—</span>
+        · <span id="cost-floor">—</span>/min of it is the two voice streams,
+        which no setting can remove
+      </p>
+      <table>
+        <thead><tr><th>Charge line</th><th>Tokens billed</th><th>₹/min</th><th>Share</th></tr></thead>
+        <tbody id="cost-lines"></tbody>
+      </table>
     </div>
     <p class="note">
-      Model cost only — telephony, hosting and GST are not in these figures. Two
-      numbers because whether Gemini re-bills accumulated context per turn is
-      still unverified.
+      Model cost only — telephony and hosting are not in these figures.
+      Prompt tokens are summed across turns because Google re-processes and
+      re-bills the whole context window on every turn, audio history included,
+      at the audio input rate.
     </p>
   </div>
 </details>

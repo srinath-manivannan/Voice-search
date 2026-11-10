@@ -277,7 +277,9 @@ window.audioDiagnostics = () => ({
 function addTurn(turn) {
   state.turns.push(turn);
   const row = document.createElement('tr');
-  const voice = turn.voice_inr_per_minute;
+  const cost = turn.cost;
+  const rate = cost ? cost.total_inr_per_min : null;
+  const ceiling = cost ? cost.ceiling_inr_per_min : 2.5;
   const latency = turn.first_audio_ms == null ? '—' : Math.round(turn.first_audio_ms) + ' ms';
   const slow = turn.first_audio_ms != null && turn.first_audio_ms > 2000;
   row.innerHTML =
@@ -285,15 +287,29 @@ function addTurn(turn) {
     '<td class="' + (slow ? 'bad' : '') + '">' + latency + '</td>' +
     '<td>' + turn.response_tokens + '</td>' +
     '<td class="' + (turn.thinking_tokens ? 'warn' : '') + '">' + turn.thinking_tokens + '</td>' +
-    // Voice in plus voice out, per connected minute, tax included. The
-    // ceiling is ₹2 and this is the figure it is measured against, so it
-    // belongs on screen while the call is happening rather than after it.
-    '<td class="' + (voice != null && voice >= 2 ? 'bad' : '') + '">' +
-      (voice == null ? '—' : '₹' + voice.toFixed(2)) + '</td>';
+    // The whole bill per connected minute, GST in, against the ceiling it is
+    // held to. On screen during the call, because after it is too late.
+    '<td class="' + rateClass(rate, ceiling) + '">' +
+      (rate == null ? '—' : '₹' + rate.toFixed(2)) + '</td>';
   el('turns').appendChild(row);
+  if (cost) showCost(cost);
   setStatus('listening', 'live');
   setOrb('listening');
   updatePercentiles();
+}
+
+// Red at the ceiling, amber in the last fifteen percent before it, green
+// below. Amber is not an alarm here, and that is deliberate: the floor under
+// a call is ₹1.39 of unavoidable voice against a ₹2.50 ceiling, so an
+// ordinary call genuinely does run at ninety-odd percent of its limit. The
+// panel prints that percentage next to the figure rather than pretending the
+// headroom is bigger than it is - a screen that is always amber teaches you
+// to ignore amber, and a screen that is always green hides the breach.
+function rateClass(rate, ceiling) {
+  if (rate == null) return '';
+  if (rate >= ceiling) return 'bad';
+  if (rate >= ceiling * 0.85) return 'warn';
+  return 'good';
 }
 
 function updatePercentiles() {
@@ -323,10 +339,43 @@ function showTrace(trace, file) {
   el('t-file').textContent = file || '—';
 }
 
+// The cost panel. One row per charge line, because "the call costs ₹2.40" is
+// not actionable and "₹1.19 of it is the agent's voice and ₹0.56 is the
+// standing prompt being re-processed" is: the first number is physics, the
+// second is a setting. The bar widths are each line's share of the total, so
+// the thing to go and fix is the widest one.
 function showCost(cost) {
   el('cost').hidden = false;
-  el('cost-once').textContent = '₹' + cost.billed_once_inr_per_min.toFixed(2);
-  el('cost-rebilled').textContent = '₹' + cost.rebilled_inr_per_min.toFixed(2);
+  const ceiling = cost.ceiling_inr_per_min;
+
+  el('cost-total').textContent = '₹' + cost.total_inr_per_min.toFixed(2);
+  el('cost-total').className = rateClass(cost.total_inr_per_min, ceiling);
+  el('cost-ceiling').textContent = '₹' + ceiling.toFixed(2);
+  el('cost-pct').textContent =
+    Math.round((cost.total_inr_per_min / ceiling) * 100) + '% of ceiling';
+  el('cost-pct').className = rateClass(cost.total_inr_per_min, ceiling);
+  el('cost-call').textContent = '₹' + cost.total_inr.toFixed(2);
+  el('cost-mins').textContent = cost.minutes.toFixed(2) + ' min · '
+    + cost.turns + ' turns · ' + cost.turns_per_minute.toFixed(1) + '/min';
+  el('cost-floor').textContent = '₹' + cost.voice_floor_inr_per_min.toFixed(2);
+
+  const body = el('cost-lines');
+  body.innerHTML = '';
+  for (const line of cost.lines) {
+    const tr = document.createElement('tr');
+    const pct = Math.round(line.share * 100);
+    tr.innerHTML =
+      '<td>' + line.label + (line.key === 'thinking' && cost.thinking_rate_unconfirmed
+        ? ' <span class="qm" title="Google does not document whether thinking '
+          + 'bills at the text ($4.50) or audio ($12.00) output rate. Priced '
+          + 'here at the text rate; if it is the audio rate this line is 2.7x.'
+          + '">?</span>'
+        : '') + '</td>' +
+      '<td class="num">' + line.tokens.toLocaleString() + '</td>' +
+      '<td class="num">₹' + line.inr_per_min.toFixed(2) + '</td>' +
+      '<td class="bar"><i style="width:' + pct + '%"></i><b>' + pct + '%</b></td>';
+    body.appendChild(tr);
+  }
 }
 
 el('toggle').addEventListener('click', () => (state.running ? stop() : start()));

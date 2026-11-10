@@ -53,12 +53,14 @@ def test_the_ceiling_is_inclusive_so_the_limit_is_not_exceeded_first():
     SessionBudget(max_turns=5).check(turns=4, minutes=0.0, inr=0.0)
 
 
-def test_the_caller_s_voice_is_counted_once_not_once_per_turn():
+def test_the_voice_floor_counts_the_callers_voice_once_not_once_per_turn():
     """`prompt_audio` is cumulative, so the last turn already holds all of it.
 
-    Summing it would charge the first minute of a call again on every turn
-    after it - which is the open billing question, not the floor. The floor is
-    what the microphone physically sent, once.
+    This is the FLOOR, reported beside the bill: the irreducible part, the
+    microphone and the mouth, once each. It is not the charge - Google
+    re-processes the window every turn and `total_usd` is what that costs -
+    and keeping the two apart is the only way to see how much of a call is
+    physics and how much is a setting.
     """
     from src.voice.usage import SessionUsage, TurnUsage
 
@@ -69,21 +71,24 @@ def test_the_caller_s_voice_is_counted_once_not_once_per_turn():
 
     # 1800 heard once at $3/M, 300 spoken at $12/M.
     expected = (1800 * 3.00 + 300 * 12.00) / 1e6
-    assert usage.audio_usd == pytest.approx(expected)
-    # And not the sum of the cumulative figures, which would be 3500 heard.
-    assert usage.audio_usd < (3500 * 3.00 + 300 * 12.00) / 1e6
+    assert usage.voice_usd == pytest.approx(expected)
+    # The actual charge is higher, because every turn re-bills the window.
+    assert usage.total_usd > usage.voice_usd
 
 
-def test_the_voice_ceiling_is_what_poorvika_is_held_to():
-    """Rs 2 a connected minute, voice in plus voice out, tax included."""
-    from src.voice.budget import BudgetExceeded, SessionBudget
+def test_the_rate_ceiling_is_the_whole_bill_not_just_the_voice():
+    """Rs 2.50 a connected minute, every charge line, GST included.
 
+    The old ceiling watched the two audio streams only. On the measured call
+    they were Rs 1.39 of Rs 9.01 a minute, so that ceiling would have waved
+    through a call costing six times its limit.
+    """
     budget = SessionBudget()
     # Comfortably inside: nothing raised.
-    budget.check(turns=4, minutes=3.0, inr=5.0, audio_inr_per_minute=1.37)
+    budget.check(turns=4, minutes=3.0, inr=7.0, inr_per_minute=2.36)
 
-    with pytest.raises(BudgetExceeded, match="voice ceiling"):
-        budget.check(turns=4, minutes=3.0, inr=5.0, audio_inr_per_minute=2.4)
+    with pytest.raises(BudgetExceeded, match="rate ceiling"):
+        budget.check(turns=4, minutes=3.0, inr=9.0, inr_per_minute=2.6)
 
 
 def test_a_rate_measured_over_seconds_does_not_end_the_call():
@@ -93,18 +98,15 @@ def test_a_rate_measured_over_seconds_does_not_end_the_call():
     ever sustain, and cutting a caller off during the greeting would be the
     worst possible first impression.
     """
-    from src.voice.budget import SessionBudget
-
-    SessionBudget().check(turns=1, minutes=0.15, inr=0.2, audio_inr_per_minute=11.0)
+    SessionBudget().check(turns=1, minutes=0.15, inr=0.2, inr_per_minute=11.0)
 
 
 def test_the_absolute_ceiling_no_longer_ends_an_ordinary_call():
     """It fired at Rs 20.96 three minutes into a normal conversation.
 
-    Rs 17.97 of that was an assumption about context billing and only Rs 2.99
-    was anything the agent had said. A backstop that fires on ordinary traffic
-    is not a backstop.
+    That figure turned out to be roughly right - the docs confirm the context
+    is re-billed - but a backstop is not the thing that should be enforcing
+    the commercial limit. The rate ceiling does that now, and this one exists
+    for whatever the rate ceiling does not foresee.
     """
-    from src.voice.budget import SessionBudget
-
-    SessionBudget().check(turns=18, minutes=3.0, inr=20.96, audio_inr_per_minute=1.37)
+    SessionBudget().check(turns=18, minutes=3.0, inr=20.96, inr_per_minute=2.3)

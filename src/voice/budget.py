@@ -9,20 +9,21 @@ Four independent ceilings, because they fail in different ways:
 
   turns        a loop that keeps asking and answering
   minutes      a session held open with nobody on it
-  voice/min    the commercial ceiling: what the two audio streams cost
+  rupees/min   the commercial ceiling: the whole bill, per connected minute
   rupees       anything the first three did not anticipate
 
-The voice rate is the one that matters commercially. Poorvika's ceiling is
-Rs 2 a connected minute for the caller's audio in and the agent's audio out
-together, and that is what this measures - not the accumulated text context,
-whose billing is still an open question.
+The rate ceiling is the one that matters commercially, and it used to measure
+the wrong thing. It watched the two audio streams only, on the grounds that
+whether Gemini re-bills accumulated context per turn was an open question. It
+is not an open question any more - Google's own best-practices page says past
+tokens are re-processed and charged on every turn - and on the measured call
+the audio streams were Rs 1.39 of Rs 9.01 a minute. A ceiling on that number
+would have waved through a call costing six times its limit.
 
-That distinction is not academic. The absolute ceiling, computed on the
-pessimistic reading of that open question, ended a perfectly ordinary
-three-minute call at Rs 20.96 - of which Rs 17.97 was an assumption and only
-Rs 2.99 was anything the agent had actually said. So the absolute figure is
-now a true backstop, set where it will not fire on a normal call, and the
-commercial limit is enforced on the number it is actually about.
+So this now enforces the total: every line of the bill, inclusive of GST, per
+connected minute. `cost.py` prices it and explains each line. The absolute
+rupee figure stays as a backstop, set where it will not fire on a normal call,
+because the thing it exists to catch is whatever these three did not foresee.
 """
 
 from __future__ import annotations
@@ -44,8 +45,10 @@ class SessionBudget:
     max_turns: int = 40
     max_minutes: float = 10.0
     max_inr: float = 50.0
-    # Rs 2 a connected minute for voice in plus voice out, inclusive of tax.
-    max_audio_inr_per_minute: float = 2.0
+    # The whole bill per connected minute, inclusive of GST: caller audio and
+    # the re-processed history, the standing prompt, the agent's voice,
+    # transcription and thinking. Poorvika's commercial ceiling is Rs 2.50.
+    max_inr_per_minute: float = 2.50
     # A rate measured over seconds is noise. The greeting alone is a whole
     # reply inside the first ten seconds of a call, and dividing it by a
     # fraction of a minute reads as a rate no real call would ever sustain.
@@ -56,7 +59,7 @@ class SessionBudget:
         turns: int,
         minutes: float,
         inr: float,
-        audio_inr_per_minute: float = 0.0,
+        inr_per_minute: float = 0.0,
     ) -> None:
         """Raise if any ceiling is reached. Called after each completed turn."""
         if turns >= self.max_turns:
@@ -71,11 +74,11 @@ class SessionBudget:
             )
         if (
             minutes >= self.rate_check_after_minutes
-            and audio_inr_per_minute >= self.max_audio_inr_per_minute
+            and inr_per_minute >= self.max_inr_per_minute
         ):
             raise BudgetExceeded(
-                f"voice ceiling reached (Rs {audio_inr_per_minute:.2f}/min >= "
-                f"Rs {self.max_audio_inr_per_minute}/min)",
+                f"rate ceiling reached (Rs {inr_per_minute:.2f}/min >= "
+                f"Rs {self.max_inr_per_minute}/min)",
                 "I need to hand you over now. Someone will be with you shortly.",
             )
         if inr >= self.max_inr:

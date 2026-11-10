@@ -133,6 +133,7 @@ def create_app(config: Config | None = None) -> FastAPI:
             max_turns=settings.max_session_turns,
             max_minutes=settings.max_session_minutes,
             max_inr=settings.max_session_inr,
+            max_inr_per_minute=settings.max_inr_per_minute,
         )
         opened_at = time.monotonic()
         # Set once the session exists; push() runs before that on the ready
@@ -141,15 +142,22 @@ def create_app(config: Config | None = None) -> FastAPI:
 
         async def push(payload: dict[str, Any]) -> None:
             if payload.get("type") == "turn" and usage is not None:
-                # What the call is costing on the figure Poorvika is held to,
-                # live, rather than only in the summary after it ends.
-                payload["voice_inr_per_minute"] = round(
-                    usage.audio_inr_per_minute(
-                        settings.usd_inr,
-                        settings.gst_rate,
-                        max((time.monotonic() - opened_at) / 60, 1 / 60),
+                # The whole bill, broken out per charge line, live - rather
+                # than one number after the call has ended, which is too late
+                # to tell you which line to go and fix.
+                elapsed = max((time.monotonic() - opened_at) / 60, 1 / 60)
+                breakdown = usage.breakdown(
+                    settings.usd_inr, settings.gst_rate, elapsed
+                )
+                payload["cost"] = breakdown.as_dict()
+                payload["cost"]["ceiling_inr_per_min"] = settings.max_inr_per_minute
+                # What the two voice streams alone cost, counted once each:
+                # the part of the bill no configuration can remove.
+                payload["cost"]["voice_floor_inr_per_min"] = round(
+                    usage.voice_inr_per_minute(
+                        settings.usd_inr, settings.gst_rate, elapsed
                     ),
-                    2,
+                    3,
                 )
             with contextlib.suppress(Exception):
                 await websocket.send_json(payload)
@@ -158,20 +166,18 @@ def create_app(config: Config | None = None) -> FastAPI:
             # spend figure has moved and the only clean point to stop.
             if payload.get("type") != "turn" or talking is None or usage is None:
                 return
-            # The re-billed reading for the backstop, deliberately: until the
-            # billing console settles which applies, a figure that exists to
-            # catch the unforeseen should assume the dearer one.
-            spent = (usage.input_usd_rebilled + usage.output_usd) * settings.usd_inr
             minutes = (time.monotonic() - opened_at) / 60
+            spent = usage.total_usd * settings.usd_inr * (1 + settings.gst_rate)
             try:
                 budget.check(
                     turns=len(talking.result.turns),
                     minutes=minutes,
                     inr=spent,
-                    # The commercial ceiling, and the only one that rests on
-                    # nothing unsettled: voice in plus voice out, each counted
-                    # once, per connected minute.
-                    audio_inr_per_minute=usage.audio_inr_per_minute(
+                    # The commercial ceiling: every line of the bill, GST in,
+                    # per connected minute. Watching the audio streams alone
+                    # would have waved through the call that cost Rs 9 a
+                    # minute, because only Rs 1.39 of it was audio.
+                    inr_per_minute=usage.inr_per_minute(
                         settings.usd_inr, settings.gst_rate, minutes
                     ),
                 )
@@ -243,14 +249,21 @@ def create_app(config: Config | None = None) -> FastAPI:
                     task.cancel()
                 await asyncio.gather(*pending, return_exceptions=True)
 
-                minutes = max(len(talking.result.turns) * 0.25, 1 / 60)
-                cost = model.usage.report_inr(
+                minutes = max((time.monotonic() - opened_at) / 60, 1 / 60)
+                summary = model.usage.breakdown(
                     settings.usd_inr, settings.gst_rate, minutes
+                ).as_dict()
+                summary["ceiling_inr_per_min"] = settings.max_inr_per_minute
+                summary["voice_floor_inr_per_min"] = round(
+                    model.usage.voice_inr_per_minute(
+                        settings.usd_inr, settings.gst_rate, minutes
+                    ),
+                    3,
                 )
                 await push(
                     {
                         "type": "summary",
-                        "cost": cost,
+                        "cost": summary,
                         "trace": talking.trace.summary(),
                     }
                 )
@@ -316,9 +329,9 @@ def create_app(config: Config | None = None) -> FastAPI:
                         "prompt_tokens": record.prompt_tokens if record else 0,
                         "response_tokens": record.response_tokens if record else 0,
                         "thinking_tokens": record.thinking_tokens if record else 0,
-                        "conversation_inr": session.usage.input_usd_rebilled
+                        "conversation_inr": session.usage.total_usd
                         * settings.usd_inr
-                        + session.usage.output_usd * settings.usd_inr,
+                        * (1 + settings.gst_rate),
                     }
                 )
         except WebSocketDisconnect:

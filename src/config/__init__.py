@@ -47,6 +47,8 @@ class Config:
     max_session_turns: int
     max_session_minutes: float
     max_session_inr: float
+    # The commercial ceiling: the whole bill per connected minute, GST in.
+    max_inr_per_minute: float
 
     # Product search. The token is a secret; the URL is not.
     catalogue_url: str
@@ -132,7 +134,8 @@ def load(env: str | None = None) -> Config:
         usd_inr=float(os.environ.get("USD_INR", "89.0")),
         max_session_turns=int(os.environ.get("MAX_SESSION_TURNS", "40")),
         max_session_minutes=float(os.environ.get("MAX_SESSION_MINUTES", "10")),
-        max_session_inr=float(os.environ.get("MAX_SESSION_INR", "20")),
+        max_session_inr=float(os.environ.get("MAX_SESSION_INR", "50")),
+        max_inr_per_minute=float(os.environ.get("MAX_INR_PER_MINUTE", "2.50")),
         gst_rate=float(os.environ.get("GST_RATE", "0.18")),
         catalogue_url=os.environ.get("CATALOGUE_URL", defaults.CATALOGUE_URL),
         catalogue_token=os.environ.get("CATALOGUE_TOKEN", ""),

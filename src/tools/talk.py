@@ -102,11 +102,18 @@ async def main() -> int:
             f"              {'PASS' if p50 <= 1000 and p95 <= 2000 else 'MISS'}  over {len(latencies)} turns"
         )
 
-    cost = model.usage.report_inr(config.usd_inr, config.gst_rate, max(minutes, 1 / 60))
+    cost = model.usage.breakdown(config.usd_inr, config.gst_rate, max(minutes, 1 / 60))
     print(f"\n{minutes:.1f} connected minutes, {len(result.turns)} turns")
-    print("cost per connected minute, incl GST:")
-    print(f"  if context is billed once   ₹{cost['billed_once_inr_per_min']:.2f}")
-    print(f"  if it is re-billed per turn ₹{cost['rebilled_inr_per_min']:.2f}")
+    print(f"₹{cost.total_inr_per_min:.2f} per connected minute, incl GST", end="")
+    print(f"   (ceiling ₹{config.max_inr_per_minute:.2f})")
+    for line in cost.lines:
+        if not line.tokens:
+            continue
+        print(
+            f"  {line.label:<30} {line.tokens:>8,} tok"
+            f"   ₹{line.inr_per_min:>5.2f}/min  {line.share * 100:>3.0f}%"
+        )
+    print(f"  {'-- total for the call':<30} {'':>12}   ₹{cost.total_inr:>5.2f}")
     print("  (model only - add telephony, hosting and rental for the all-in figure)")
     return 0
 
