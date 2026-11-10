@@ -117,10 +117,33 @@ audio of being told about it.
 shipping. This is the API that refuses `thinkingConfig` outright, so acceptance
 cannot be assumed.
 
-## Known gap
+## Tool round-trips
 
-**Tool round-trips.** The measured call had 17 caller turns but 24
-generations: every tool call is another turn, and another turn re-bills the
-whole window. Three of the five tool calls were duplicate searches for the
-same phone. That overhead is the difference between ₹2.33 and ₹2.80 — about
-₹0.47 a minute — and unlike how often the caller speaks, it is ours to fix.
+The measured call had 17 caller turns but **24 generations**. Every tool call
+is another turn — one that says nothing to make the call, another to answer —
+and each re-bills the whole window. Five of the 24 said nothing at all and
+burnt 413 thinking tokens doing it. Zero tool turns would be ₹2.37/min against
+the ₹2.85 that call's shape costs now.
+
+What changed:
+
+| | effect |
+|---|---|
+| stock + offers fetched **with the price**, one request | a stock question needs no round trip at all — structural |
+| identical search answered from the previous result | saves the upstream call and ~2.3s, **not** the generation |
+| re-search no longer rebuilds the shortlist | "the second one" keeps meaning the same phone |
+| descriptions say the search result is complete and stays valid | fewer calls, if the model obeys |
+
+Honest accounting, at that call's shape:
+
+| generations | ₹/min | |
+|---|---|---|
+| 24 | 2.85 | as it ran |
+| 23 | 2.78 | minus the stock round-trip — structural, the data is there now |
+| 21 | 2.64 | minus the two duplicate searches — needs the model to obey |
+| 17 | 2.37 | no tool turns at all |
+
+By the time a duplicate search reaches us the model has already spent the
+generation, so the memo cannot win that back. It buys latency and correctness.
+The rest is a prompt matter, and it is measurable on the next trace rather
+than assumable.

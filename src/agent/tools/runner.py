@@ -29,6 +29,39 @@ A `ref` rather than the item code, for two reasons. The code must never be
 spoken aloud, and a model handed one puts it in a sentence eventually. And
 "the second one" is what a customer actually says, so the thing the model has
 to resolve should be the thing the customer said.
+
+## Why this session caches
+
+Every tool call costs a whole extra generation. The model emits the call,
+which is one turn that says nothing, and then answers, which is another - and
+under the Live API's billing each of those re-processes the entire context
+window. Measured on a real call: 17 times the caller spoke, 24 generations,
+five of them silent, 413 thinking tokens spent saying nothing. That overhead
+was about Rs 0.47 of every connected minute.
+
+Three of those five tool calls were searches for a phone the session had
+already found. So:
+
+  - Pricing already asks the estate per item, and the estate takes a list of
+    sections in one request. So it now asks for stock and offers in the SAME
+    request and keeps them. "Stock irukka?" used to be impossible to answer
+    without a round trip; now the answer is already in the agent's hands.
+    That is the one change here that removes a generation outright.
+  - An identical search is answered from the previous result, upstream
+    untouched. Be honest about what this does and does not buy: the model has
+    ALREADY spent a generation by the time the call reaches us, so this saves
+    the upstream request and about two seconds of the customer's time, not
+    the turn. What it also saves is correctness - it no longer rebuilds the
+    shortlist, and a re-search used to renumber the refs under a customer who
+    had been told "the first one" and "the second one".
+  - Anything already fetched for an item is reused. Only EMI still goes
+    upstream on demand, because it is a three-call chain keyed by a SKU the
+    search does not carry.
+
+Fewer tool calls is the rest of it, and that is the model's choice, not ours:
+the descriptions and the persona now say the search result already holds
+price, stock and offers and stays valid for the call. Worth about Rs 0.2 a
+minute if it is obeyed, and measurable on the next trace rather than assumed.
 """
 
 from __future__ import annotations
@@ -65,6 +98,16 @@ WANTED: dict[str, tuple[str, ...]] = {
     "offers": ("offers", "pricing"),
     "emi": ("product", "pricing", "emi"),
 }
+
+# Fetched with the price, in the same request, for the items that survive into
+# the shortlist. The estate takes a list of sections and answers them
+# together, so this costs no extra round trip from here - and it turns the two
+# commonest follow-up questions into something the agent can already answer.
+#
+# EMI is deliberately not here. It needs the `product` section for the SKU and
+# then the calculator, which is a longer chain for a rarer question, and
+# putting it on every search would buy latency nobody asked for.
+WITH_PRICE: tuple[str, ...] = ("pricing", "stock", "offers")
 
 
 _WORDS = re.compile(r"[a-z0-9]+")
@@ -118,6 +161,14 @@ class ToolSession:
         self._catalogue = catalogue
         self._estate = estate
         self._shortlist: list[Candidate] = []
+        # What this conversation has already asked for. Both exist to stop a
+        # second round trip for an answer we are already holding.
+        self._searches: dict[str, dict[str, Any]] = {}
+        # Keyed by item code, and carrying which sections were actually
+        # asked for. Without that, a Facts fetched for price alone reports
+        # EMI as "unknown" - which the agent is told means "nobody could
+        # check" - and it would say so about something nobody ever asked.
+        self._facts: dict[str, tuple[frozenset[str], estate_api.Facts]] = {}
 
     async def run(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
         if name == "search_products":
@@ -132,6 +183,15 @@ class ToolSession:
     async def _search(self, args: dict[str, Any]) -> dict[str, Any]:
         if self._catalogue is None:
             return {"error": "catalogue_not_configured"}
+
+        # The same search, asked again. Answer it from what we already have:
+        # the upstream call is skipped, and - more important than the latency
+        # - the shortlist is NOT rebuilt, so the refs the customer has been
+        # told about keep pointing at the same phones.
+        key = _search_key(args)
+        if (remembered := self._searches.get(key)) is not None:
+            log.info("search already answered this call: %s", key)
+            return remembered
 
         max_price = _money(args.get("max_price"))
         min_price = _money(args.get("min_price"))
@@ -185,8 +245,10 @@ class ToolSession:
                     "specs": c.specs,
                     "rating_out_of_5": c.rating,
                     # Named a hint, not a promise: the feed can lag the shop
-                    # even when both of its stock fields agree.
+                    # even when both of its stock fields agree. Dropped below
+                    # when the estate gave us the real thing.
                     "in_stock_hint": c.in_stock_hint,
+                    **self._already_known(c),
                 }
                 for c in shortlist
             ],
@@ -203,6 +265,40 @@ class ToolSession:
             # is the answer a salesperson gives.
             out["nothing_inside_budget"] = True
             out["nearest_above_budget"] = over[0]
+        self._searches[key] = out
+        return out
+
+    def _already_known(self, candidate: Candidate) -> dict[str, Any]:
+        """Stock and offers for a shortlisted item, if pricing brought them.
+
+        Short on purpose. These ride along so the agent can answer "stock
+        irukka?" without another round trip, not so it can read a stock report
+        out over three phones nobody asked about - and every extra field here
+        is charged again on every turn of the call.
+        """
+        held = self._facts.get(candidate.item_code)
+        if held is None:
+            return {}
+        facts = held[1]
+        out: dict[str, Any] = {}
+        if facts.stock.state == estate_api.KNOWN:
+            # The real answer supersedes the index's guess, so the guess goes:
+            # two stock fields disagreeing is how an agent contradicts itself.
+            out["stock"] = {
+                "state": estate_api.KNOWN,
+                "available": facts.stock.in_stock,
+            }
+            out["in_stock_hint"] = None
+        else:
+            out["stock"] = _why(facts.stock.state, facts.stock.reason)
+        if facts.offers.state == estate_api.KNOWN and facts.offers.best_amount:
+            best = facts.offers.items[0] if facts.offers.items else None
+            out["best_offer"] = {
+                "amount_inr": facts.offers.best_amount,
+                "only_with": best.condition if best else None,
+            }
+        elif facts.offers.state == estate_api.NONE:
+            out["best_offer"] = None
         return out
 
     async def _price(
@@ -233,13 +329,18 @@ class ToolSession:
         async def selling(
             product: Product,
         ) -> tuple[Product, estate_api.Price | None]:
+            # Stock and offers ride along with the price. The estate answers a
+            # list of sections in one request, so this is the same round trip
+            # it always was, and it saves the customer's next question a whole
+            # generation of the model.
             try:
                 facts = estate_api.read(
-                    await estate.product(product.item_code, ("pricing",))
+                    await estate.product(product.item_code, WITH_PRICE)
                 )
             except estate_api.EstateUnavailable as down:
                 log.info("pricing %s unavailable: %s", product.item_code, down)
                 return product, None
+            self._facts[product.item_code] = (frozenset(WITH_PRICE), facts)
             if facts.price.state != estate_api.KNOWN:
                 return product, None
             return product, facts.price
@@ -301,6 +402,17 @@ class ToolSession:
         if not sections:
             sections = WANTED["price"]
 
+        # The search already fetched price, stock and offers for everything it
+        # shortlisted. If that covers the question, answer from it: no upstream
+        # call, and the customer hears the answer in the same breath.
+        held = self._facts.get(picked.item_code)
+        if held is not None and held[0].issuperset(sections):
+            return _spoken(held[1], picked, want)
+
+        # Ask for what is missing together with what we would have asked for
+        # anyway, so one more round trip answers everything about this item.
+        if held is not None:
+            sections = tuple(dict.fromkeys((*held[0], *sections)))
         try:
             facts = estate_api.read(
                 await self._estate.product(picked.item_code, sections)
@@ -309,6 +421,7 @@ class ToolSession:
             log.warning("product details unavailable: %s", down)
             return {"error": "details_unavailable"}
 
+        self._facts[picked.item_code] = (frozenset(sections), facts)
         return _spoken(facts, picked, want)
 
     def _resolve(self, ref: Any) -> Candidate | None:
@@ -337,6 +450,24 @@ class ToolSession:
             c for c in self._shortlist if words & set(_WORDS.findall(c.name.lower()))
         ]
         return matched[0] if len(matched) == 1 else None
+
+
+def _search_key(args: dict[str, Any]) -> str:
+    """A search, as the thing it asks for rather than as the JSON it arrived in.
+
+    The model sent {"category":"phone","query":"18 Pro"} and then
+    {"query":"18 Pro","category":"phone"} - the same search twice, nine
+    seconds apart, and a key built on the raw dict would have missed it
+    because the keys came in a different order. So: sorted, lowercased,
+    trimmed, and only the fields that change the answer.
+    """
+    parts = []
+    for field in ("query", "category", "min_price", "max_price"):
+        value = args.get(field)
+        if value in (None, ""):
+            continue
+        parts.append(f"{field}={str(value).strip().lower()}")
+    return "|".join(sorted(parts)) or "*"
 
 
 def _candidate(

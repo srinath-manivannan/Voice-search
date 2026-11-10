@@ -18,6 +18,13 @@ same reason, so each one says what the model cannot work out by itself and
 stops. Anything that merely repeats the standing instruction - "never answer
 without calling this first" - was paid for twice a turn and is gone from here;
 persona.py still says it, once.
+
+What is left is mostly about NOT calling a tool. Each call costs a whole extra
+generation - one turn to make it, another to answer - and on a measured call
+five of twenty-four generations said nothing at all. Three of those were
+searches for a phone the session had already found, and one asked for stock
+that the search had already fetched. So the descriptions now say what the
+search result already contains, and that it stays valid.
 """
 
 from __future__ import annotations
@@ -27,8 +34,10 @@ from typing import Any
 SEARCH_PRODUCTS = {
     "name": "search_products",
     "description": (
-        "Search Poorvika's live catalogue. Results carry a `ref`; use it with "
-        "product_details for whatever the customer asks next about that one."
+        "Search Poorvika's live catalogue. Each result carries a `ref`, its "
+        "price, its stock and its best card offer - so do not call "
+        "product_details for those. Results stay valid for the whole call: "
+        "never search again for a product you have already found."
     ),
     "parameters": {
         "type": "object",
@@ -65,8 +74,10 @@ SEARCH_PRODUCTS = {
 PRODUCT_DETAILS = {
     "name": "product_details",
     "description": (
-        "Stock, EMI, bank offers and exact price for ONE product already "
-        "shown by search_products. None of those are in search results."
+        "EMI for ONE product already shown by search_products - the monthly "
+        "instalment, which search results do not carry. Price, stock and "
+        "offers are already in the search result; asking here for those "
+        "costs the customer a wait and tells you nothing new."
     ),
     "parameters": {
         "type": "object",
