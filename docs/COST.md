@@ -97,9 +97,9 @@ calls that is 8.24 generations, and every one of them re-bills the window.
 An earlier version of this file read 5.73 off the trace and wrote it in this
 column, which understated the rate by about a rupee.
 
-Poorvika's target is Rs 2.50. **We are over it, and over the incumbent's
-Rs 4.85 as well.** The target is shown on screen and coloured against; the
-session ceiling that actually ends a call sits at Rs 8, because hanging up on
+Poorvika's target is Rs 2.00. **We are over it, and over the incumbent's
+Rs 4.85 as well.** The target is Rs 2.00, shown on screen and coloured
+against; the session ceiling that actually ends a call sits at Rs 8, because hanging up on
 a customer mid-sentence does not refund the rupee.
 
 ### One lever at a time, from Rs 5.28
@@ -145,6 +145,11 @@ conversation in it.
 
 ### What would actually close the gap
 
+**Measured and written up in [PIPELINE.md](PIPELINE.md):** moving the
+conversation off the Live API and keeping it as the mouth only lands at
+about Rs 2.1 a minute with first audio still near 550 ms. The rest of this
+section is the arithmetic that leads there.
+
 Not this knob, and not the answers. Within the Live API, the window cannot
 go below the prompt, the prompt is charged on every generation, and the
 agent's own voice is charged once at a rate nothing discounts.
@@ -160,7 +165,7 @@ sets the floor under the window, so it cuts twice. Worth about Rs 0.47 if it
 comes down to 700.
 
 Those two together, with a tighter window, reach roughly **Rs 3.40**. They do
-not reach Rs 2.50, and nothing inside this architecture does.
+not reach Rs 2.00, and nothing inside this architecture does.
 
 **3. Stop using native audio for the whole call.** Transcribe the caller,
 reason in text, speak with a TTS engine. History then lives as text at
