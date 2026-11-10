@@ -149,6 +149,41 @@ class SessionUsage:
         return sum(t.output_usd(self.rates) for t in self.turns)
 
     @property
+    def audio_usd(self) -> float:
+        """Voice in and voice out, each counted once. The commercial ceiling.
+
+        This is the only cost figure that does not rest on the unsettled
+        re-billing question, and it is the one Poorvika is held to: the
+        caller's microphone and the agent's mouth, nothing else.
+
+        The caller's side is taken from the LAST turn rather than summed.
+        `prompt_audio` is cumulative for the session, so the final turn's
+        figure is every second of speech the microphone ever sent - counted
+        once, which is the least it can possibly be charged. Summing them
+        would count the first minute again on every turn after it, which is
+        the hypothesis, not the floor.
+
+        The agent's side is summed, because each reply is generated once and
+        charged once under either hypothesis.
+
+        Thinking is deliberately absent. It is billed, and it is reported
+        beside this, but it is not voice and the ceiling here is about voice.
+        """
+        if not self.turns:
+            return 0.0
+        heard = self.turns[-1].prompt_audio * self.rates.prompt_audio
+        spoken = sum(t.response_audio for t in self.turns) * self.rates.response_audio
+        return (heard + spoken) / 1e6
+
+    def audio_inr_per_minute(
+        self, usd_inr: float, gst_rate: float, minutes: float
+    ) -> float:
+        """What the two voice streams cost per connected minute, with tax."""
+        if minutes <= 0:
+            return 0.0
+        return self.audio_usd * usd_inr * (1 + gst_rate) / minutes
+
+    @property
     def input_usd_rebilled(self) -> float:
         """H1: every turn is charged its full accumulated prompt."""
         return sum(t.prompt_usd(self.rates) for t in self.turns)

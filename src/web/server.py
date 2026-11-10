@@ -140,6 +140,17 @@ def create_app(config: Config | None = None) -> FastAPI:
         usage: SessionUsage | None = None
 
         async def push(payload: dict[str, Any]) -> None:
+            if payload.get("type") == "turn" and usage is not None:
+                # What the call is costing on the figure Poorvika is held to,
+                # live, rather than only in the summary after it ends.
+                payload["voice_inr_per_minute"] = round(
+                    usage.audio_inr_per_minute(
+                        settings.usd_inr,
+                        settings.gst_rate,
+                        max((time.monotonic() - opened_at) / 60, 1 / 60),
+                    ),
+                    2,
+                )
             with contextlib.suppress(Exception):
                 await websocket.send_json(payload)
 
@@ -147,14 +158,22 @@ def create_app(config: Config | None = None) -> FastAPI:
             # spend figure has moved and the only clean point to stop.
             if payload.get("type") != "turn" or talking is None or usage is None:
                 return
-            # The re-billed reading, deliberately: until the billing console
-            # settles which applies, a ceiling should assume the dearer one.
+            # The re-billed reading for the backstop, deliberately: until the
+            # billing console settles which applies, a figure that exists to
+            # catch the unforeseen should assume the dearer one.
             spent = (usage.input_usd_rebilled + usage.output_usd) * settings.usd_inr
+            minutes = (time.monotonic() - opened_at) / 60
             try:
                 budget.check(
                     turns=len(talking.result.turns),
-                    minutes=(time.monotonic() - opened_at) / 60,
+                    minutes=minutes,
                     inr=spent,
+                    # The commercial ceiling, and the only one that rests on
+                    # nothing unsettled: voice in plus voice out, each counted
+                    # once, per connected minute.
+                    audio_inr_per_minute=usage.audio_inr_per_minute(
+                        settings.usd_inr, settings.gst_rate, minutes
+                    ),
                 )
             except BudgetExceeded as stop:
                 log.warning("session stopped: %s", stop.reason)
