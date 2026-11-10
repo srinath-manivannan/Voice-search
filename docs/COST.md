@@ -57,28 +57,79 @@ Two things the docs leave open, both flagged on screen rather than buried:
 - **Audio input.** The table prints "$3.00 or $0.005/min", but 25 tok/s × 60 ×
   $3.00/M is $0.0045/min. Unexplained. We price the tokens the API reports.
 
+## A correction, and why it is at the top
+
+An earlier version of this file reported **Rs 2.33 a connected minute** and
+called the target met. The arithmetic was right and the configuration was
+not: it assumed a 400-token context window, and probed against the live API a
+window that small **ends the call on the first tool call** - close code 1007,
+"Request contains an invalid argument" - because compression always keeps the
+~1,430-token system instruction, so a 400-token trigger fires on every turn
+and leaves the function call behind while its response is still coming.
+
+Two real calls died that way before anyone looked, and the suite was green
+throughout, because every cost test built its own shape instead of reading
+the shipped config.
+
+With a window that calls actually survive, a minute costs **Rs 3 to Rs 5**.
+That is the number, and the rest of this file is written to it.
+
 ## Prediction
 
-Shipped configuration: context window 400/100, fixed prompt 1,131 tokens,
-agent speaking 63% of wall clock — the talk time measured on a real call, and
-deliberately not reduced.
+Shipped configuration: context window 3,000/2,400, fixed prompt ~1,430
+tokens, agent speaking 63% of wall clock - the talk time measured on a real
+call, and deliberately not reduced.
 
 Cost per connected minute is **flat however long the call runs**, because the
-window is capped. That is the whole point of capping it: a ten-minute call
-costs ten times a one-minute call, not a hundred times.
+window is capped. A ten-minute call costs ten times a one-minute call, not a
+hundred times.
 
-| turns/min | caller voice + audio history | prompt + tools + text history | agent voice | thinking | **total ₹/min** |
+| generations/min | caller voice + audio history | prompt + tools + text history | agent voice | thinking | **total Rs/min** |
 |---|---|---|---|---|---|
-| 4.0 | 0.25 | 0.37 | 1.19 | 0.17 | **1.99** |
-| 5.0 | 0.32 | 0.47 | 1.19 | 0.22 | **2.18** |
-| 5.73 *(measured caller)* | 0.36 | 0.53 | 1.19 | 0.25 | **2.33** |
-| 6.0 | 0.38 | 0.56 | 1.19 | 0.26 | **2.38** |
-| 7.0 | 0.44 | 0.65 | 1.19 | 0.30 | **2.58** |
-| 8.09 *(measured, incl. tool turns)* | 0.51 | 0.75 | 1.19 | 0.35 | **2.80** |
+| 4.0 | 1.28 | 0.53 | 1.19 | 0.17 | **3.17** |
+| 5.0 | 1.60 | 0.66 | 1.19 | 0.22 | **3.67** |
+| 5.73 *(measured caller)* | 1.83 | 0.76 | 1.19 | 0.25 | **4.03** |
+| 6.5 | 2.08 | 0.86 | 1.19 | 0.28 | **4.41** |
+| 8.09 *(measured, incl. tool turns)* | 2.59 | 1.07 | 1.19 | 0.35 | **5.20** |
 
-Turn rate is mostly the caller's choice, which is why the table is a range and
-not a number. The enforced ceiling is ₹2.50 a connected minute on the total,
-checked after every turn once a call is past one minute.
+Generations, not caller turns: every tool call is a silent generation of its
+own and re-bills the window like any other.
+
+Poorvika's target is Rs 2.50. **We are over it**, by about Rs 1.50 a minute
+at the measured caller's pace. The incumbent vendor charges Rs 4.85 a minute,
+so the shipped configuration is close to it rather than comfortably under.
+The target is shown on screen and coloured against; the session ceiling that
+actually ends a call sits at Rs 8, because hanging up on a customer
+mid-sentence does not refund the rupee.
+
+### What the window is worth, and what it costs to go smaller
+
+| window | Rs/min at 5.73 gen/min | behaviour, probed on the live API |
+|---|---|---|
+| prompt only (no history) | 2.28 | **impossible** - 400/100 closes the socket on the first tool call |
+| 2,500/2,000 | ~3.3 | survives; agent answers "Endha model pathi kekureenga?" to everything |
+| **3,000/2,400** | **4.03** | shipped - held eight turns and two compressions |
+| 4,000/3,000 | 5.26 | also correct, Rs 1.2 dearer |
+| uncapped | 8.99 | what the measured call did: Rs 8.33 billed |
+
+So Rs 2.33 was never a configuration. It was the price of a window with no
+conversation in it.
+
+### What would actually close the gap
+
+Not this knob. The window cannot go below the prompt, and the prompt is
+charged on every generation whatever it is set to.
+
+1. **Fewer generations.** Everything standing in the window is re-billed per
+   generation, so the rate is close to linear in them. The tool-turn work
+   took a measured conversation from 1.75 generations per caller turn to
+   1.38, and stock and offers now cost no round trip at all.
+2. **A smaller prompt.** 1,430 tokens, every generation, forever. It also
+   sets the floor under the window, so cutting it twice.
+3. **Not native audio for the whole call.** Text in and out on a cheaper
+   model is roughly a tenth of these rates. That is an architecture decision,
+   not a setting, and it is the only route to Rs 2.50 that the numbers
+   support.
 
 ### The floor
 
@@ -96,34 +147,39 @@ it, because a cost model nobody checked against an invoice is a spreadsheet.
 
 ## What changed, and what each was worth
 
-Measured call: **₹9.01/min → ₹2.33/min** at the caller's own turn rate.
-
 | change | worth |
 |---|---|
-| context window 4,000/2,000 → 400/100 | ~₹4.5/min |
-| fixed prompt 1,802 → 1,131 tokens | ~₹0.36/min |
+| context window uncapped -> 3,000/2,400 | ~Rs 5/min on a three-minute call |
+| fixed prompt 1,802 -> ~1,430 tokens | ~Rs 0.3/min, and it lowers the window's floor |
+| tool round-trips removed | 1.75 -> 1.38 generations per caller turn, measured |
 | agent's replies | **untouched** |
 
-The first compression setting, 4,000/2,000, **saved nothing**: the window was
-larger than a three-minute call ever accumulates, so it never fired — ₹9.19/min
-with it against ₹9.01 without. 400/100 is about thirteen seconds of audio.
+The first compression setting, 4,000/2,000, saved nothing on a three-minute
+call: the window was larger than one ever accumulated, so it never fired. The
+answer to that was not a smaller window than the prompt - that was the
+mistake - it was accepting that compression only pays on long calls.
 
-That is only safe because the conversation's state does not live in the
-window: the shortlist a caller refers back to is held server-side in
+That any of this is safe depends on the conversation's state not living in
+the window: the shortlist a caller refers back to is held server-side in
 `ToolSession`, so "the second one" survives a compression that discards the
-audio of being told about it.
+audio of being told about it. **The budget does not.** At turn eight of a
+probed conversation the agent had lost the 20-25k the caller opened with,
+because compression drops the oldest turn and that is where it was said. A
+budget belongs beside the shortlist. Until it does, this is a known limit.
 
-400/100, 300/80 and 600/150 were all probed against the live endpoint before
-shipping. This is the API that refuses `thinkingConfig` outright, so acceptance
-cannot be assumed.
+Every window value in this file was probed against the live endpoint before
+being written down. This is the API that refuses `thinkingConfig` outright
+and accepts a 400-token window that then kills the call, so neither
+acceptance at setup nor one turn going well is evidence.
 
 ## Tool round-trips
 
 The measured call had 17 caller turns but **24 generations**. Every tool call
 is another turn — one that says nothing to make the call, another to answer —
 and each re-bills the whole window. Five of the 24 said nothing at all and
-burnt 413 thinking tokens doing it. Zero tool turns would be ₹2.37/min against
-the ₹2.85 that call's shape costs now.
+burnt 413 thinking tokens doing it. At the shipped window those seven extra
+generations are about Rs 1.2 a minute: Rs 4.03 at 5.73 generations a minute
+against Rs 5.20 at 8.09.
 
 What changed:
 
@@ -134,14 +190,9 @@ What changed:
 | re-search no longer rebuilds the shortlist | "the second one" keeps meaning the same phone |
 | descriptions say the search result is complete and stays valid | fewer calls, if the model obeys |
 
-Honest accounting, at that call's shape:
-
-| generations | ₹/min | |
-|---|---|---|
-| 24 | 2.85 | as it ran |
-| 23 | 2.78 | minus the stock round-trip — structural, the data is there now |
-| 21 | 2.64 | minus the two duplicate searches — needs the model to obey |
-| 17 | 2.37 | no tool turns at all |
+Measured again after the change, on an eight-turn probe: **1.38 generations
+per caller turn**, two tool calls in eight turns. Stock and offers were both
+answered with no round trip at all, which was structurally impossible before.
 
 By the time a duplicate search reaches us the model has already spent the
 generation, so the memo cannot win that back. It buys latency and correctness.

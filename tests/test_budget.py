@@ -77,18 +77,27 @@ def test_the_voice_floor_counts_the_callers_voice_once_not_once_per_turn():
 
 
 def test_the_rate_ceiling_is_the_whole_bill_not_just_the_voice():
-    """Rs 2.50 a connected minute, every charge line, GST included.
+    """Every charge line, GST included - not the two audio streams.
 
-    The old ceiling watched the two audio streams only. On the measured call
-    they were Rs 1.39 of Rs 9.01 a minute, so that ceiling would have waved
-    through a call costing six times its limit.
+    The old ceiling watched the audio only. On the measured call that was
+    Rs 1.39 of Rs 9.01 a minute, so it would have waved through a call
+    costing six times its limit.
     """
     budget = SessionBudget()
-    # Comfortably inside: nothing raised.
-    budget.check(turns=4, minutes=3.0, inr=7.0, inr_per_minute=2.36)
-
     with pytest.raises(BudgetExceeded, match="rate ceiling"):
-        budget.check(turns=4, minutes=3.0, inr=9.0, inr_per_minute=2.6)
+        budget.check(turns=4, minutes=3.0, inr=9.0, inr_per_minute=9.5)
+
+
+def test_being_over_the_commercial_target_does_not_hang_up_on_a_customer():
+    """The thing this guards against is a runaway, not an expensive call.
+
+    Poorvika's target is Rs 2.50 a connected minute and we are over it: a
+    working window costs around Rs 4. Enforcing the target here would cut
+    every real caller off sixty seconds in, mid-sentence, which loses the
+    sale and does not refund the rupee. The target is shown on screen, where
+    someone can act on it. This ceiling only stops a loop.
+    """
+    SessionBudget().check(turns=4, minutes=3.0, inr=12.0, inr_per_minute=4.2)
 
 
 def test_a_rate_measured_over_seconds_does_not_end_the_call():

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import pytest
 
+from src.config import devconfig
 from src.voice.cost import (
     FLASH_LITE,
     IN_AUDIO,
@@ -19,8 +20,10 @@ from src.voice.cost import (
     THINKING,
     TOKENS_PER_AUDIO_SECOND,
     Shape,
+    growing_window,
     predict,
     price,
+    steady_window,
     turn_cost_in_speech_seconds,
 )
 
@@ -36,6 +39,13 @@ MEASURED = dict(
     caller_audio_seconds=75.0,  # (8898 frames - 5146 held by the gate) x 20ms
     billed_inr_ex_gst=20.96,  # what the server's own backstop computed
 )
+
+# System instruction plus tool declarations, as the API counts them: the floor
+# `prompt_text` fell back to on a live call once compression had thrown away
+# everything else. Measured, not estimated, because every number below is a
+# multiple of it - it is charged on every single turn and compression is
+# documented to keep it.
+FIXED_PROMPT = 1430
 
 
 def test_each_line_is_priced_at_its_own_rate():
@@ -149,9 +159,10 @@ def _measured_shape(**over: object) -> Shape:
         ),
         caller_audio_fraction=MEASURED["caller_audio_seconds"] / seconds,
         thinking_per_turn=MEASURED["thinking_tokens"] / MEASURED["turns"],
-        fixed_text_tokens=1131,
-        trigger_tokens=400,
-        target_tokens=100,
+        fixed_text_tokens=FIXED_PROMPT,
+        window_tokens=steady_window(
+            devconfig.CONTEXT_TRIGGER_TOKENS, devconfig.CONTEXT_TARGET_TOKENS
+        ),
     )
     base.update(over)
     return Shape(**base)  # type: ignore[arg-type]
@@ -171,8 +182,7 @@ def test_the_model_lands_near_what_the_real_call_was_billed():
     )
     shape = _measured_shape(
         fixed_text_tokens=1802,  # the instruction as it was on that call
-        trigger_tokens=int(final_audio / 0.8),
-        target_tokens=0,
+        window_tokens=growing_window(1802, final_audio / 0.8),
     )
     b = predict(shape, usd_inr=USD_INR, gst_rate=GST, minutes=MEASURED["seconds"] / 60)
     modelled_ex_gst = b.total_usd * USD_INR
@@ -182,12 +192,17 @@ def test_the_model_lands_near_what_the_real_call_was_billed():
     assert modelled_ex_gst >= MEASURED["billed_inr_ex_gst"]
 
 
-def test_the_shipped_configuration_is_inside_the_ceiling():
-    """Rs 2.50 a minute at the rate the measured caller actually spoke.
+def test_the_shipped_configuration_is_nowhere_near_the_rs_2_50_target():
+    """The number this project was asked for, and does not reach.
 
-    17 end_of_speech events in 177.97s is 5.73 caller turns a minute. That is
-    the shape to size against, because it is the part of the call the caller
-    decides.
+    It used to assert the opposite, and passed, because the shape it was
+    given carried a 400-token window that no call can actually run on. With
+    the window the calls actually survive on, a minute costs several rupees,
+    and most of it is the context being re-processed on every generation.
+
+    Asserting the truth here rather than the target is the point: a test that
+    reports success against a configuration nobody can place a call on is
+    worse than no test, because it is believed.
     """
     b = predict(
         _measured_shape(turns_per_minute=5.73),
@@ -195,18 +210,57 @@ def test_the_shipped_configuration_is_inside_the_ceiling():
         gst_rate=GST,
         minutes=3.0,
     )
-    assert b.total_inr_per_min <= 2.50
+    assert b.total_inr_per_min > 2.50
+    # Pinned so the gap is a number someone can work against, not a feeling.
+    assert 4.0 < b.total_inr_per_min < 7.0
 
 
-def test_it_still_holds_a_little_above_the_measured_turn_rate():
-    """Turn rate is mostly the caller's choice, so it needs headroom."""
+def test_the_re_billed_history_is_the_bill_not_the_agents_voice():
+    """Where the money actually goes, now that the window is a real one.
+
+    This matters for what to do next. The agent's voice is charged once and
+    the caller asked for it not to be cut; the retained audio history is
+    charged again on every generation. The second is several times the first,
+    so the levers that pay are the number of generations and the size of the
+    window - not the length of the answers.
+    """
     b = predict(
-        _measured_shape(turns_per_minute=6.5),
+        _measured_shape(turns_per_minute=5.73),
         usd_inr=USD_INR,
         gst_rate=GST,
         minutes=3.0,
     )
-    assert b.total_inr_per_min <= 2.50
+    assert b.line(IN_AUDIO).inr_per_min > b.line(OUT_AUDIO).inr_per_min
+    # The agent's voice is unchanged from the measured call: same talk time,
+    # same tokens. Nothing was taken off the answers to get here.
+    assert b.line(OUT_AUDIO).inr_per_min == pytest.approx(1.19, abs=0.02)
+
+
+def test_halving_the_generations_nearly_halves_the_bill():
+    """The one lever with real leverage, and the one the tool fix pulls.
+
+    Everything standing in the window is charged again per generation, so the
+    rate is close to linear in generations a minute. That is why a tool call
+    - which costs a whole silent generation before the answering one - is
+    worth removing, and why clipping replies is not.
+    """
+    busy = predict(
+        _measured_shape(turns_per_minute=8.09),
+        usd_inr=USD_INR,
+        gst_rate=GST,
+        minutes=3.0,
+    )
+    calm = predict(
+        _measured_shape(turns_per_minute=4.05),
+        usd_inr=USD_INR,
+        gst_rate=GST,
+        minutes=3.0,
+    )
+    saved = busy.total_inr_per_min - calm.total_inr_per_min
+    assert saved > 2.0
+    # Not exactly half: the agent's voice is charged once however many
+    # generations it took, so it does not scale with them.
+    assert calm.total_inr_per_min > busy.total_inr_per_min / 2
 
 
 def test_a_tool_round_trip_costs_a_whole_extra_window_re_bill():
@@ -256,35 +310,58 @@ def test_cost_per_minute_is_flat_however_long_the_call_runs():
     assert max(rates) - min(rates) < 0.01
 
 
-def test_an_uncapped_window_is_the_single_most_expensive_setting():
-    """What the first attempt at compression got wrong.
+def test_compression_is_necessary_and_nowhere_near_sufficient():
+    """Worth having, and not the thing that reaches the target.
 
-    4,000/2,000 held more than a three-minute call ever accumulated, so it
-    never fired and saved nothing. The fix was not more compression, it was a
-    window small enough to bite.
+    On a three-minute call an uncapped window costs roughly twice the shipped
+    one, so compression stays. What it does not do is close the gap to
+    Rs 2.50: the capped figure is still well over it, and no legal setting of
+    this knob gets there, because the window cannot go below the prompt and
+    the prompt is charged on every generation regardless.
+
+    The earlier version of this test asserted the opposite of its own first
+    line, and passed, against a 400-token window no call can run on.
     """
-    tight = predict(_measured_shape(), usd_inr=USD_INR, gst_rate=GST, minutes=3.0)
-    loose = predict(
-        _measured_shape(trigger_tokens=4000, target_tokens=2000),
+    capped = predict(_measured_shape(), usd_inr=USD_INR, gst_rate=GST, minutes=3.0)
+    uncapped = predict(
+        _measured_shape(window_tokens=growing_window(FIXED_PROMPT, 9000)),
         usd_inr=USD_INR,
         gst_rate=GST,
         minutes=3.0,
     )
-    assert loose.total_inr_per_min > tight.total_inr_per_min * 2
+    assert uncapped.total_inr_per_min > capped.total_inr_per_min * 1.5
+    assert capped.total_inr_per_min > 2.50
 
 
-def test_the_agents_voice_is_untouched_and_is_the_biggest_remaining_line():
-    """The caller asked for cost down WITHOUT clipping the replies.
+def test_the_target_is_only_reachable_by_a_window_that_cannot_hold_a_call():
+    """The reconciliation of an earlier claim, kept where it can be checked.
 
-    So the thing to prove is that the saving came from somewhere else: after
-    the cut, the agent's own voice is the largest single line, which is what
-    it looks like when nothing was taken off the answer.
+    Rs 2.33 a minute was reported here once and the arithmetic was right: a
+    window holding nothing but the prompt does come in under Rs 2.50, because
+    there is no history to re-process. What was wrong was treating that as a
+    configuration. Probed against the live API, a window that small closes
+    the socket on the first tool call; the smallest that keeps a conversation
+    is about twice the prompt, and it costs roughly twice as much.
+
+    So the target is not impossible in arithmetic and is out of reach in
+    practice, and the two have to be stated together or the number misleads.
     """
-    b = predict(_measured_shape(), usd_inr=USD_INR, gst_rate=GST, minutes=3.0)
-    voice = b.line(OUT_AUDIO).inr_per_min
-    assert voice == max(line.inr_per_min for line in b.lines)
-    # Unchanged from the measured call: same talk time, same tokens.
-    assert voice == pytest.approx(1.19, abs=0.02)
+    no_history = predict(
+        _measured_shape(turns_per_minute=5.73, window_tokens=FIXED_PROMPT),
+        usd_inr=USD_INR,
+        gst_rate=GST,
+        minutes=3.0,
+    )
+    assert no_history.line(IN_AUDIO).inr_per_min < 0.5
+    assert no_history.total_inr_per_min < 2.50
+
+    shipped = predict(
+        _measured_shape(turns_per_minute=5.73),
+        usd_inr=USD_INR,
+        gst_rate=GST,
+        minutes=3.0,
+    )
+    assert shipped.total_inr_per_min > 2 * no_history.total_inr_per_min * 0.8
 
 
 def test_an_avoided_turn_is_worth_several_seconds_of_speech():

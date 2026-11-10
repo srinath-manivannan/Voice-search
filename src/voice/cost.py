@@ -287,16 +287,40 @@ class Shape:
     # BidiGenerateContentSetup.prefixTurns will always remain at the beginning
     # of the result." So they are paid for on every single turn, forever.
     fixed_text_tokens: int
-    # contextWindowCompression. History sawtooths between target and trigger,
-    # so the average standing in the window is the midpoint.
-    trigger_tokens: int
-    target_tokens: int
+    # The average TOTAL context standing in the window on a turn, the fixed
+    # prompt included. `steady_window` computes it from the compression
+    # settings; `growing_window` from a call that had none.
+    #
+    # Total, not history, because that is what the trigger measures and
+    # because getting it wrong the other way is what made a 400-token window
+    # look affordable. The prompt is about 1,450 tokens on its own, so a
+    # window of 400 does not hold a cheap call - it holds no call at all.
+    window_tokens: float
     # How much of retained history is audio rather than text. Audio costs 4x,
     # and on a voice call history is mostly audio.
     history_audio_fraction: float = 0.8
     # Text tokens the model emits per turn for output transcription. Charged
     # at the text OUTPUT rate, and only because we asked for transcripts.
     transcript_text_per_turn: float = 0.0
+
+
+def steady_window(trigger_tokens: int, target_tokens: int) -> float:
+    """Average total context under sliding-window compression.
+
+    History sawtooths between the target and the trigger, so the average
+    standing in the window over a long call is the midpoint. The prompt is
+    inside that figure, because the trigger is measured on the whole window.
+    """
+    return (trigger_tokens + target_tokens) / 2
+
+
+def growing_window(fixed_text_tokens: int, final_history_tokens: float) -> float:
+    """Average total context on a call with no compression at all.
+
+    History starts at nothing and ends at everything the call accumulated, so
+    the average over the call is the prompt plus half of that.
+    """
+    return fixed_text_tokens + final_history_tokens / 2
 
 
 def predict(
@@ -314,7 +338,11 @@ def predict(
     history stops growing and the rate goes flat. So this predicts one number
     for a call of any length, which is only true because the window is capped.
     """
-    history = (shape.trigger_tokens + shape.target_tokens) / 2
+    # The fixed prompt sits INSIDE the window, so history is what is left of
+    # it. Adding the prompt on top instead - which this did - overstates a
+    # large window and, far worse, makes a window smaller than the prompt
+    # look like a cheap one rather than an impossible one.
+    history = max(shape.window_tokens - shape.fixed_text_tokens, 0.0)
     history_audio = history * shape.history_audio_fraction
     history_text = history - history_audio
 
@@ -359,7 +387,7 @@ def turn_cost_in_speech_seconds(shape: Shape, rates: Rates = LIVE) -> float:
     clipping replies to save money is backwards: the clipped answer gets
     asked again, and the follow-up turn costs more than the sentence saved.
     """
-    history = (shape.trigger_tokens + shape.target_tokens) / 2
+    history = max(shape.window_tokens - shape.fixed_text_tokens, 0.0)
     audio = history * shape.history_audio_fraction
     text = history - audio + shape.fixed_text_tokens
     per_turn = (

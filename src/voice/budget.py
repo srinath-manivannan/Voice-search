@@ -47,8 +47,15 @@ class SessionBudget:
     max_inr: float = 50.0
     # The whole bill per connected minute, inclusive of GST: caller audio and
     # the re-processed history, the standing prompt, the agent's voice,
-    # transcription and thinking. Poorvika's commercial ceiling is Rs 2.50.
-    max_inr_per_minute: float = 2.50
+    # transcription and thinking.
+    #
+    # This is NOT Poorvika's Rs 2.50 target. It is a runaway guard, and it
+    # sits far above the target on purpose. A ceiling set at the commercial
+    # target cuts a customer off in the middle of a sentence on a call that
+    # is merely more expensive than we would like, which costs the sale and
+    # does not refund the rupee. The target belongs on the screen, where
+    # someone can act on it; this belongs where a loop gets stopped.
+    max_inr_per_minute: float = 8.00
     # A rate measured over seconds is noise. The greeting alone is a whole
     # reply inside the first ten seconds of a call, and dividing it by a
     # fraction of a minute reads as a rate no real call would ever sustain.

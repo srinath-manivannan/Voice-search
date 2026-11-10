@@ -150,6 +150,7 @@ def create_app(config: Config | None = None) -> FastAPI:
                     settings.usd_inr, settings.gst_rate, elapsed
                 )
                 payload["cost"] = breakdown.as_dict()
+                payload["cost"]["target_inr_per_min"] = settings.target_inr_per_minute
                 payload["cost"]["ceiling_inr_per_min"] = settings.max_inr_per_minute
                 # What the two voice streams alone cost, counted once each:
                 # the part of the bill no configuration can remove.
@@ -253,6 +254,7 @@ def create_app(config: Config | None = None) -> FastAPI:
                 summary = model.usage.breakdown(
                     settings.usd_inr, settings.gst_rate, minutes
                 ).as_dict()
+                summary["target_inr_per_min"] = settings.target_inr_per_minute
                 summary["ceiling_inr_per_min"] = settings.max_inr_per_minute
                 summary["voice_floor_inr_per_min"] = round(
                     model.usage.voice_inr_per_minute(

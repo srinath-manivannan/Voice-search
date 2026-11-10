@@ -47,7 +47,13 @@ class Config:
     max_session_turns: int
     max_session_minutes: float
     max_session_inr: float
-    # The commercial ceiling: the whole bill per connected minute, GST in.
+    # Two different numbers, deliberately. The target is what Poorvika wants a
+    # connected minute to cost, GST in, and it is what the screen is coloured
+    # against. The ceiling is where a session is cut off, and it is a runaway
+    # guard - set well above the target because hanging up on a customer
+    # mid-sentence to save a rupee is not a cost saving. We are over the
+    # target today; docs/COST.md says by how much and what would close it.
+    target_inr_per_minute: float
     max_inr_per_minute: float
 
     # Product search. The token is a secret; the URL is not.
@@ -135,7 +141,8 @@ def load(env: str | None = None) -> Config:
         max_session_turns=int(os.environ.get("MAX_SESSION_TURNS", "40")),
         max_session_minutes=float(os.environ.get("MAX_SESSION_MINUTES", "10")),
         max_session_inr=float(os.environ.get("MAX_SESSION_INR", "50")),
-        max_inr_per_minute=float(os.environ.get("MAX_INR_PER_MINUTE", "2.50")),
+        target_inr_per_minute=float(os.environ.get("TARGET_INR_PER_MINUTE", "2.50")),
+        max_inr_per_minute=float(os.environ.get("MAX_INR_PER_MINUTE", "8.00")),
         gst_rate=float(os.environ.get("GST_RATE", "0.18")),
         catalogue_url=os.environ.get("CATALOGUE_URL", defaults.CATALOGUE_URL),
         catalogue_token=os.environ.get("CATALOGUE_TOKEN", ""),

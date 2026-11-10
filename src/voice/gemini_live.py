@@ -22,7 +22,6 @@ import base64
 import json
 import logging
 import time
-import contextlib
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any, Protocol
 
@@ -47,7 +46,25 @@ Connect = Callable[[str], Awaitable[Socket]]
 
 
 class _ClosedSocket(Exception):
-    """The peer closed the stream. Normal at the end of a call."""
+    """The peer closed the stream.
+
+    Normal at the end of a call - and NOT normal in the middle of one, which
+    is why the close frame's code and reason are carried here rather than
+    discarded. Google states the reason for a refusal in that frame and
+    nowhere else: no error message arrives on the stream first. Swallowing it
+    turned "the API rejected what we sent" into a call that simply stopped
+    with nothing in the log, which is the worst possible way to find out.
+    """
+
+    def __init__(self, code: int | None = None, reason: str = "") -> None:
+        super().__init__(f"{code} {reason}".strip() or "closed")
+        self.code = code
+        self.reason = reason
+
+    @property
+    def expected(self) -> bool:
+        """A hang-up, as opposed to the far end objecting to something."""
+        return self.code in (None, 1000, 1001, 1005)
 
 
 class _WebsocketAdapter:
@@ -68,7 +85,7 @@ class _WebsocketAdapter:
         try:
             await self._socket.send(data)
         except wse.ConnectionClosed as closed:
-            raise _ClosedSocket from closed
+            raise _ClosedSocket(closed.code, closed.reason or "") from closed
 
     async def recv(self) -> str | bytes:
         import websockets.exceptions as wse
@@ -76,7 +93,7 @@ class _WebsocketAdapter:
         try:
             return await self._socket.recv()
         except wse.ConnectionClosed as closed:
-            raise _ClosedSocket from closed
+            raise _ClosedSocket(closed.code, closed.reason or "") from closed
 
     async def close(self) -> None:
         await self._socket.close()
@@ -327,7 +344,18 @@ class GeminiLiveSession:
         while True:
             try:
                 raw = await socket.recv()
-            except (StopAsyncIteration, ConnectionError, _ClosedSocket):
+            except _ClosedSocket as closed:
+                # A mid-call close is the API objecting to something we sent,
+                # and the close frame is the only place it says what. Losing
+                # that reason costs an afternoon every time.
+                if not closed.expected:
+                    log.error(
+                        "Live API closed the call: %s %s",
+                        closed.code,
+                        closed.reason or "(no reason given)",
+                    )
+                return
+            except (StopAsyncIteration, ConnectionError):
                 return
             if raw is None:
                 return
@@ -390,10 +418,22 @@ class GeminiLiveSession:
             responses.append({"id": call.get("id"), "name": name, "response": result})
 
         if responses:
-            with contextlib.suppress(_ClosedSocket):
+            try:
                 await self._require_socket().send(
                     json.dumps({"toolResponse": {"functionResponses": responses}})
                 )
+            except _ClosedSocket as closed:
+                # The caller hung up while the tool was running - ordinary.
+                # Anything else means the API dropped us between asking for
+                # the tool and being told the answer, and then the reason in
+                # that frame is the whole diagnosis.
+                if not closed.expected:
+                    log.error(
+                        "Live API closed while we answered %s: %s %s",
+                        ", ".join(r["name"] for r in responses),
+                        closed.code,
+                        closed.reason or "(no reason given)",
+                    )
 
     def _first_audio_ms(self) -> float | None:
         if self._speech_ended_at is None or self._first_audio_at is None:

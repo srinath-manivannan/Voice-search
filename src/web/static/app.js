@@ -279,7 +279,7 @@ function addTurn(turn) {
   const row = document.createElement('tr');
   const cost = turn.cost;
   const rate = cost ? cost.total_inr_per_min : null;
-  const ceiling = cost ? cost.ceiling_inr_per_min : 2.5;
+  const target = cost ? cost.target_inr_per_min : 2.5;
   const latency = turn.first_audio_ms == null ? '—' : Math.round(turn.first_audio_ms) + ' ms';
   const slow = turn.first_audio_ms != null && turn.first_audio_ms > 2000;
   row.innerHTML =
@@ -287,9 +287,10 @@ function addTurn(turn) {
     '<td class="' + (slow ? 'bad' : '') + '">' + latency + '</td>' +
     '<td>' + turn.response_tokens + '</td>' +
     '<td class="' + (turn.thinking_tokens ? 'warn' : '') + '">' + turn.thinking_tokens + '</td>' +
-    // The whole bill per connected minute, GST in, against the ceiling it is
-    // held to. On screen during the call, because after it is too late.
-    '<td class="' + rateClass(rate, ceiling) + '">' +
+    // The whole bill per connected minute, GST in, against the target it
+    // is measured against. On screen during the call, because after it is
+    // too late.
+    '<td class="' + rateClass(rate, target) + '">' +
       (rate == null ? '—' : '₹' + rate.toFixed(2)) + '</td>';
   el('turns').appendChild(row);
   if (cost) showCost(cost);
@@ -298,17 +299,17 @@ function addTurn(turn) {
   updatePercentiles();
 }
 
-// Red at the ceiling, amber in the last fifteen percent before it, green
-// below. Amber is not an alarm here, and that is deliberate: the floor under
-// a call is ₹1.39 of unavoidable voice against a ₹2.50 ceiling, so an
-// ordinary call genuinely does run at ninety-odd percent of its limit. The
-// panel prints that percentage next to the figure rather than pretending the
-// headroom is bigger than it is - a screen that is always amber teaches you
-// to ignore amber, and a screen that is always green hides the breach.
-function rateClass(rate, ceiling) {
+// Coloured against the TARGET - what a minute is supposed to cost - not
+// against the ceiling, which is a runaway guard sitting far above it. Red at
+// or over the target, amber in the last fifteen percent below it, green
+// under that. Calls are over the target today, so this panel is mostly red,
+// and it is meant to be: the honest reading is the one that shows the gap.
+// The percentage next to the figure says how far over, because "red" alone
+// does not tell you whether you are a rupee out or four.
+function rateClass(rate, target) {
   if (rate == null) return '';
-  if (rate >= ceiling) return 'bad';
-  if (rate >= ceiling * 0.85) return 'warn';
+  if (rate >= target) return 'bad';
+  if (rate >= target * 0.85) return 'warn';
   return 'good';
 }
 
@@ -346,14 +347,14 @@ function showTrace(trace, file) {
 // the thing to go and fix is the widest one.
 function showCost(cost) {
   el('cost').hidden = false;
-  const ceiling = cost.ceiling_inr_per_min;
+  const target = cost.target_inr_per_min;
 
   el('cost-total').textContent = '₹' + cost.total_inr_per_min.toFixed(2);
-  el('cost-total').className = rateClass(cost.total_inr_per_min, ceiling);
-  el('cost-ceiling').textContent = '₹' + ceiling.toFixed(2);
+  el('cost-total').className = rateClass(cost.total_inr_per_min, target);
+  el('cost-ceiling').textContent = '₹' + target.toFixed(2);
   el('cost-pct').textContent =
-    Math.round((cost.total_inr_per_min / ceiling) * 100) + '% of ceiling';
-  el('cost-pct').className = rateClass(cost.total_inr_per_min, ceiling);
+    Math.round((cost.total_inr_per_min / target) * 100) + '% of target';
+  el('cost-pct').className = rateClass(cost.total_inr_per_min, target);
   el('cost-call').textContent = '₹' + cost.total_inr.toFixed(2);
   el('cost-mins').textContent = cost.minutes.toFixed(2) + ' min · '
     + cost.turns + ' turns · ' + cost.turns_per_minute.toFixed(1) + '/min';

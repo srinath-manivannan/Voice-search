@@ -29,21 +29,43 @@ ESTATE_BACKEND = "worker"
 # Relative to this repository's root, not the working directory.
 ESTATE_SRC_PATH = "../../Search-proxy/products-search-engine"
 
-# Context window compression. This is the single biggest cost lever in the
-# project, and the first setting of it was useless: Google re-processes the
-# WHOLE context window on every turn and bills audio history at the audio
-# input rate, so at 4,000/2,000 the window held more than a three-minute call
-# ever accumulated and compression saved nothing - the model priced that
-# configuration at Rs 9.19 a minute against Rs 9.01 with it switched off.
+# Context window compression, and the floor underneath it.
 #
-# 400/100 is sized from the cost model, not guessed: 400 tokens is about
-# thirteen seconds of audio, so the window holds the exchange in progress and
-# little else. That is what gets a chatty caller in under Rs 2.50 a minute
-# while leaving the agent's own voice - half the remaining cost - untouched.
+# The trigger CANNOT be sized from the cost model alone. 400/100 was, and it
+# broke every call that used a tool: the standing instruction and the tool
+# declarations are about 1,450 tokens on their own and compression always
+# keeps them, so a 400-token trigger fires on every single turn and reduces
+# the window to the instruction. The function call then no longer precedes
+# its response and the Live API closes the socket - 1007, "Request contains
+# an invalid argument" - which reaches a caller as a call that simply stops.
 #
-# It is only safe because the conversation's state does NOT live in the
-# window. The shortlist a caller refers back to is held on our side in
-# ToolSession, so "the second one" survives a compression that throws away
-# the audio of being told about it. Trigger 0 switches compression off.
-CONTEXT_TRIGGER_TOKENS = 400
-CONTEXT_TARGET_TOKENS = 100
+# 2,000/1,500 survives the tool call and is still wrong: measured over four
+# turns the agent answered "Endha model pathi kekureenga?" to every one of
+# them, because the window had been emptied of what it just said. A window
+# that cannot hold the conversation does not cost less, it costs the call.
+#
+# So the trigger has a floor, and these numbers are where the cliff actually
+# is rather than where arithmetic put it. Probed on a real endpoint, same
+# four turns each time:
+#
+#     400/100     the call dies on the first tool call
+#   2,000/1,500   survives, remembers nothing
+#   2,500/2,000   survives, remembers nothing
+#   3,000/2,400   remembers; held over eight turns and two compressions
+#   4,000/3,000   remembers, and costs about Rs 1.2 a minute more
+#
+# 3,000/2,400 is shipped: one step above a measured failure, not two, and the
+# assertions in tests/test_config.py sit on that boundary deliberately -
+# 2,500/2,000 fails them, 3,000/2,400 passes.
+#
+# One thing it does NOT buy back: at turn eight the agent had lost the budget
+# the caller opened with, because compression drops the oldest turn and that
+# is where the budget was said. A budget belongs in ToolSession beside the
+# shortlist, not in audio history. Until it is, this is a known limit.
+#
+# What this means for cost is in docs/COST.md, and it is not what that file
+# said before: compression is a brake on long calls, not the big lever. The
+# levers that survive are the size of this prompt and the number of
+# generations a turn takes. Trigger 0 switches compression off entirely.
+CONTEXT_TRIGGER_TOKENS = 3000
+CONTEXT_TARGET_TOKENS = 2400
