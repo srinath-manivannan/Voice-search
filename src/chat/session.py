@@ -39,6 +39,17 @@ class ChatResult:
     turns: list[ChatRecord] = field(default_factory=list)
 
 
+def _is_question(message: dict[str, Any]) -> bool:
+    """A message the customer typed, rather than an answer to a tool call.
+
+    Both carry role "user" - the functionResponse is sent as one - so the
+    parts are what tells them apart.
+    """
+    if message.get("role") != "user":
+        return False
+    return any("text" in part for part in message.get("parts") or [])
+
+
 class ChatSession:
     # Two rounds, because one question can genuinely need two lookups:
     # "20,000-30,000 kulla phone, stock irukka?" is a search and then a stock
@@ -71,10 +82,28 @@ class ChatSession:
 
         Cutting mid-pair would leave a reply whose question is gone, which
         reads to the model as the assistant volunteering things unprompted.
+
+        An even-numbered cut was enough until the tools arrived. A tool round
+        adds two more messages - the model's functionCall and the answer to
+        it - and a cut that lands between them leaves a functionResponse
+        whose call is gone. The API rejects the entire request for it:
+
+            Please ensure that function response turn comes immediately
+            after a function call turn.
+
+        Four questions into a conversation, the chat tab stopped answering
+        anything at all. So the cut is advanced to the next plain question,
+        which is the only kind of message a conversation may begin with. The
+        caller's newest question is always in the history when this runs, so
+        there is always one to find.
         """
         excess = len(self._history) - self._max_history
-        if excess > 0:
-            self._history = self._history[excess + (excess % 2) :]
+        if excess <= 0:
+            return
+        cut = excess + (excess % 2)
+        while cut < len(self._history) and not _is_question(self._history[cut]):
+            cut += 1
+        self._history = self._history[cut:]
 
     async def send(self, text: str) -> AsyncIterator[str]:
         """Add the customer's message, stream the reply, record what it cost."""

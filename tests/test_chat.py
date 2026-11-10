@@ -209,3 +209,56 @@ async def test_a_reply_that_is_only_a_tool_call_still_reaches_the_caller():
     # The whole part, signature included - Gemini rejects the follow-up with a
     # 400 if the thoughtSignature is not echoed back.
     assert turn.function_call_part["thoughtSignature"] == "sig-abc"
+
+
+def test_trimming_never_orphans_a_function_response():
+    """Four questions in, the chat tab stopped answering anything.
+
+        Please ensure that function response turn comes immediately after a
+        function call turn. Got function response with name 'search_products'.
+
+    A tool round adds two messages to the history, so an even-numbered cut is
+    no longer enough: landing between a functionCall and its answer leaves the
+    answer orphaned, and the API rejects the whole request rather than the one
+    message.
+    """
+    from src.chat.session import ChatSession
+
+    session = ChatSession(model=None, max_history_messages=4)  # type: ignore[arg-type]
+    session._history = [
+        {"role": "user", "parts": [{"text": "first question"}]},
+        {"role": "model", "parts": [{"functionCall": {"name": "search_products"}}]},
+        {"role": "user", "parts": [{"functionResponse": {"name": "search_products"}}]},
+        {"role": "model", "parts": [{"text": "two phones"}]},
+        {"role": "user", "parts": [{"text": "second question"}]},
+    ]
+    session._trim()
+
+    first = session._history[0]
+    assert first["role"] == "user"
+    assert "text" in first["parts"][0], "history begins on an orphaned response"
+    # And the conversation still starts somewhere real.
+    assert first["parts"][0]["text"] == "second question"
+
+
+def test_trimming_keeps_a_call_and_its_answer_together():
+    """Cutting before the call keeps the pair intact, which is legal."""
+    from src.chat.session import ChatSession
+
+    session = ChatSession(model=None, max_history_messages=6)  # type: ignore[arg-type]
+    session._history = [
+        {"role": "user", "parts": [{"text": "old"}]},
+        {"role": "model", "parts": [{"text": "older reply"}]},
+        {"role": "user", "parts": [{"text": "recent"}]},
+        {"role": "model", "parts": [{"functionCall": {"name": "search_products"}}]},
+        {"role": "user", "parts": [{"functionResponse": {"name": "search_products"}}]},
+        {"role": "model", "parts": [{"text": "two phones"}]},
+        {"role": "user", "parts": [{"text": "newest"}]},
+    ]
+    session._trim()
+
+    kinds = [list(m["parts"][0])[0] for m in session._history]
+    assert "functionResponse" not in kinds or kinds.index("functionCall") < kinds.index(
+        "functionResponse"
+    )
+    assert session._history[0]["parts"][0].get("text") == "recent"
