@@ -46,6 +46,14 @@ class TurnRecord:
     first_audio_ms: float | None
     response_tokens: int
     thinking_tokens: int
+    # The prompt the server charged this turn for. CUMULATIVE for the session,
+    # which is how the Live API reports it and the whole reason cost is not
+    # flat per minute: if every turn is charged its full accumulated prompt,
+    # the first minute of a call is paid for again on every turn after it.
+    # Without this in the trace, 86% of a call's cost was invisible - the only
+    # figure we had was a total that said nothing about where it came from.
+    prompt_audio_tokens: int = 0
+    prompt_text_tokens: int = 0
     barge_in: bool = False
 
 
@@ -308,6 +316,8 @@ class Conversation:
                         first_audio_ms=first_audio_ms,
                         response_tokens=usage.response_audio + usage.response_text,
                         thinking_tokens=usage.thoughts,
+                        prompt_audio_tokens=usage.prompt_audio,
+                        prompt_text_tokens=usage.prompt_text,
                     )
                     self.result.turns.append(record)
                     self.trace.record(
@@ -316,6 +326,8 @@ class Conversation:
                         first_audio_ms=first_audio_ms,
                         response_tokens=record.response_tokens,
                         thinking_tokens=record.thinking_tokens,
+                        prompt_audio=record.prompt_audio_tokens,
+                        prompt_text=record.prompt_text_tokens,
                     )
                     await self._notify(
                         type="turn",

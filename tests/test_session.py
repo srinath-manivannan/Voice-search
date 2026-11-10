@@ -447,3 +447,35 @@ async def test_a_real_syllable_still_ends_the_turn():
     await Conversation(model, source, FakeSink(), vad=EnergyVad()).run()
 
     assert model.ends == 1
+
+
+async def test_the_trace_records_what_the_prompt_cost():
+    """86% of a call's cost was invisible in its own trace.
+
+    The prompt counts the Live API reports are cumulative for the session, so
+    they are the whole reason cost is not flat per minute - under the re-billed
+    reading the first minute of a call is charged again on every turn after
+    it. A trace that records only the reply leaves nothing to reduce.
+    """
+    model = StubModel(
+        [
+            AudioOut(turn_id=0, pcm=b"\x01\x02"),
+            TurnComplete(
+                turn_id=0,
+                usage=TurnUsage(
+                    prompt_audio=4400,
+                    prompt_text=1100,
+                    response_audio=150,
+                    thoughts=90,
+                ),
+                first_audio_ms=120.0,
+            ),
+        ]
+    )
+    talking = Conversation(model, FakeSource([SILENCE]), FakeSink())
+    await talking.run()
+
+    turn = next(e for e in talking.trace.events if e.kind == "turn_complete").detail
+    assert turn["prompt_audio"] == 4400
+    assert turn["prompt_text"] == 1100
+    assert turn["response_tokens"] == 150
