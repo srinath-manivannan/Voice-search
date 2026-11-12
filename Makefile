@@ -7,15 +7,30 @@
 VENV := .venv/bin
 PY   := $(VENV)/python
 
-.PHONY: help install ui talk test audio live check fmt mic image
+.PHONY: help install lock ui talk test audio live check fmt mic image
 
 help:                    ## show this list
 	@grep -E '^[a-z-]+:.*?##' $(MAKEFILE_LIST) | sed 's/:.*##/|/' | column -t -s'|'
 
-install:                 ## create the venv and install everything
+install:                 ## create the venv and install the locked versions
 	python3 -m venv .venv
-	$(VENV)/pip install -q -r requirements.txt -r requirements-dev.txt
+	$(VENV)/pip install -q --upgrade pip
+	# --require-hashes: every artefact must match the hash that was reviewed,
+	# or nothing installs. Both files in one command, which is why the dev
+	# lockfile is constrained against the runtime one.
+	$(VENV)/pip install -q --require-hashes -r requirements.txt -r requirements-dev.txt
 	@echo "done. copy .env.example to .env and add your key."
+
+lock:                    ## recompile the lockfiles after editing a .in file
+	# requirements.in is the intent; requirements.txt is what installs. Edit
+	# the first, run this, review the diff - a new transitive dependency then
+	# arrives as a line somebody approves rather than as whatever the index
+	# served that morning. --allow-unsafe pins pip and setuptools too, which
+	# --require-hashes needs and the name has long stopped meaning unsafe.
+	$(VENV)/pip-compile --generate-hashes --strip-extras --allow-unsafe \
+	  --quiet --output-file=requirements.txt requirements.in
+	$(VENV)/pip-compile --generate-hashes --strip-extras --allow-unsafe \
+	  --quiet --output-file=requirements-dev.txt requirements-dev.in
 
 ui:                      ## browser UI at http://localhost:8080 (costs money)
 	$(VENV)/uvicorn --factory src.web.app:create_app --host 127.0.0.1 --port 8080 --reload --reload-dir src

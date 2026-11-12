@@ -1,5 +1,10 @@
-# Multistage: wheels are built once in a stage that carries a compiler, and
-# the image that ships has neither the compiler nor the build cache.
+# Multistage: dependencies are installed once in a stage that carries a
+# compiler, and the image that ships has neither the compiler nor the cache.
+#
+# Installed with --require-hashes against the compiled lockfile, so the build
+# fails rather than proceeds if the index serves a file whose hash is not the
+# one that was reviewed. requirements.in is the intent; requirements.txt is
+# what is installed, and only the second one is copied in here.
 #
 # No secret appears here. Every one arrives at runtime through the
 # environment, which is why .env is in .dockerignore as well as .gitignore -
@@ -12,8 +17,11 @@ WORKDIR /build
 
 # Requirements first, so a code change does not re-resolve dependencies.
 COPY requirements.txt .
+# --prefix rather than a wheelhouse: a wheel built here and installed in the
+# next stage is installed WITHOUT hash checking, which quietly gives back the
+# guarantee the lockfile exists for.
 RUN pip install --no-cache-dir --upgrade pip \
- && pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
+ && pip install --no-cache-dir --require-hashes --prefix=/install -r requirements.txt
 
 
 FROM python:3.10.12-slim AS runtime
@@ -24,10 +32,7 @@ RUN useradd --create-home --uid 10001 poorvika
 
 WORKDIR /app
 
-COPY --from=build /wheels /wheels
-COPY requirements.txt .
-RUN pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.txt \
- && rm -rf /wheels
+COPY --from=build /install /usr/local
 
 COPY src ./src
 

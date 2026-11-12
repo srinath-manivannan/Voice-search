@@ -24,6 +24,7 @@ make test
 | `make audio` | device tests — needs a microphone and speaker |
 | `make live` | real Gemini Live calls — spends a few cents |
 | `make check` | everything CI runs, in the same order |
+| `make lock` | recompile the lockfiles after editing a `.in` |
 | `make fmt` | reformat in place |
 | `make mic` | switch capture to the built-in microphone array |
 
@@ -78,6 +79,7 @@ true, the thing in the wrong place is the one to move.
 | | |
 |---|---|
 | `.env.example` | every setting there is, with no value |
+| `requirements.in` / `.txt` | intent, and the hashed lockfile compiled from it |
 | `Dockerfile` / `.dockerignore` | multistage, non-root, no secret in any layer |
 | `.github/workflows/ci.yml` | format, types, tests, secrets, and a container that must answer its own health check |
 | `.gitlab-ci.yml` | the same checks, plus the deploy stage |
@@ -94,7 +96,7 @@ true, the thing in the wrong place is the one to move.
 | `x-request-id` | on every response, and on every log line for that request |
 
 `docs/RULES.md` checks this repository against the full-stack rules one by
-one, including the seven gaps that are still open.
+one, including the six gaps that are still open.
 
 
 ## Status
@@ -160,7 +162,7 @@ ours are committed. And it has no container story at all — ours is a root
    Inventory host and a token for the mode it is sent with, so the agent
    reports that stock could not be checked — which is the truth, and is a
    different sentence from "there is none".
-5. **Seven rules are open**, listed with what each would take at the bottom of
+5. **Six rules are open**, listed with what each would take at the bottom of
    `docs/RULES.md`.
 
 ## Security

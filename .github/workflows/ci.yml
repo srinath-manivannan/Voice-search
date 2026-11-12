@@ -40,7 +40,11 @@ jobs:
             requirements-dev.txt
 
       - name: Install
-        run: pip install -r requirements.txt -r requirements-dev.txt
+        # --require-hashes, so a tampered or replaced artefact fails the
+        # job rather than reaching a test run that then passes.
+        run: |
+          pip install --upgrade pip
+          pip install --require-hashes -r requirements.txt -r requirements-dev.txt
 
       - name: Format
         run: |

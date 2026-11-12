@@ -1,0 +1,19 @@
+# Tools, not runtime. Compiled to requirements-dev.txt the same way.
+#
+# Nothing here is installed in the image: the Dockerfile reads the runtime
+# lockfile only, so a test runner and a linter are not part of what ships.
+#
+# Constrained against the runtime lockfile so a package both sides depend on
+# resolves to ONE version. CI installs both files in a single pip command and
+# two pins for one package fails the whole install.
+-c requirements.txt
+
+pytest==9.1.1
+pytest-asyncio==1.3.0
+ruff==0.14.3
+mypy==1.18.2
+detect-secrets==1.5.0
+
+# Compiles the two lockfiles. Pinned like everything else, because a resolver
+# that changes under you produces a lockfile diff nobody can explain.
+pip-tools==7.6.2

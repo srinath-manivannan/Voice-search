@@ -26,11 +26,16 @@ __pycache__/
 .mypy_cache/
 
 # Not shipped: the test suite, the offline measurement scripts, the docs and
-# the developer entry points. The runtime needs src/ and nothing else.
+# the developer entry points. The runtime needs src/ and requirements.txt,
+# and nothing else - the dev lockfile least of all, since a linter and a test
+# runner in a production image are attack surface for no benefit.
 tests/
 docs/
 Makefile
+mypy.ini
 pytest.ini
+requirements.in
+requirements-dev.in
 requirements-dev.txt
 deploy.sh
 README.md

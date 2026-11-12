@@ -16,11 +16,11 @@ in the module that owns it.
 
 | | |
 |---|---|
-| applied | 60 |
+| applied | 61 |
 | not applicable to this stack | 33 |
-| **open gaps** | **7** |
+| **open gaps** | **6** |
 
-The seven gaps are listed at the bottom with what each would take. None is
+The six gaps are listed at the bottom with what each would take. None is
 hidden in the table.
 
 ---
@@ -34,7 +34,7 @@ hidden in the table.
 | 3 | React, Vite, TypeScript | **n/a** — one page, no build step. A toolchain for one page is more build than product |
 | 4 | Separate frontend and backend; app code in `src` | ✅ `src/` is the whole app; the page is `src/web/static/` |
 | 5 | Env example, Docker and build settings at the root | ✅ `.env.example`, `Dockerfile`, `.dockerignore`, `Makefile`, `pytest.ini`, `mypy.ini` |
-| 6 | Stable packages, no beta, commit the lockfile | ✅ every version pinned exactly in `requirements.txt`. **Gap 1**: pins are not hashed |
+| 6 | Stable packages, no beta, commit the lockfile | ✅ `requirements.in` is the intent; `requirements.txt` is a compiled lockfile with every transitive dependency pinned AND hashed, and it is what Docker, CI and `make install` read. `make lock` regenerates it |
 | 7 | Strict type checks, avoid `any` | ✅ `mypy.ini` sets `strict = True`; untyped third parties are listed one by one |
 | 8 | Prettier and ESLint | ✅ `ruff check` and `ruff format`, enforced in CI and `make check` |
 
@@ -188,11 +188,34 @@ pointer is a kindness and with the arrow keys is a trap — focus leaves the
 tablist and the other tab can no longer be reached. Arrows move between
 tabs; Tab enters the panel.
 
-## The seven open gaps
+**Gap 1 — a real lockfile.** `requirements.txt` listed five direct pins and
+nothing else, so every transitive dependency was whatever the index served
+that morning, and an exact pin without a hash still trusts the file it is
+handed under that name.
+
+Now there are two files per set. `requirements.in` says what the service
+needs and why, hand-written and reviewed. `requirements.txt` is compiled
+from it with `--generate-hashes`: 24 packages for the runtime and 28 for the
+tools, 530 and 413 hashes between them, and **that** is the file Docker, CI
+and `make install` read, all three with `--require-hashes` — so a replaced
+artefact fails the install instead of reaching production.
+
+Two things that came out of doing it:
+
+- The Dockerfile built wheels in one stage and installed them in the next
+  **without** hash checking, which would have quietly given back the whole
+  guarantee. It installs to a `--prefix` and copies that instead.
+- `requirements-dev.in` is constrained against the runtime lockfile, because
+  CI installs both in one command and two pins for one package fails it.
+
+Verified rather than assumed: a throwaway venv built only from the two
+lockfiles, with `--require-hashes`, installs 44 packages and runs the whole
+suite and the type check.
+
+## The six open gaps
 
 | | Gap | What it would take |
 |---|---|---|
-| 1 | Pins are not hashed | `pip-compile --generate-hashes`, and a lockfile to review |
 | 4 | CPU is not profiled | a profiler run under a real call, against a stated target |
 | 5 | HTTPS is not terminated here | a Phase 2 decision; it depends on the telephony provider |
 | 6 | Errors are logged, never shipped | Sentry or equivalent, with the request id attached and the payload stripped |
