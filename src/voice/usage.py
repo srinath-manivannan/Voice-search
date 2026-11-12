@@ -1,64 +1,34 @@
-"""Token accounting and cost for a Live API session.
+"""Token accounting for a Live API session. Counting here, pricing in cost.py.
 
 Two things measured in Phase 0 make this file necessary rather than a one-line
 multiplication.
 
-First, `thoughtsTokenCount` is charged but is NOT included in `totalTokenCount`.
-A meter built on totalTokenCount under-reports every call. Thinking averaged 126
-tokens a turn against 205 response tokens - not a rounding error.
+First, `thoughtsTokenCount` is charged but is NOT included in
+`totalTokenCount`. A meter built on totalTokenCount under-reports every call.
 
-Second, it is not yet established whether the accumulated prompt is re-billed on
-every turn. `promptTokenCount` is reported cumulatively, which is consistent with
-both billing models, and they differ by about 3.3x over twenty turns. Until the
-billing console settles it, this reports BOTH and the caller decides which to
-trust. Reporting a single confident number here would be inventing one.
+Second, `prompt_*` are reported CUMULATIVELY for the session. That used to be
+read two ways here - billed once, or billed again every turn - and the two
+differed by 7x, which made every cost conversation unresolvable. Google's Live
+API best-practices page settles it: "Past tokens are re-processed and
+accounted for in each new turn." So the sum across turns is the charge, and
+the second reading is gone. `src/voice/cost.py` carries the citations.
 
-Rates: https://aistudio.google.com/docs/pricing, read 2026-11-03.
+What survives of the old caution is this: the cumulative figures must be
+summed, not averaged or taken from the last turn, and that is easy to get
+wrong by looking at one turn and thinking it looks reasonable.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
+
+from src.voice.cost import FLASH_LITE, LIVE, Breakdown, Rates, price
+
+__all__ = ["FLASH_LITE", "LIVE", "Rates", "SessionUsage", "TurnUsage"]
 
 
-@dataclass(frozen=True)
-class Rates:
-    """USD per 1M tokens, for one model.
-
-    Rates belong to a model, not to this module. Chat runs on Flash-Lite and
-    voice on the Live model, and hard-coding one set meant the chat path would
-    have been priced at audio rates - a 5x error in the direction that makes a
-    project look affordable.
-    """
-
-    prompt_audio: float
-    prompt_text: float
-    response_audio: float
-    response_text: float
-    thinking: float
-
-
-# gemini-3.8-live, verified 2026-11-03.
-LIVE = Rates(
-    prompt_audio=3.00,
-    prompt_text=0.75,
-    response_audio=12.00,
-    response_text=4.50,
-    thinking=4.50,
-)
-
-# gemini-3.5-flash-lite. Text only - audio rates are zero because it is never
-# sent audio, and a non-zero figure there would hide a routing mistake.
-FLASH_LITE = Rates(
-    prompt_audio=0.0,
-    prompt_text=0.30,
-    response_audio=0.0,
-    response_text=2.50,
-    thinking=2.50,
-)
-
-
-def _by_modality(details: list[dict] | None) -> dict[str, int]:
+def _by_modality(details: list[dict[str, Any]] | None) -> dict[str, int]:
     return {
         d.get("modality", "UNKNOWN"): d.get("tokenCount", 0) for d in (details or [])
     }
@@ -68,9 +38,9 @@ def _by_modality(details: list[dict] | None) -> dict[str, int]:
 class TurnUsage:
     """One turn's token counts, as the server reported them.
 
-    `prompt_*` are cumulative for the session - that is how the API reports them,
-    and flattening it here would lose the information the two cost hypotheses
-    need.
+    `prompt_*` are cumulative for the session - that is how the API reports
+    them. Flattening it here would lose the fact that each turn is charged for
+    the whole window as it stood then, which is the charge.
     """
 
     prompt_audio: int = 0
@@ -80,7 +50,7 @@ class TurnUsage:
     thoughts: int = 0
 
     @classmethod
-    def parse(cls, usage_metadata: dict) -> TurnUsage:
+    def parse(cls, usage_metadata: dict[str, Any]) -> TurnUsage:
         p = _by_modality(usage_metadata.get("promptTokensDetails"))
         r = _by_modality(usage_metadata.get("responseTokensDetails"))
         return cls(
@@ -92,10 +62,6 @@ class TurnUsage:
         )
 
     @property
-    def prompt_total(self) -> int:
-        return self.prompt_audio + self.prompt_text
-
-    @property
     def billable_output(self) -> int:
         """Output tokens actually charged, thinking included.
 
@@ -104,7 +70,7 @@ class TurnUsage:
         return self.response_audio + self.response_text + self.thoughts
 
     @classmethod
-    def parse_text(cls, usage_metadata: dict) -> TurnUsage:
+    def parse_text(cls, usage_metadata: dict[str, Any]) -> TurnUsage:
         """The text API reports flat counts, not the Live API's modality split."""
         return cls(
             prompt_text=usage_metadata.get("promptTokenCount", 0),
@@ -128,57 +94,110 @@ class TurnUsage:
 
 @dataclass
 class SessionUsage:
-    """Accumulates turns and prices the session under both billing hypotheses."""
+    """Accumulates turns and prices the session."""
 
     turns: list[TurnUsage] = field(default_factory=list)
     rates: Rates = LIVE
 
-    def record(self, usage_metadata: dict) -> TurnUsage:
+    def record(self, usage_metadata: dict[str, Any]) -> TurnUsage:
         turn = TurnUsage.parse(usage_metadata)
         self.turns.append(turn)
         return turn
 
-    def record_text(self, usage_metadata: dict) -> TurnUsage:
+    def record_text(self, usage_metadata: dict[str, Any]) -> TurnUsage:
         turn = TurnUsage.parse_text(usage_metadata)
         self.turns.append(turn)
         return turn
 
-    @property
-    def output_usd(self) -> float:
-        """Identical under both hypotheses - each turn's output is charged once."""
-        return sum(t.output_usd(self.rates) for t in self.turns)
+    # -- billed token counts -------------------------------------------------
+    #
+    # Prompt lines are SUMMED across turns because each turn is charged for
+    # everything then standing in the context window. Response lines are not,
+    # because each reply is generated once.
 
     @property
-    def input_usd_rebilled(self) -> float:
-        """H1: every turn is charged its full accumulated prompt."""
+    def billed_in_audio(self) -> int:
+        return sum(t.prompt_audio for t in self.turns)
+
+    @property
+    def billed_in_text(self) -> int:
+        return sum(t.prompt_text for t in self.turns)
+
+    @property
+    def billed_out_audio(self) -> int:
+        return sum(t.response_audio for t in self.turns)
+
+    @property
+    def billed_out_text(self) -> int:
+        return sum(t.response_text for t in self.turns)
+
+    @property
+    def billed_thinking(self) -> int:
+        return sum(t.thoughts for t in self.turns)
+
+    @property
+    def input_usd(self) -> float:
+        """Every turn's full accumulated prompt, which is what is charged."""
         return sum(t.prompt_usd(self.rates) for t in self.turns)
 
     @property
-    def input_usd_billed_once(self) -> float:
-        """H2: context is cached, so only the final prompt is charged."""
-        return self.turns[-1].prompt_usd(self.rates) if self.turns else 0.0
+    def output_usd(self) -> float:
+        return sum(t.output_usd(self.rates) for t in self.turns)
 
-    def totals_usd(self) -> dict[str, float]:
-        return {
-            "output": self.output_usd,
-            "rebilled": self.input_usd_rebilled + self.output_usd,
-            "billed_once": self.input_usd_billed_once + self.output_usd,
-        }
+    @property
+    def total_usd(self) -> float:
+        return self.input_usd + self.output_usd
 
-    def report_inr(
-        self, usd_inr: float, gst_rate: float, minutes: float
-    ) -> dict[str, float]:
-        """Per-connected-minute cost in rupees, inclusive of GST.
+    def breakdown(self, usd_inr: float, gst_rate: float, minutes: float) -> Breakdown:
+        """The five charge lines, in rupees a connected minute, GST included.
 
-        `minutes` is wall-clock connected time, not speaking time - the ceiling
-        we are held to is per connected minute.
+        `minutes` is wall-clock connected time, not speaking time - the
+        ceiling we are held to is per connected minute.
         """
+        return price(
+            in_audio_tokens=self.billed_in_audio,
+            in_text_tokens=self.billed_in_text,
+            out_audio_tokens=self.billed_out_audio,
+            out_text_tokens=self.billed_out_text,
+            thinking_tokens=self.billed_thinking,
+            minutes=minutes,
+            turns=len(self.turns),
+            rates=self.rates,
+            usd_inr=usd_inr,
+            gst_rate=gst_rate,
+        )
+
+    def inr_per_minute(self, usd_inr: float, gst_rate: float, minutes: float) -> float:
+        """The one number the call is held to. Zero before the first turn."""
+        if minutes <= 0 or not self.turns:
+            return 0.0
+        return self.total_usd * usd_inr * (1 + gst_rate) / minutes
+
+    # -- the irreducible part ------------------------------------------------
+
+    @property
+    def voice_usd(self) -> float:
+        """The two voice streams, each counted once: the floor under the call.
+
+        Not the charge - re-processing is real and is in `total_usd`. This is
+        the part no configuration can remove: the caller's microphone and the
+        agent's mouth, once each. Reported beside the total so it is visible
+        how much of a call is physics and how much is re-processing, because
+        only the second kind can be engineered away.
+
+        The caller's side is taken from the LAST turn rather than summed,
+        because `prompt_audio` is cumulative and the final turn's figure is
+        every second the microphone ever sent, counted once.
+        """
+        if not self.turns:
+            return 0.0
+        heard = self.turns[-1].prompt_audio * self.rates.prompt_audio
+        spoken = self.billed_out_audio * self.rates.response_audio
+        return (heard + spoken) / 1e6
+
+    def voice_inr_per_minute(
+        self, usd_inr: float, gst_rate: float, minutes: float
+    ) -> float:
         if minutes <= 0:
-            raise ValueError("minutes must be positive")
-        t = self.totals_usd()
-        gross = 1.0 + gst_rate
-        return {
-            "rebilled_inr_per_min": t["rebilled"] * usd_inr * gross / minutes,
-            "billed_once_inr_per_min": t["billed_once"] * usd_inr * gross / minutes,
-            "turns": float(len(self.turns)),
-        }
+            return 0.0
+        return self.voice_usd * usd_inr * (1 + gst_rate) / minutes

@@ -12,7 +12,10 @@ stages:
 .python:
   image: python:3.10.12
   before_script:
-    - pip install -r requirements.txt -r requirements-dev.txt
+    # --require-hashes, so a tampered or replaced artefact fails the job
+    # rather than reaching a test run that then passes.
+    - pip install --upgrade pip
+    - pip install --require-hashes -r requirements.txt -r requirements-dev.txt
 
 lint:
   extends: .python

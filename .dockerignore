@@ -1,0 +1,46 @@
+# Secrets first. A COPY with .env present bakes the key into a layer, and a
+# layer survives the file being deleted in the next instruction.
+.env
+*.env.local
+*-service-key.json
+.secrets.baseline
+
+.git
+.gitignore
+.gitlab-ci.yml
+.github
+
+# Call records. Traces hold decisions and timings about real conversations
+# and have no business in a distributable image.
+out/
+**/results/
+
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Not shipped: the test suite, the offline measurement scripts, the docs and
+# the developer entry points. The runtime needs src/ and requirements.txt,
+# and nothing else - the dev lockfile least of all, since a linter and a test
+# runner in a production image are attack surface for no benefit.
+tests/
+docs/
+Makefile
+mypy.ini
+pytest.ini
+requirements.in
+requirements-dev.in
+requirements-dev.txt
+deploy.sh
+README.md
+
+.DS_Store
+.idea/
+.vscode/
+.claude/

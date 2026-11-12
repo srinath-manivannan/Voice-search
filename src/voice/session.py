@@ -26,16 +26,34 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 
-from collections.abc import Awaitable, Callable
-from typing import Any
+from collections.abc import AsyncIterator, Awaitable, Callable
+from typing import Any, Protocol
 
-from src.voice.events import AudioOut, TurnComplete, Transcript, TurnInterrupted
-from src.voice.gemini_live import GeminiLiveSession
+from src.voice.events import AudioOut, Event, TurnComplete, Transcript, TurnInterrupted
 from src.voice.trace import CallTrace
 from src.voice.transport import AudioSink, AudioSource
 from src.voice.vad import EnergyVad, VadFrame
 
 log = logging.getLogger(__name__)
+
+
+class VoiceModel(Protocol):
+    """What this file needs from a model, and nothing more.
+
+    Stated as a protocol because there are two: one socket for the whole
+    call, and `RotatingLiveSession`, which is several and hides it. Naming
+    the concrete class here would make the second one a special case of the
+    first, when it is neither - it is the same conversation.
+    """
+
+    @property
+    def turn_id(self) -> int: ...
+
+    async def send_audio(self, pcm: bytes) -> None: ...
+
+    async def end_of_speech(self) -> None: ...
+
+    def events(self) -> AsyncIterator[Event]: ...
 
 
 @dataclass
@@ -46,6 +64,14 @@ class TurnRecord:
     first_audio_ms: float | None
     response_tokens: int
     thinking_tokens: int
+    # The prompt the server charged this turn for. CUMULATIVE for the session,
+    # which is how the Live API reports it and the whole reason cost is not
+    # flat per minute: if every turn is charged its full accumulated prompt,
+    # the first minute of a call is paid for again on every turn after it.
+    # Without this in the trace, 86% of a call's cost was invisible - the only
+    # figure we had was a total that said nothing about where it came from.
+    prompt_audio_tokens: int = 0
+    prompt_text_tokens: int = 0
     barge_in: bool = False
 
 
@@ -60,7 +86,7 @@ class ConversationResult:
 class Conversation:
     def __init__(
         self,
-        model: GeminiLiveSession,
+        model: VoiceModel,
         source: AudioSource,
         sink: AudioSink,
         vad: EnergyVad | None = None,
@@ -132,6 +158,12 @@ class Conversation:
     # "louder than six" and every echo clears it. Real speech into a laptop
     # microphone sits in the thousands; surviving echo sat at 103.
     BARGE_IN_MIN_RMS = 800.0
+
+    # How much speech counts as the caller taking their turn. Eight 20 ms
+    # frames is 160 ms - shorter than any syllable, long enough that the tail
+    # of the agent's own sentence leaking through the speaker does not
+    # qualify.
+    SPEECH_FRAMES_FOR_A_TURN = 8
 
     def _past_grace(self) -> bool:
         return (
@@ -206,13 +238,26 @@ class Conversation:
                 self._held.clear()
                 self._barge_frames = 0
 
+            # A run of speech, not one frame of it. TurnComplete means the
+            # model stopped generating, not that the speaker stopped playing:
+            # the browser still has audio queued, the gate opens, and the
+            # microphone hears the agent's own tail. One such frame used to be
+            # enough to count as "the caller spoke", and the next quiet frame
+            # then fired end_of_speech four milliseconds after the agent
+            # finished - a turn boundary for a turn nobody spoke in. It also
+            # started the latency clock, so the next real reply was timed from
+            # a moment the caller had not yet opened their mouth, which is
+            # where a p95 of eight seconds came from.
+            if verdict.speech_run >= self.SPEECH_FRAMES_FOR_A_TURN:
+                self._heard_speech_this_turn = True
+
             if verdict.is_speech != self._caller_speaking:
                 self._caller_speaking = verdict.is_speech
                 await self._notify(type="state", caller_speaking=verdict.is_speech)
 
-                if verdict.is_speech:
-                    self._heard_speech_this_turn = True
-                elif self._heard_speech_this_turn and not self._awaiting_reply:
+                if not verdict.is_speech and (
+                    self._heard_speech_this_turn and not self._awaiting_reply
+                ):
                     # The caller has stopped. Say so.
                     #
                     # Leaving this out was the bug behind "sometimes it replies
@@ -289,6 +334,8 @@ class Conversation:
                         first_audio_ms=first_audio_ms,
                         response_tokens=usage.response_audio + usage.response_text,
                         thinking_tokens=usage.thoughts,
+                        prompt_audio_tokens=usage.prompt_audio,
+                        prompt_text_tokens=usage.prompt_text,
                     )
                     self.result.turns.append(record)
                     self.trace.record(
@@ -297,6 +344,8 @@ class Conversation:
                         first_audio_ms=first_audio_ms,
                         response_tokens=record.response_tokens,
                         thinking_tokens=record.thinking_tokens,
+                        prompt_audio=record.prompt_audio_tokens,
+                        prompt_text=record.prompt_text_tokens,
                     )
                     await self._notify(
                         type="turn",

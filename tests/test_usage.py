@@ -5,6 +5,8 @@ invented, so a change in how the API reports usage shows up as a test failure
 rather than as a quietly wrong invoice.
 """
 
+import pytest
+
 from src.voice.usage import FLASH_LITE, LIVE, SessionUsage, TurnUsage
 
 # Turn 1 of the 5-turn run, 2026-11-03. Note thoughtsTokenCount sits outside
@@ -59,35 +61,68 @@ def test_modalities_are_priced_separately():
     assert turn.prompt_usd() == expected
 
 
-def test_both_billing_hypotheses_are_reported():
+def test_the_prompt_is_charged_on_every_turn_not_once():
+    """Google: "Past tokens are re-processed and accounted for in each new turn."
+
+    So the charge is the SUM of the cumulative figures, not the last one. The
+    difference on a real three-minute call was about 7x, which is why this is
+    pinned by a test rather than left to a comment.
+    """
     s = SessionUsage()
     s.record(TURN_1)
     s.record(TURN_2)
 
-    # H1 charges every turn its full prompt; H2 charges the final prompt once.
-    assert s.input_usd_rebilled > s.input_usd_billed_once
-    assert s.input_usd_billed_once == TurnUsage.parse(TURN_2).prompt_usd()
-    # Output is charged once per turn under either reading.
-    assert (
-        s.output_usd
-        == TurnUsage.parse(TURN_1).output_usd() + TurnUsage.parse(TURN_2).output_usd()
-    )
+    one, two = TurnUsage.parse(TURN_1), TurnUsage.parse(TURN_2)
+    assert s.input_usd == one.prompt_usd() + two.prompt_usd()
+    # Which is strictly more than charging the final prompt once.
+    assert s.input_usd > two.prompt_usd()
+    # Output is charged once per turn - each reply is generated once.
+    assert s.output_usd == one.output_usd() + two.output_usd()
 
 
-def test_report_is_per_connected_minute_including_gst():
+def test_billed_prompt_tokens_are_summed_and_responses_are_not():
     s = SessionUsage()
     s.record(TURN_1)
-    r = s.report_inr(usd_inr=89.0, gst_rate=0.18, minutes=2.0)
-    totals = s.totals_usd()
-    assert r["billed_once_inr_per_min"] == totals["billed_once"] * 89.0 * 1.18 / 2.0
-    assert r["rebilled_inr_per_min"] >= r["billed_once_inr_per_min"]
+    s.record(TURN_2)
+
+    assert s.billed_in_audio == 283 + 470
+    assert s.billed_in_text == 335 + 407
+    assert s.billed_out_audio == 103 + 194
+    assert s.billed_thinking == 90 + 46
+
+
+def test_breakdown_is_per_connected_minute_including_gst():
+    s = SessionUsage()
+    s.record(TURN_1)
+    s.record(TURN_2)
+    b = s.breakdown(usd_inr=89.0, gst_rate=0.18, minutes=2.0)
+
+    assert b.total_inr_per_min == pytest.approx(s.total_usd * 89.0 * 1.18 / 2.0)
+    # Every line is present, every share sums to one, and the shares are the
+    # point of the panel: the biggest one is the thing to go and fix.
+    assert [line.key for line in b.lines] == [
+        "in_audio",
+        "in_text",
+        "out_audio",
+        "out_text",
+        "thinking",
+    ]
+    assert sum(line.share for line in b.lines) == pytest.approx(1.0)
+
+
+def test_the_voice_floor_is_less_than_the_bill():
+    """Reported side by side so it is visible what can be engineered away."""
+    s = SessionUsage()
+    s.record(TURN_1)
+    s.record(TURN_2)
+    assert s.voice_usd < s.total_usd
 
 
 def test_zero_minutes_is_rejected_rather_than_dividing_by_zero():
     s = SessionUsage()
     s.record(TURN_1)
     try:
-        s.report_inr(89.0, 0.18, 0)
+        s.breakdown(89.0, 0.18, 0)
     except ValueError:
         return
     raise AssertionError("expected ValueError")

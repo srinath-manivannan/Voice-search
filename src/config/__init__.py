@@ -19,7 +19,7 @@ from dataclasses import dataclass
 class Config:
     gemini_api_key: str
     gemini_live_model: str
-    # Chat deliberately runs on a cheaper text model. See CHAT-PLAN.md.
+    # Chat deliberately runs on a cheaper text model. See ../CHAT-PLAN.md.
     gemini_text_model: str
 
     # Phase 0 measured both of these. They are the two cheapest levers we have
@@ -31,6 +31,19 @@ class Config:
     capture_sample_rate: int
     playback_sample_rate: int
 
+    # Context window compression. Audio costs 25 tokens a second and the
+    # prompt is cumulative, so a long call carries all of itself; these keep
+    # the window bounded. Zero switches it off.
+    context_trigger_tokens: int
+    context_target_tokens: int
+
+    # Session rotation, which does what compression cannot: move to a fresh
+    # socket and hand it a few sentences of TEXT instead of the audio. The
+    # threshold is retained caller+agent audio in tokens - 25 of them a
+    # second - and zero leaves one socket for the whole call. See
+    # src/voice/rotating.py and docs/PIPELINE.md.
+    rotate_above_audio_tokens: int
+
     # Assumptions, not measurements. Named so a reviewer can see what the cost
     # report rests on.
     usd_inr: float
@@ -41,6 +54,60 @@ class Config:
     max_session_turns: int
     max_session_minutes: float
     max_session_inr: float
+    # Two different numbers, deliberately. The target is what Poorvika wants a
+    # connected minute to cost, GST in - Rs 2.00 - and it is what the screen
+    # is coloured against. The ceiling is where a session is cut off, and it is a runaway
+    # guard - set well above the target because hanging up on a customer
+    # mid-sentence to save a rupee is not a cost saving. We are over the
+    # target today; docs/COST.md says by how much and what would close it.
+    target_inr_per_minute: float
+    max_inr_per_minute: float
+
+    # Product search. The token is a secret; the URL is not.
+    catalogue_url: str
+    catalogue_token: str
+    catalogue_origin: str
+
+    # The per-item estate - price in force, live stock, card offers, bank EMI.
+    # `estate.py` explains the two backends and why one environment is chosen
+    # whole rather than per service.
+    estate_backend: str
+    estate_api_env: str
+    estate_src_path: str
+    estate_worker_url: str
+    estate_worker_token: str
+    # Passed through to the Worker's own `env` binding under the names it
+    # reads, so the mapping lives here rather than being spelled out twice.
+    estate_secrets: dict[str, str]
+
+    # Browsers allowed to call this server. Exact origins, never "*": the
+    # socket carries a live conversation and a page on any other origin has
+    # no business opening one.
+    allowed_origins: tuple[str, ...]
+    # New calls accepted per client per minute. A voice session holds a socket
+    # open for minutes and spends real money for every one of them, so this is
+    # a cost control as much as an abuse control.
+    max_calls_per_minute: int
+
+    # Which build this is. Baked into the image at build time and reported
+    # by /healthz, because a rollback you cannot observe is a rollback you
+    # are guessing at: "is the old one back up yet?" has to be answerable
+    # without reading a deployment log. "unknown" outside a built image.
+    #
+    # A short commit sha of a private repository is not a secret, and the
+    # cost of not having it - guessing which version is live during an
+    # incident - is the larger one.
+    release: str
+
+    # Where errors are reported, as well as to the log. Empty means nowhere
+    # leaves this process, which is the default: sending reports to a third
+    # party is a data decision and it is Poorvika's to make. See
+    # src/observability/reporting.py.
+    sentry_dsn: str
+    # Guards /metrics. Empty leaves it open, which is right for development
+    # and wrong for anywhere else: the numbers are not secrets but they are
+    # commercial, and how many calls Poorvika takes is not for a public URL.
+    metrics_token: str
 
     log_level: str
     env: str
@@ -99,12 +166,64 @@ def load(env: str | None = None) -> Config:
             os.environ.get("THINKING_BUDGET", defaults.THINKING_BUDGET)
         ),
         capture_sample_rate=int(os.environ.get("CAPTURE_SAMPLE_RATE", "16000")),
+        context_trigger_tokens=int(
+            os.environ.get("CONTEXT_TRIGGER_TOKENS", defaults.CONTEXT_TRIGGER_TOKENS)
+        ),
+        context_target_tokens=int(
+            os.environ.get("CONTEXT_TARGET_TOKENS", defaults.CONTEXT_TARGET_TOKENS)
+        ),
         playback_sample_rate=int(os.environ.get("PLAYBACK_SAMPLE_RATE", "24000")),
+        rotate_above_audio_tokens=int(
+            os.environ.get(
+                "ROTATE_ABOVE_AUDIO_TOKENS", defaults.ROTATE_ABOVE_AUDIO_TOKENS
+            )
+        ),
         usd_inr=float(os.environ.get("USD_INR", "89.0")),
         max_session_turns=int(os.environ.get("MAX_SESSION_TURNS", "40")),
         max_session_minutes=float(os.environ.get("MAX_SESSION_MINUTES", "10")),
-        max_session_inr=float(os.environ.get("MAX_SESSION_INR", "20")),
+        max_session_inr=float(os.environ.get("MAX_SESSION_INR", "50")),
+        target_inr_per_minute=float(os.environ.get("TARGET_INR_PER_MINUTE", "2.00")),
+        max_inr_per_minute=float(os.environ.get("MAX_INR_PER_MINUTE", "8.00")),
         gst_rate=float(os.environ.get("GST_RATE", "0.18")),
+        catalogue_url=os.environ.get("CATALOGUE_URL", defaults.CATALOGUE_URL),
+        catalogue_token=os.environ.get("CATALOGUE_TOKEN", ""),
+        catalogue_origin=os.environ.get("CATALOGUE_ORIGIN", "bot"),
+        estate_backend=os.environ.get("ESTATE_BACKEND", defaults.ESTATE_BACKEND),
+        estate_api_env=os.environ.get("ESTATE_API_ENV", defaults.ESTATE_API_ENV),
+        estate_src_path=os.environ.get("ESTATE_SRC_PATH", defaults.ESTATE_SRC_PATH),
+        estate_worker_url=os.environ.get("ESTATE_WORKER_URL", ""),
+        estate_worker_token=os.environ.get("ESTATE_WORKER_TOKEN", ""),
+        estate_secrets={
+            name: os.environ.get(name, "")
+            for name in (
+                "PIM_ACCESS_TOKEN",
+                "OFFERS_API_KEY",
+                "CI_AUTH_TOKEN",
+                # Host overrides, for the two the estate table has no entry
+                # for. Empty means "not configured", which is reported rather
+                # than guessed around.
+                "CI_HOST",
+                "EMI_HOST",
+                "PIM_HOST",
+                "OFFERS_HOST",
+                # The CI gateway verifies its token with a secret chosen by
+                # this header, so the same token is accepted under one mode
+                # and rejected as "signature is invalid" under another.
+                "CI_MODE",
+                "OFFERS_MODE",
+            )
+        },
+        allowed_origins=tuple(
+            origin.strip()
+            for origin in os.environ.get(
+                "ALLOWED_ORIGINS", defaults.ALLOWED_ORIGINS
+            ).split(",")
+            if origin.strip()
+        ),
+        max_calls_per_minute=int(os.environ.get("MAX_CALLS_PER_MINUTE", "6")),
+        release=os.environ.get("APP_RELEASE", "unknown"),
+        sentry_dsn=os.environ.get("SENTRY_DSN", ""),
+        metrics_token=os.environ.get("METRICS_TOKEN", ""),
         log_level=os.environ.get("LOG_LEVEL", defaults.LOG_LEVEL),
         env=env,
     )

@@ -7,9 +7,11 @@ This is how Phase 1 gets measured. It prints per-turn first-audio latency and
 token counts, then p50/p95 at the end, which are the numbers Phase 1 completes
 on: p50 <= 1 s, p95 <= 2 s, reply length at or under the cap.
 
-It costs money - every turn is a real Live API call. The cost line it prints at
-the end carries both billing hypotheses, because which one is real is still
-unsettled. See BILLING-VERIFICATION.md.
+It costs money - every turn is a real Live API call. The cost line it prints
+at the end is the single documented billing rule, not a pair of hypotheses:
+Google re-processes and charges the whole context window on every turn. The
+measurements that settled it are in ../BILLING-VERIFICATION.md and the pricing
+is explained in docs/COST.md.
 """
 
 from __future__ import annotations
@@ -61,6 +63,11 @@ async def main() -> int:
     print("speak when ready. Ctrl-C to stop.\n")
 
     started = time.perf_counter()
+    # One socket on purpose, where the browser path rotates. This harness
+    # runs without tools, so `handover.note` would have nothing to carry and
+    # a rotation would simply lose the conversation. It measures the model's
+    # own latency; the browser path is where the cost of a real call is
+    # measured. Do not "fix" this to match without giving it tools first.
     async with GeminiLiveSession(config) as model:
         conversation = Conversation(model, source, sink)
         runner = asyncio.create_task(conversation.run())
@@ -102,11 +109,18 @@ async def main() -> int:
             f"              {'PASS' if p50 <= 1000 and p95 <= 2000 else 'MISS'}  over {len(latencies)} turns"
         )
 
-    cost = model.usage.report_inr(config.usd_inr, config.gst_rate, max(minutes, 1 / 60))
+    cost = model.usage.breakdown(config.usd_inr, config.gst_rate, max(minutes, 1 / 60))
     print(f"\n{minutes:.1f} connected minutes, {len(result.turns)} turns")
-    print("cost per connected minute, incl GST:")
-    print(f"  if context is billed once   ₹{cost['billed_once_inr_per_min']:.2f}")
-    print(f"  if it is re-billed per turn ₹{cost['rebilled_inr_per_min']:.2f}")
+    print(f"₹{cost.total_inr_per_min:.2f} per connected minute, incl GST", end="")
+    print(f"   (ceiling ₹{config.max_inr_per_minute:.2f})")
+    for line in cost.lines:
+        if not line.tokens:
+            continue
+        print(
+            f"  {line.label:<30} {line.tokens:>8,} tok"
+            f"   ₹{line.inr_per_min:>5.2f}/min  {line.share * 100:>3.0f}%"
+        )
+    print(f"  {'-- total for the call':<30} {'':>12}   ₹{cost.total_inr:>5.2f}")
     print("  (model only - add telephony, hosting and rental for the all-in figure)")
     return 0
 

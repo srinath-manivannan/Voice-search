@@ -1,0 +1,28 @@
+# What this service needs, and why. Hand-written and reviewed.
+#
+# This is NOT what gets installed. `requirements.txt` beside it is compiled
+# from this file with every transitive dependency pinned and hashed, and that
+# is what Docker, CI and `make install` read. Change this file, run
+# `make lock`, and review the diff - which is the point: a new transitive
+# dependency shows up as a line somebody has to approve rather than as
+# whatever the index served that morning.
+#
+# Exact pins, no caret, the way search-proxy pins wrangler. A floating minor
+# version can change audio behaviour between a reviewed branch and production
+# without a line of this repo changing.
+
+# The Live API adapter speaks the websocket protocol directly - see
+# src/voice/gemini_live.py for why there is no vendor SDK under it.
+websockets==15.0.1
+
+# Every outbound HTTP call: the catalogue, the estate services, the text
+# model. It used to arrive only as somebody else's transitive dependency,
+# which meant a pin we did not control decided our HTTP behaviour.
+httpx==0.28.1
+
+python-dotenv==1.1.1
+
+# The browser UI. Pinned to the same versions search-proxy uses, so a developer
+# moving between the two repos meets one FastAPI, not two.
+fastapi==0.143.0
+uvicorn[standard]==0.38.0

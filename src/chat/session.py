@@ -16,10 +16,14 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
+import logging
 from typing import Any
 
+from src.agent.tools.runner import ToolSession
 from src.chat.gemini_text import GeminiTextModel
 from src.voice.usage import FLASH_LITE, SessionUsage
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -35,9 +39,33 @@ class ChatResult:
     turns: list[ChatRecord] = field(default_factory=list)
 
 
+def _is_question(message: dict[str, Any]) -> bool:
+    """A message the customer typed, rather than an answer to a tool call.
+
+    Both carry role "user" - the functionResponse is sent as one - so the
+    parts are what tells them apart.
+    """
+    if message.get("role") != "user":
+        return False
+    return any("text" in part for part in message.get("parts") or [])
+
+
 class ChatSession:
-    def __init__(self, model: GeminiTextModel, max_history_messages: int = 12) -> None:
+    # Two rounds, because one question can genuinely need two lookups:
+    # "20,000-30,000 kulla phone, stock irukka?" is a search and then a stock
+    # check on one of its results, and the second depends on the first. A
+    # third round would mean the model rejected its own results, which is a
+    # prompt problem rather than something to paper over with another call.
+    MAX_TOOL_ROUNDS = 2
+
+    def __init__(
+        self,
+        model: GeminiTextModel,
+        tools: ToolSession | None = None,
+        max_history_messages: int = 12,
+    ) -> None:
         self._model = model
+        self._tools = tools
         # Twelve messages is six exchanges. Enough that "what about the other
         # one" still resolves, short enough that the prompt stops growing.
         self._max_history = max_history_messages
@@ -54,10 +82,28 @@ class ChatSession:
 
         Cutting mid-pair would leave a reply whose question is gone, which
         reads to the model as the assistant volunteering things unprompted.
+
+        An even-numbered cut was enough until the tools arrived. A tool round
+        adds two more messages - the model's functionCall and the answer to
+        it - and a cut that lands between them leaves a functionResponse
+        whose call is gone. The API rejects the entire request for it:
+
+            Please ensure that function response turn comes immediately
+            after a function call turn.
+
+        Four questions into a conversation, the chat tab stopped answering
+        anything at all. So the cut is advanced to the next plain question,
+        which is the only kind of message a conversation may begin with. The
+        caller's newest question is always in the history when this runs, so
+        there is always one to find.
         """
         excess = len(self._history) - self._max_history
-        if excess > 0:
-            self._history = self._history[excess + (excess % 2) :]
+        if excess <= 0:
+            return
+        cut = excess + (excess % 2)
+        while cut < len(self._history) and not _is_question(self._history[cut]):
+            cut += 1
+        self._history = self._history[cut:]
 
     async def send(self, text: str) -> AsyncIterator[str]:
         """Add the customer's message, stream the reply, record what it cost."""
@@ -66,10 +112,46 @@ class ChatSession:
 
         reply = ""
         turn = None
-        async for delta, streamed in self._model.stream(self._history):
-            turn = streamed
-            reply += delta
-            yield delta
+        for _round in range(self.MAX_TOOL_ROUNDS + 1):
+            reply = ""
+            turn = None
+            async for delta, streamed in self._model.stream(self._history):
+                turn = streamed
+                reply += delta
+                yield delta
+
+            if turn is None or not (call := turn.function_call):
+                break
+
+            # The model asked for a search. Record the ask, run it, record the
+            # answer, and let it speak again with real products in hand.
+            # The part verbatim, thoughtSignature included: without it the
+            # follow-up request is rejected with a 400 saying the signature
+            # is required for tools to work.
+            self._history.append(
+                {
+                    "role": "model",
+                    "parts": [turn.function_call_part or {"functionCall": call}],
+                }
+            )
+            result = (
+                await self._tools.run(call.get("name", ""), call.get("args") or {})
+                if self._tools is not None
+                else {"error": "catalogue_not_configured"}
+            )
+            self._history.append(
+                {
+                    "role": "user",
+                    "parts": [
+                        {
+                            "functionResponse": {
+                                "name": call.get("name", "search_products"),
+                                "response": result,
+                            }
+                        }
+                    ],
+                }
+            )
 
         self._history.append({"role": "model", "parts": [{"text": reply}]})
 

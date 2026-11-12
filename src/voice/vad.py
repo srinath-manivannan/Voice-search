@@ -43,6 +43,11 @@ class VadFrame:
     rms: float
     noise_floor: float
     is_speech: bool
+    # Consecutive loud frames up to and including this one, zero on a quiet
+    # one. `is_speech` latches - it stays true for the whole release window -
+    # so a caller counting frames while it is true is counting silence as
+    # well, which is how 80 ms of echo came to look like a spoken turn.
+    speech_run: int = 0
 
 
 class EnergyVad:
@@ -106,5 +111,8 @@ class EnergyVad:
             self._in_speech = False
 
         return VadFrame(
-            rms=rms, noise_floor=self._noise_floor, is_speech=self._in_speech
+            rms=rms,
+            noise_floor=self._noise_floor,
+            is_speech=self._in_speech,
+            speech_run=self._speech_run,
         )

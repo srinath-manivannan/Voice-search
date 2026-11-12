@@ -223,3 +223,182 @@ async def test_the_greeting_takes_a_turn_id_of_its_own(config):
         assert session.turn_id == 0
         await session.greet(GREETING)
         assert session.turn_id == 1
+
+
+class RefusingSocket(FakeSocket):
+    """Closes the connection the way the server does on a setup it rejects."""
+
+    def __init__(self, refuse_thinking: bool) -> None:
+        super().__init__([{"setupComplete": {}}])
+        self.refuse_thinking = refuse_thinking
+
+    async def send(self, data: str) -> None:
+        import json as _json
+
+        from src.voice.gemini_live import _ClosedSocket
+
+        payload = _json.loads(data)
+        wants_thinking = "thinkingConfig" in (
+            payload.get("setup", {}).get("generationConfig", {})
+        )
+        if self.refuse_thinking and wants_thinking:
+            raise _ClosedSocket
+        await super().send(data)
+
+
+async def test_a_refused_thinking_config_reconnects_without_it(config):
+    """It was accepted, measured to work, and then refused without notice.
+
+    A preview model is entitled to do that. Depending on the capability turned
+    every call into a failed setup and a dead line, so it is attempted and not
+    relied on.
+    """
+    sockets = [
+        RefusingSocket(refuse_thinking=True),
+        RefusingSocket(refuse_thinking=True),
+    ]
+    opened = []
+
+    async def connect(_url):
+        socket = sockets.pop(0)
+        opened.append(socket)
+        return socket
+
+    async with GeminiLiveSession(config, connect=connect) as session:
+        assert session.thinking_disabled is False, "the fallback was not recorded"
+
+    assert len(opened) == 2, "it did not reconnect"
+    # The retry went out without the field the server refused.
+    retry = opened[1].sent[0]["setup"]["generationConfig"]
+    assert "thinkingConfig" not in retry
+
+
+async def test_thinking_config_is_still_sent_when_the_model_accepts_it(config):
+    sock = FakeSocket([{"setupComplete": {}}])
+    async with GeminiLiveSession(config, connect=connector(sock)) as session:
+        assert session.thinking_disabled is True
+
+    generation = sock.sent[0]["setup"]["generationConfig"]
+    assert generation["thinkingConfig"]["thinkingBudget"] == 0
+
+
+async def test_declared_tools_reach_the_setup_message(config):
+    """They silently did not, and the model answered from nothing instead.
+
+    Without `tools` in setup the model cannot call anything, so it falls back
+    on the persona - which at the time still said it had no catalogue, so it
+    politely offered to check and never did.
+    """
+    from src.agent.tools.declarations import tool_config
+
+    sock = FakeSocket([{"setupComplete": {}}])
+    async with GeminiLiveSession(config, connect=connector(sock), tools=tool_config()):
+        pass
+
+    setup = sock.sent[0]["setup"]
+    assert "tools" in setup
+    names = [f["name"] for f in setup["tools"][0]["functionDeclarations"]]
+    assert names == ["search_products", "product_details"]
+
+
+async def test_a_tool_call_is_executed_and_answered_on_the_same_socket(config):
+    asked = []
+
+    async def handler(name, args):
+        asked.append((name, args))
+        return {"total_matching": 8, "products": [{"name": "Vivo Y200 Pro 5G"}]}
+
+    sock = FakeSocket(
+        [
+            {"setupComplete": {}},
+            {
+                "toolCall": {
+                    "functionCalls": [
+                        {
+                            "id": "c1",
+                            "name": "search_products",
+                            "args": {"category": "phone", "max_price": 30000},
+                        }
+                    ]
+                }
+            },
+            {"serverContent": {"turnComplete": True}},
+        ]
+    )
+    session = GeminiLiveSession(
+        config,
+        connect=connector(sock),
+        tools={"functionDeclarations": []},
+        on_tool_call=handler,
+    )
+    async with session:
+        [e async for e in session.events()]
+
+    assert asked == [("search_products", {"category": "phone", "max_price": 30000})]
+    answer = sock.sent[-1]["toolResponse"]["functionResponses"][0]
+    assert answer["id"] == "c1"
+    assert answer["response"]["total_matching"] == 8
+
+
+async def test_a_failing_tool_is_still_answered(config):
+    """Leaving a toolCall unanswered strands the model mid-turn."""
+
+    async def explodes(name, args):
+        raise RuntimeError("upstream on fire")
+
+    sock = FakeSocket(
+        [
+            {"setupComplete": {}},
+            {
+                "toolCall": {
+                    "functionCalls": [
+                        {"id": "c9", "name": "search_products", "args": {}}
+                    ]
+                }
+            },
+            {"serverContent": {"turnComplete": True}},
+        ]
+    )
+    session = GeminiLiveSession(
+        config,
+        connect=connector(sock),
+        tools={"functionDeclarations": []},
+        on_tool_call=explodes,
+    )
+    async with session:
+        [e async for e in session.events()]
+
+    answer = sock.sent[-1]["toolResponse"]["functionResponses"][0]
+    assert answer["response"] == {"error": "tool_failed"}
+
+
+async def test_the_session_asks_for_a_bounded_context_window(config):
+    """A call that carries all of itself is what made a long call expensive.
+
+    Audio is billed at 25 tokens a second and the prompt the server charges
+    for is cumulative, so by the third minute a call is carrying every second
+    of itself. Whether that whole window is charged again on every turn is
+    still unsettled - this keeps it small enough that the answer does not
+    decide the bill.
+    """
+    sock = FakeSocket([{"setupComplete": {}}])
+    async with GeminiLiveSession(config, connect=connector(sock)):
+        pass
+
+    compression = sock.sent[0]["setup"]["contextWindowCompression"]
+    assert compression["triggerTokens"] == config.context_trigger_tokens
+    assert compression["slidingWindow"]["targetTokens"] == (
+        config.context_target_tokens
+    )
+
+
+async def test_compression_can_be_switched_off(config):
+    """Zero means off, and means the key is absent rather than zeroed."""
+    import dataclasses
+
+    sock = FakeSocket([{"setupComplete": {}}])
+    off = dataclasses.replace(config, context_trigger_tokens=0)
+    async with GeminiLiveSession(off, connect=connector(sock)):
+        pass
+
+    assert "contextWindowCompression" not in sock.sent[0]["setup"]

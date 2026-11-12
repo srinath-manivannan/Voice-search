@@ -24,6 +24,9 @@ make test
 | `make audio` | device tests — needs a microphone and speaker |
 | `make live` | real Gemini Live calls — spends a few cents |
 | `make check` | everything CI runs, in the same order |
+| `make lock` | recompile the lockfiles after editing a `.in` |
+| `make alerts` | regenerate `deploy/alerts.yml` from the rule definitions |
+| `make profile` | what one call costs in CPU — no network, no money |
 | `make fmt` | reformat in place |
 | `make mic` | switch capture to the built-in microphone array |
 
@@ -53,19 +56,69 @@ measurement.
 ```
 src/config/      devconfig.py / prodconfig.py, the per-environment split.
                  Nothing outside this package reads os.environ.
-src/voice/       the voice service. usage.py is the cost meter.
+src/agent/       who the agent is and what it may claim.
+  persona.py       the standing instruction, charged on every turn
+  tools/           the catalogue, the estate, and the shortlist
+src/voice/       the voice service: the Live adapter, VAD, barge-in,
+                 the cost meter and the session ceilings.
+src/chat/        the same agent, delivered to a reader.
+src/web/         the browser surface, in three layers:
+  app.py           the factory, and nothing else
+  middleware.py    request id, security headers, no caching
+  routes/          URL to handler. Thin on purpose.
+  services/        what the handlers actually do.
+  static/          one page, two scripts, no build step.
 src/tools/       offline scripts: measurement, verification. Not shipped.
 tests/           committed, unlike search-proxy's.
+docs/            COST.md, PIPELINE.md, RULES.md.
 ```
+
+A route holds no rules and a service holds no URLs. When that stops being
+true, the thing in the wrong place is the one to move.
+
+## Root files
+
+| | |
+|---|---|
+| `.env.example` | every setting there is, with no value |
+| `requirements.in` / `.txt` | intent, and the hashed lockfile compiled from it |
+| `Dockerfile` / `.dockerignore` | multistage, non-root, no secret in any layer |
+| `.github/workflows/ci.yml` | format, types, tests, secrets, and a container that must answer its own health check |
+| `.gitlab-ci.yml` | the same checks, plus the deploy stage |
+| `mypy.ini` | `strict = True` |
+| `pytest.ini` | paid and device tests excluded by default |
+| `Makefile` | the things we actually run |
+
+## Operating it
+
+| | |
+|---|---|
+| `GET /healthz` | is the process alive? Contacts nothing downstream |
+| `GET /readyz` | is it configured? Names the missing capability, never its value |
+| `x-request-id` | on every response, and on every log line for that request |
+| release | baked into the image, reported by `/healthz` — `docs/ROLLBACK.md` is the runbook |
+| errors | scrubbed, then logged; also to Sentry if `SENTRY_DSN` is set. Browser errors post to `/api/v1/client-errors` |
+| `GET /metrics` | Prometheus text. Behind `METRICS_TOKEN` when one is set |
+| alerts | thresholds in `src/observability/alerts.py`, rendered to `deploy/alerts.yml` by `make alerts`. Each call also writes an `ALERT` line a log search can match |
+
+`docs/RULES.md` checks this repository against the full-stack rules one by
+one, including the two gaps that are still open.
+
 
 ## Status
 
 | | |
 |---|---|
 | Config, per-environment split | ✅ |
-| Cost meter, both billing hypotheses | ✅ 10 tests |
-| CI: lint, typecheck, test, secret scan | ✅ all four pass locally |
-| Pipecat 0.0.108 on Python 3.10 | ✅ imports, `GeminiLiveLLMService` present |
+| Cost meter, priced per charge line | ✅ validated against a real metered bill |
+| CI: format, strict types, tests, secret scan | ✅ GitHub and GitLab, same four |
+| Routes / services split, versioned API | ✅ `/api/v1`, no rules in a route file |
+| Health, readiness, request ids, rate limits | ✅ 15 tests |
+| Container image | ✅ multistage, non-root; built and probed in CI |
+| Session rotation instead of compression | ✅ `src/voice/rotating.py`, 23 tests |
+| Error reporting, scrubbed | ✅ `src/observability/`, 30 tests; off unless a DSN is set |
+| Metrics and alert thresholds | ✅ `/metrics`, `deploy/alerts.yml`, 22 tests |
+| CPU profiled against a target | ✅ 0.08% of a core per call against a 6% target — `docs/PERFORMANCE.md` |
 | Gemini Live adapter | ✅ 9 offline tests + 3 against the real API |
 | Thinking off, verified on the wire | ✅ `thoughtsTokenCount == 0` |
 | Transport seam (`AudioSource` / `AudioSink`) | ✅ what Phase 2 swaps |
@@ -91,28 +144,41 @@ explaining *why* in a comment where a reader would otherwise ask.
 
 **Not reused: the Cloudflare Workers runtime.** A voice session holds a socket
 open for minutes and needs to drain cleanly on deploy. Workers do not express
-that, and the Python Workers runtime will not carry Pipecat's dependencies. The
-catalogue stays on the existing Worker and this service calls it as a tool.
+that. The catalogue stays on the existing Worker and this service calls it as
+a tool.
 Reasoning in `../PHASE0-REPORT.md` §3.
 
-**Two search-proxy habits deliberately corrected.** Its CI runs no checks before
-deploying — ours runs lint, typecheck, tests and a secret scan first. And it
-gitignores `tests/`, leaving them unversioned — ours are committed.
+**Three search-proxy habits deliberately corrected.** Its CI runs no checks
+before deploying — ours runs formatting, strict types, tests and a secret scan
+first, in both pipelines. It gitignores `tests/`, leaving them unversioned —
+ours are committed. And it has no container story at all — ours is a root
+`Dockerfile` that CI builds and starts on every change.
 
 ## Known limitations
 
-1. **Python 3.10.12.** `google-api-core` now warns that 3.10 is unsupported and
-   will get no further updates. Moving to 3.11+ is a cost of doing business, not
-   a preference, and it should happen before Phase 4.
-2. **PyTorch is absent**, so `transformers` is tokenizer-only. Fine for the
-   chosen architecture — the model does the work remotely — but Pipecat's
-   smart-turn detection would need it.
+1. **Over the cost target.** Poorvika wants ₹2.00 a connected minute; a real
+   call runs at about ₹5.28. `docs/COST.md` says where every paisa goes.
+   `docs/PIPELINE.md` carries the decision: **not** the cascade, whose
+   reasoning leg measured ~1,100 ms to first token and would make the agent
+   about three times slower for 60 paise. Rotating the Live session onto a
+   fresh socket carrying a text summary instead of audio history reaches
+   ₹2.70–3.82 at unchanged speed. **Not built yet.** ₹2.00 with a fast agent
+   is not available from anything measured: ₹1.19 of it is the agent's own
+   voice, and the replies are not being shortened. The session ceiling that
+   ends a call sits at ₹8, well above the target, because hanging up on a
+   customer mid-sentence does not refund the rupee.
+2. **Python 3.10.12.** Supported, and close enough to the end of that to be a
+   cost of doing business rather than a preference. It should move to 3.11+
+   before Phase 4.
 3. **The deploy target is not configured.** `deploy.sh` builds the image and
-   stops, because the host depends on which telephony provider terminates where.
-   Phase 2.
-4. **Whether the accumulated prompt is re-billed per turn is unresolved**, so
-   `usage.py` reports both figures rather than inventing one. They differ by
-   about 3.3×. See `../BILLING-VERIFICATION.md`.
+   stops, because the host depends on which telephony provider terminates
+   where. Phase 2.
+4. **Stock is unavailable in production.** Poorvika has not issued a Central
+   Inventory host and a token for the mode it is sent with, so the agent
+   reports that stock could not be checked — which is the truth, and is a
+   different sentence from "there is none".
+5. **Two rules are open**, listed with what each would take at the bottom of
+   `docs/RULES.md`.
 
 ## Security
 

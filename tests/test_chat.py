@@ -115,7 +115,11 @@ async def test_text_streams_in_pieces_and_the_turn_carries_usage():
         deltas.append(delta)
         turn = streamed
 
-    assert deltas == ["Vanakkam! ", "Check panni sollren."]
+    # A trailing empty delta is deliberate: the turn is always handed back
+    # once at the end, because a reply that is only a functionCall produces no
+    # text and would otherwise never reach the caller at all.
+    assert [d for d in deltas if d] == ["Vanakkam! ", "Check panni sollren."]
+    assert deltas[-1] == ""
     assert turn is not None and turn.text == "Vanakkam! Check panni sollren."
     assert turn.usage["promptTokenCount"] == 120
 
@@ -151,10 +155,10 @@ def test_both_surfaces_share_one_persona_differing_only_in_delivery():
 
     for text in (voice, chat):
         assert "Never invent a price" in text
+        # Tamil script by default, Tanglish when they write in Latin letters,
+        # English never - Poorvika's customers are Tamil speakers.
+        assert "NEVER REPLY IN ENGLISH" in text
         assert "Tanglish" in text
-        # Tamil Nadu retailer, Tamil-speaking customers: Tamil is the default,
-        # not whichever language the first exchange happened to land in.
-        assert "TAMIL IS YOUR DEFAULT" in text
         # The greeting must survive the word cap, or it is spoken half-finished.
         assert "does NOT apply" in text
     assert "speaking out loud" in voice
@@ -164,3 +168,97 @@ def test_both_surfaces_share_one_persona_differing_only_in_delivery():
     # at 100, against 15.3 at a cap of 15 - so raising it buys finished answers
     # rather than longer ones, and costs nothing measurable.
     assert CHAT_WORD_CAP == VOICE_WORD_CAP == 100
+
+
+async def test_a_reply_that_is_only_a_tool_call_still_reaches_the_caller():
+    """It produced nothing at all before.
+
+    Gemini answers a product question with a functionCall part and no text.
+    The stream yielded only on text, so the loop never ran, the caller never
+    saw the turn, and the agent appeared to say nothing.
+    """
+    call_only = sse(
+        {
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            {
+                                "functionCall": {
+                                    "name": "search_products",
+                                    "args": {"max_price": 30000},
+                                },
+                                "thoughtSignature": "sig-abc",
+                            }
+                        ]
+                    }
+                }
+            ],
+            "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 5},
+        }
+    )
+    model, _ = model_with(FakeResponse(call_only))
+    turn = None
+    async for _delta, streamed in model.stream(
+        [{"role": "user", "parts": [{"text": "hi"}]}]
+    ):
+        turn = streamed
+
+    assert turn is not None
+    assert turn.function_call["args"]["max_price"] == 30000
+    # The whole part, signature included - Gemini rejects the follow-up with a
+    # 400 if the thoughtSignature is not echoed back.
+    assert turn.function_call_part["thoughtSignature"] == "sig-abc"
+
+
+def test_trimming_never_orphans_a_function_response():
+    """Four questions in, the chat tab stopped answering anything.
+
+        Please ensure that function response turn comes immediately after a
+        function call turn. Got function response with name 'search_products'.
+
+    A tool round adds two messages to the history, so an even-numbered cut is
+    no longer enough: landing between a functionCall and its answer leaves the
+    answer orphaned, and the API rejects the whole request rather than the one
+    message.
+    """
+    from src.chat.session import ChatSession
+
+    session = ChatSession(model=None, max_history_messages=4)  # type: ignore[arg-type]
+    session._history = [
+        {"role": "user", "parts": [{"text": "first question"}]},
+        {"role": "model", "parts": [{"functionCall": {"name": "search_products"}}]},
+        {"role": "user", "parts": [{"functionResponse": {"name": "search_products"}}]},
+        {"role": "model", "parts": [{"text": "two phones"}]},
+        {"role": "user", "parts": [{"text": "second question"}]},
+    ]
+    session._trim()
+
+    first = session._history[0]
+    assert first["role"] == "user"
+    assert "text" in first["parts"][0], "history begins on an orphaned response"
+    # And the conversation still starts somewhere real.
+    assert first["parts"][0]["text"] == "second question"
+
+
+def test_trimming_keeps_a_call_and_its_answer_together():
+    """Cutting before the call keeps the pair intact, which is legal."""
+    from src.chat.session import ChatSession
+
+    session = ChatSession(model=None, max_history_messages=6)  # type: ignore[arg-type]
+    session._history = [
+        {"role": "user", "parts": [{"text": "old"}]},
+        {"role": "model", "parts": [{"text": "older reply"}]},
+        {"role": "user", "parts": [{"text": "recent"}]},
+        {"role": "model", "parts": [{"functionCall": {"name": "search_products"}}]},
+        {"role": "user", "parts": [{"functionResponse": {"name": "search_products"}}]},
+        {"role": "model", "parts": [{"text": "two phones"}]},
+        {"role": "user", "parts": [{"text": "newest"}]},
+    ]
+    session._trim()
+
+    kinds = [list(m["parts"][0])[0] for m in session._history]
+    assert "functionResponse" not in kinds or kinds.index("functionCall") < kinds.index(
+        "functionResponse"
+    )
+    assert session._history[0]["parts"][0].get("text") == "recent"

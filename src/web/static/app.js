@@ -25,6 +25,12 @@ const el = (id) => document.getElementById(id);
 
 // The orb is the primary state indicator - it is what someone across the room
 // sees. The text line underneath is the detail, not the signal.
+// The button holds an icon beside its label, so only the label is rewritten -
+// setting textContent would throw the SVG away.
+function setCtaLabel(text) {
+  el('toggle').querySelector('span').textContent = text;
+}
+
 const ORB_STATE = {
   '': 'idle', live: 'listening', agent: 'agent', bad: 'error',
 };
@@ -156,7 +162,7 @@ function flushPlayback() {
 // Sample rates and the greeting, nothing else. The page has no business
 // knowing which model is behind it, and anything it knows is public.
 async function loadConfig() {
-  state.config = await (await fetch('/api/config')).json();
+  state.config = await (await fetch('/api/v1/config')).json();
   return state.config;
 }
 
@@ -277,17 +283,40 @@ window.audioDiagnostics = () => ({
 function addTurn(turn) {
   state.turns.push(turn);
   const row = document.createElement('tr');
+  const cost = turn.cost;
+  const rate = cost ? cost.total_inr_per_min : null;
+  const target = cost ? cost.target_inr_per_min : 2.5;
   const latency = turn.first_audio_ms == null ? '—' : Math.round(turn.first_audio_ms) + ' ms';
   const slow = turn.first_audio_ms != null && turn.first_audio_ms > 2000;
   row.innerHTML =
     '<td>' + turn.turn_id + '</td>' +
     '<td class="' + (slow ? 'bad' : '') + '">' + latency + '</td>' +
     '<td>' + turn.response_tokens + '</td>' +
-    '<td class="' + (turn.thinking_tokens ? 'warn' : '') + '">' + turn.thinking_tokens + '</td>';
+    '<td class="' + (turn.thinking_tokens ? 'warn' : '') + '">' + turn.thinking_tokens + '</td>' +
+    // The whole bill per connected minute, GST in, against the target it
+    // is measured against. On screen during the call, because after it is
+    // too late.
+    '<td class="' + rateClass(rate, target) + '">' +
+      (rate == null ? '—' : '₹' + rate.toFixed(2)) + '</td>';
   el('turns').appendChild(row);
+  if (cost) showCost(cost);
   setStatus('listening', 'live');
   setOrb('listening');
   updatePercentiles();
+}
+
+// Coloured against the TARGET - what a minute is supposed to cost - not
+// against the ceiling, which is a runaway guard sitting far above it. Red at
+// or over the target, amber in the last fifteen percent below it, green
+// under that. Calls are over the target today, so this panel is mostly red,
+// and it is meant to be: the honest reading is the one that shows the gap.
+// The percentage next to the figure says how far over, because "red" alone
+// does not tell you whether you are a rupee out or four.
+function rateClass(rate, target) {
+  if (rate == null) return '';
+  if (rate >= target) return 'bad';
+  if (rate >= target * 0.85) return 'warn';
+  return 'good';
 }
 
 function updatePercentiles() {
@@ -317,10 +346,43 @@ function showTrace(trace, file) {
   el('t-file').textContent = file || '—';
 }
 
+// The cost panel. One row per charge line, because "the call costs ₹2.40" is
+// not actionable and "₹1.19 of it is the agent's voice and ₹0.56 is the
+// standing prompt being re-processed" is: the first number is physics, the
+// second is a setting. The bar widths are each line's share of the total, so
+// the thing to go and fix is the widest one.
 function showCost(cost) {
   el('cost').hidden = false;
-  el('cost-once').textContent = '₹' + cost.billed_once_inr_per_min.toFixed(2);
-  el('cost-rebilled').textContent = '₹' + cost.rebilled_inr_per_min.toFixed(2);
+  const target = cost.target_inr_per_min;
+
+  el('cost-total').textContent = '₹' + cost.total_inr_per_min.toFixed(2);
+  el('cost-total').className = rateClass(cost.total_inr_per_min, target);
+  el('cost-ceiling').textContent = '₹' + target.toFixed(2);
+  el('cost-pct').textContent =
+    Math.round((cost.total_inr_per_min / target) * 100) + '% of target';
+  el('cost-pct').className = rateClass(cost.total_inr_per_min, target);
+  el('cost-call').textContent = '₹' + cost.total_inr.toFixed(2);
+  el('cost-mins').textContent = cost.minutes.toFixed(2) + ' min · '
+    + cost.turns + ' turns · ' + cost.turns_per_minute.toFixed(1) + '/min';
+  el('cost-floor').textContent = '₹' + cost.voice_floor_inr_per_min.toFixed(2);
+
+  const body = el('cost-lines');
+  body.innerHTML = '';
+  for (const line of cost.lines) {
+    const tr = document.createElement('tr');
+    const pct = Math.round(line.share * 100);
+    tr.innerHTML =
+      '<td>' + line.label + (line.key === 'thinking' && cost.thinking_rate_unconfirmed
+        ? ' <span class="qm" title="Google does not document whether thinking '
+          + 'bills at the text ($4.50) or audio ($12.00) output rate. Priced '
+          + 'here at the text rate; if it is the audio rate this line is 2.7x.'
+          + '">?</span>'
+        : '') + '</td>' +
+      '<td class="num">' + line.tokens.toLocaleString() + '</td>' +
+      '<td class="num">₹' + line.inr_per_min.toFixed(2) + '</td>' +
+      '<td class="bar"><i style="width:' + pct + '%"></i><b>' + pct + '%</b></td>';
+    body.appendChild(tr);
+  }
 }
 
 el('toggle').addEventListener('click', () => (state.running ? stop() : start()));
@@ -334,119 +396,99 @@ el('share').addEventListener('click', async () => {
 });
 loadConfig().catch(() => setStatus('cannot reach the server', 'bad'));
 
-// --- chat -----------------------------------------------------------------
+
+// --- tabs -------------------------------------------------------------------
 //
-// Its own socket, not message types on the voice one. The voice socket carries
-// fifty binary audio frames a second; multiplexing text onto it would couple
-// two unrelated lifecycles for no gain, since only one tab is ever visible.
+// A real tablist, which two buttons and an aria-selected attribute were not.
+// The pattern the ARIA practices guide specifies: one tab in the page's tab
+// order at a time, arrows to move between them, Home and End to jump. Without
+// it a keyboard user tabs into the list and cannot leave it except by tabbing
+// through every tab, and a screen reader is never told how many there are.
 
-const chat = { socket: null, bubble: null, greeted: false, turns: 0 };
+const TABS = ['tab-voice', 'tab-chat'];
 
-// The button holds an icon beside its label, so only the label is rewritten -
-// setting textContent would throw the SVG away.
-function setCtaLabel(text) {
-  el('toggle').querySelector('span').textContent = text;
-}
-
-function bubble(text, mine) {
-  const row = document.createElement('div');
-  row.className = 'msg' + (mine ? ' me' : '');
-  if (!mine) {
-    const av = document.createElement('div');
-    av.className = 'av';
-    av.setAttribute('aria-label', 'Poorvika');
-    row.appendChild(av);
-  }
-  const body = document.createElement('div');
-  body.className = 'bubble';
-  body.textContent = text;
-  row.appendChild(body);
-  el('messages').appendChild(row);
-  el('messages').scrollTop = el('messages').scrollHeight;
-  return body;
-}
-
-function connectChat() {
-  if (chat.socket) return;
-  const url = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws/chat';
-  chat.socket = new WebSocket(url);
-
-  chat.socket.onmessage = (event) => {
-    const message = JSON.parse(event.data);
-    switch (message.type) {
-      case 'ready':
-        // The greeting is the same sentence the voice agent opens with - one
-        // persona, two surfaces.
-        if (!chat.greeted) { bubble(message.greeting, false); chat.greeted = true; }
-        break;
-      case 'start':
-        chat.bubble = bubble('…', false);
-        chat.bubble.classList.add('thinking');
-        chat.bubble.textContent = '';
-        break;
-      case 'delta':
-        if (chat.bubble) {
-          chat.bubble.classList.remove('thinking');
-          chat.bubble.textContent += message.text;
-          el('messages').scrollTop = el('messages').scrollHeight;
-        }
-        break;
-      case 'done':
-        chat.bubble = null;
-        el('chat-send').disabled = false;
-        el('chat-input').disabled = false;
-        el('chat-input').focus();
-        addChatTurn(message);
-        break;
-      case 'error':
-        // Remove the whole row - removing just the bubble leaves an orphan
-        // avatar floating with nothing beside it.
-        if (chat.bubble) chat.bubble.closest('.msg').remove();
-        chat.bubble = null;
-        bubble(message.message, false).classList.add('thinking');
-        el('chat-send').disabled = false;
-        el('chat-input').disabled = false;
-        break;
-    }
-  };
-  chat.socket.onclose = () => { chat.socket = null; };
-}
-
-function sendChat() {
-  const input = el('chat-input');
-  const text = input.value.trim();
-  if (!text || !chat.socket || chat.socket.readyState !== WebSocket.OPEN) return;
-  bubble(text, true);
-  chat.socket.send(JSON.stringify({ text }));
-  input.value = '';
-  input.disabled = true;
-  el('chat-send').disabled = true;
-}
-
-function addChatTurn(message) {
-  chat.turns += 1;
-  const row = document.createElement('tr');
-  row.innerHTML =
-    '<td>c' + chat.turns + '</td>' +
-    '<td>' + (message.conversation_inr != null ? '₹' + message.conversation_inr.toFixed(3) : '—') + '</td>' +
-    '<td>' + message.response_tokens + '</td>' +
-    '<td class="' + (message.thinking_tokens ? 'warn' : '') + '">' + message.thinking_tokens + '</td>';
-  el('turns').appendChild(row);
-}
-
-el('chat-send').addEventListener('click', sendChat);
-el('chat-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendChat(); });
-
-// --- tabs -----------------------------------------------------------------
-
-function showTab(which) {
+function showTab(which, focusPanel) {
   const voice = which === 'voice';
   el('voice-panel').hidden = !voice;
   el('chat-panel').hidden = voice;
-  el('tab-voice').setAttribute('aria-selected', String(voice));
-  el('tab-chat').setAttribute('aria-selected', String(!voice));
-  if (!voice) { connectChat(); el('chat-input').focus(); }
+  TABS.forEach((id) => {
+    const selected = (id === 'tab-voice') === voice;
+    const tab = el(id);
+    tab.setAttribute('aria-selected', String(selected));
+    // Roving tabindex: only the selected tab is in the page's tab order, so
+    // Tab moves past the whole list rather than through it.
+    tab.tabIndex = selected ? 0 : -1;
+  });
+  // Said once, here, rather than reached for from the chat module.
+  // focusPanel is false when the arrow keys brought us here: in a tablist
+  // the arrows move between TABS, and the panel is entered with Tab. Moving
+  // focus into the panel on an arrow press traps a keyboard user, who
+  // cannot then reach the other tab at all.
+  if (!voice) {
+    document.dispatchEvent(
+      new CustomEvent('tab:chat', { detail: { focusPanel: Boolean(focusPanel) } })
+    );
+  }
 }
 
-el('tab-voice').addEventListener('click', () => showTab('voice'));
-el('tab-chat').addEventListener('click', () => showTab('chat'));
+function focusTab(index) {
+  const id = TABS[(index + TABS.length) % TABS.length];
+  showTab(id === 'tab-voice' ? 'voice' : 'chat', false);
+  // After showTab, so the panel it reveals cannot take the focus back.
+  el(id).focus();
+}
+
+TABS.forEach((id, index) => {
+  el(id).addEventListener('click', () => showTab(id === 'tab-voice' ? 'voice' : 'chat', true));
+  el(id).addEventListener('keydown', (event) => {
+    const moves = {
+      ArrowRight: index + 1, ArrowLeft: index - 1,
+      Home: 0, End: TABS.length - 1,
+    };
+    if (!(event.key in moves)) return;
+    event.preventDefault();
+    focusTab(moves[event.key]);
+  });
+});
+
+
+// --- telling the server when the page breaks --------------------------------
+//
+// The rule asks for frontend errors as well as backend ones, and the browser
+// does not get a DSN to report them with: a key in a page is a key anyone can
+// read. So the page says what broke and the server reports it, through the
+// same scrubber as everything else.
+//
+// A message, a file and a line. Deliberately no stack: a browser stack
+// carries whatever was in scope, and on this page that is the conversation.
+
+let reported = 0;
+
+function reportToServer(message, source, line) {
+  // Three per page load. A render loop that throws every frame would
+  // otherwise post a thousand times a minute, which is a denial of service
+  // we would be performing on ourselves.
+  if (reported >= 3) return;
+  reported += 1;
+  fetch('/api/v1/client-errors', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      message: String(message).slice(0, 300),
+      source: String(source || '').split('/').pop().slice(0, 200),
+      line: Number(line) || 0,
+    }),
+  }).catch(() => {});
+}
+
+window.addEventListener('error', (event) => {
+  reportToServer(event.message, event.filename, event.lineno);
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+  const reason = event.reason;
+  reportToServer(
+    (reason && reason.message) || String(reason), 'promise', 0
+  );
+});
+
