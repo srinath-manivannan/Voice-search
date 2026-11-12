@@ -16,11 +16,11 @@ in the module that owns it.
 
 | | |
 |---|---|
-| applied | 62 |
+| applied | 63 |
 | not applicable to this stack | 33 |
-| **open gaps** | **5** |
+| **open gaps** | **4** |
 
-The five gaps are listed at the bottom with what each would take. None is
+The four gaps are listed at the bottom with what each would take. None is
 hidden in the table.
 
 ---
@@ -133,7 +133,7 @@ Rules 72–80: **n/a** (React rendering, memoisation, virtualisation).
 | 87 | Secrets stay on the backend | ✅ the browser gets three numbers and a greeting, and a test enforces it |
 | 88 | HTTPS | **Gap 5** — terminated by whatever fronts the container, which Phase 2 has not chosen |
 | 89 | Safe HTML, restricted CORS, CSRF, validated uploads | ✅ CORS is an explicit origin list, never `*`; CSP, `nosniff`, `DENY` framing and a referrer policy on every response; no uploads exist |
-| 90 | Capture errors after removing sensitive information | **Gap 6** — exceptions are logged with stack traces, but nothing ships them anywhere |
+| 90 | Capture errors after removing sensitive information | ✅ `src/observability/` — one scrubber, then the log, and Sentry too when a DSN is set. Browser errors are posted to the server and reported from there, because a DSN in a page is a DSN anyone can read |
 | 91 | Request ids in logs; never log secrets | ✅ `src/web/middleware.py`; method, path, status and duration only — never a header or a query string |
 | 92 | Audit trail | ✅ `CallTrace` records every decision with a timestamp, and deliberately no audio and no speech |
 | 93 | Watch errors, latency and resource use; health checks and alerts | ✅ `/healthz` and `/readyz`, plus per-turn latency on screen. **Gap 7**: no alerting |
@@ -233,13 +233,48 @@ release wrote, the money already spent.
 
 Two lines of it are marked `<host>`, because that is gap 9.
 
-## The five open gaps
+**Gap 6 — errors that go somewhere.** `src/observability/`, and the order of
+the two files in it is the argument: `scrub` decides what may leave the
+process, `reporting` decides where it goes. The redaction is not a feature
+of the Sentry adapter — it has to be true before any adapter exists,
+including the one somebody adds next year.
+
+Two things must never leave. **Credentials**, redacted by equality against
+the values config holds, because a token is a string with no shape and the
+one certain way to recognise it is to have been told it — with patterns as a
+second net for a URL's `?key=`, a `Bearer`, a `"token":`. And **the
+customer**: the page promises nothing is recorded, and a report carrying a
+transcript breaks that quietly. Fields that carry speech are dropped whole,
+because half a sentence is still a sentence.
+
+It is **off unless `SENTRY_DSN` is set**, and that is a decision rather than
+an oversight: sending reports to a third party is data processing and it is
+Poorvika's call. With a DSN they go to Sentry *as well as* the log, never
+instead — the log is the copy that stays in the country the call happened
+in. The SDK is optional and absent from `requirements.txt`.
+
+Three things found by running it. Two by the tests: a field called `turns`
+is conversation content in the Live API and a plain count in our own error
+context, so a number under that name now stays; and `Authorization: Bearer
+xyz` survived the first pattern, which read `Bearer` as the value.
+
+The third by probing the running server, and it was the real one. The
+message was redacted correctly and the **traceback line beneath it carried
+forty characters of the live key**, because `exc_info=` makes logging render
+the exception itself, raw, past every redaction above it. The traceback is
+formatted and scrubbed here now, and a secret is matched by any sixteen-
+character run of itself rather than only in full - a credential rarely
+arrives whole, and a fragment of a key is still a key.
+
+Re-probed after the fix: zero characters of the key anywhere in the log,
+and the log still names what broke.
+
+## The four open gaps
 
 | | Gap | What it would take |
 |---|---|---|
 | 4 | CPU is not profiled | a profiler run under a real call, against a stated target |
 | 5 | HTTPS is not terminated here | a Phase 2 decision; it depends on the telephony provider |
-| 6 | Errors are logged, never shipped | Sentry or equivalent, with the request id attached and the payload stripped |
 | 7 | No alerting | thresholds on latency, error rate and rupees a minute, wherever this ends up hosted |
 | 9 | No deploy target | `deploy.sh` builds and stops, on purpose — Phase 2 |
 

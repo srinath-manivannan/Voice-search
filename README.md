@@ -95,9 +95,10 @@ true, the thing in the wrong place is the one to move.
 | `GET /readyz` | is it configured? Names the missing capability, never its value |
 | `x-request-id` | on every response, and on every log line for that request |
 | release | baked into the image, reported by `/healthz` — `docs/ROLLBACK.md` is the runbook |
+| errors | scrubbed, then logged; also to Sentry if `SENTRY_DSN` is set. Browser errors post to `/api/v1/client-errors` |
 
 `docs/RULES.md` checks this repository against the full-stack rules one by
-one, including the five gaps that are still open.
+one, including the four gaps that are still open.
 
 
 ## Status
@@ -110,7 +111,8 @@ one, including the five gaps that are still open.
 | Routes / services split, versioned API | ✅ `/api/v1`, no rules in a route file |
 | Health, readiness, request ids, rate limits | ✅ 15 tests |
 | Container image | ✅ multistage, non-root; built and probed in CI |
-| Session rotation instead of compression | ✅ `src/voice/rotating.py`, 18 tests |
+| Session rotation instead of compression | ✅ `src/voice/rotating.py`, 23 tests |
+| Error reporting, scrubbed | ✅ `src/observability/`, 26 tests; off unless a DSN is set |
 | Gemini Live adapter | ✅ 9 offline tests + 3 against the real API |
 | Thinking off, verified on the wire | ✅ `thoughtsTokenCount == 0` |
 | Transport seam (`AudioSource` / `AudioSink`) | ✅ what Phase 2 swaps |
@@ -169,7 +171,7 @@ ours are committed. And it has no container story at all — ours is a root
    Inventory host and a token for the mode it is sent with, so the agent
    reports that stock could not be checked — which is the truth, and is a
    different sentence from "there is none".
-5. **Five rules are open**, listed with what each would take at the bottom of
+5. **Four rules are open**, listed with what each would take at the bottom of
    `docs/RULES.md`.
 
 ## Security

@@ -31,4 +31,4 @@ def install(app: FastAPI, settings: Config) -> None:
             await websocket.close(code=POLICY_VIOLATION, reason="too many sessions")
             return
         await websocket.accept()
-        await ChatRelay(websocket, settings).run()
+        await ChatRelay(websocket, settings, websocket.app.state.reporter).run()

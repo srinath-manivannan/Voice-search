@@ -29,6 +29,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from src.observability.reporting import Reporter
+
 log = logging.getLogger(__name__)
 
 # What a caller is told when the server failed in a way nobody anticipated.
@@ -45,7 +47,7 @@ def _body(message: str, request: Request, **extra: Any) -> dict[str, Any]:
     }
 
 
-def install(app: FastAPI) -> None:
+def install(app: FastAPI, reporter: Reporter) -> None:
     @app.exception_handler(StarletteHTTPException)
     async def http_error(request: Request, exc: StarletteHTTPException) -> JSONResponse:
         """A 404 or a 405: the status is the information, the text is a label."""
@@ -79,11 +81,13 @@ def install(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def unhandled(request: Request, exc: Exception) -> JSONResponse:
-        """500. The detail goes to the log, never to the response."""
-        log.exception(
-            "unhandled error on %s %s [%s]",
-            request.method,
-            request.url.path,
-            getattr(request.state, "request_id", None),
+        """500. The detail goes to the log and the reporter, never to the
+        response."""
+        reporter.capture(
+            exc,
+            where="http",
+            method=request.method,
+            path=request.url.path,
+            request_id=getattr(request.state, "request_id", None),
         )
         return JSONResponse(status_code=500, content=_body(UNEXPECTED, request))

@@ -36,4 +36,4 @@ def install(app: FastAPI, settings: Config) -> None:
             await websocket.close(code=POLICY_VIOLATION, reason="too many calls")
             return
         await websocket.accept()
-        await VoiceCall(websocket, settings).run()
+        await VoiceCall(websocket, settings, websocket.app.state.reporter).run()

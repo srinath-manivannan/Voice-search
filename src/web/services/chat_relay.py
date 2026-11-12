@@ -20,6 +20,7 @@ from src.agent.persona import GREETING
 from src.chat.gemini_text import GeminiTextModel
 from src.chat.session import ChatSession
 from src.config import Config
+from src.observability.reporting import Reporter
 from src.web.services import dependencies
 from src.web.services.cost_report import spent_inr
 
@@ -27,9 +28,12 @@ log = logging.getLogger(__name__)
 
 
 class ChatRelay:
-    def __init__(self, websocket: WebSocket, settings: Config) -> None:
+    def __init__(
+        self, websocket: WebSocket, settings: Config, reporter: Reporter
+    ) -> None:
         self._socket = websocket
         self._settings = settings
+        self._reporter = reporter
         self._session = ChatSession(
             GeminiTextModel(
                 api_key=settings.gemini_api_key,
@@ -51,8 +55,10 @@ class ChatRelay:
                 await self._answer(text)
         except WebSocketDisconnect:
             log.info("chat disconnected")
-        except Exception:
-            log.exception("chat failed")
+        except Exception as failed:
+            self._reporter.capture(
+                failed, where="chat", turns=len(self._session.result.turns)
+            )
             with contextlib.suppress(Exception):
                 await self._socket.send_json(
                     {"type": "error", "message": "that message could not be answered"}

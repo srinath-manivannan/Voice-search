@@ -30,6 +30,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from src.agent.persona import GREETING
 from src.config import Config
+from src.observability.reporting import Reporter
 from src.voice.budget import BudgetExceeded, SessionBudget
 from src.voice.gemini_live import GeminiLiveSession
 from src.voice.handover import note
@@ -51,9 +52,12 @@ TRACES = Path(__file__).resolve().parents[3] / "out" / "traces"
 class VoiceCall:
     """Everything one browser call does, with the socket already accepted."""
 
-    def __init__(self, websocket: WebSocket, settings: Config) -> None:
+    def __init__(
+        self, websocket: WebSocket, settings: Config, reporter: Reporter
+    ) -> None:
         self._socket = websocket
         self._settings = settings
+        self._reporter = reporter
         self._source = BrowserSource(settings.capture_sample_rate)
         self._sink = BrowserSink(websocket, settings.playback_sample_rate)
         self._budget = SessionBudget(
@@ -67,6 +71,8 @@ class VoiceCall:
         # Set once the session exists; push() runs before that on the ready
         # message, so it has to tolerate None.
         self._usage: SessionUsage | None = None
+        # Kept so a failure can report how far the call got.
+        self._live: RotatingLiveSession | None = None
 
     # -- helpers ------------------------------------------------------------
 
@@ -177,6 +183,7 @@ class VoiceCall:
         try:
             tools = dependencies.tool_session(self._settings)
             async with self._model(tools) as model:
+                self._live = model
                 self._usage = model.usage
                 await self._push({"type": "ready"})
                 # Speak first. A call that answers and then says nothing
@@ -197,8 +204,14 @@ class VoiceCall:
                 await self._send_summary(model.usage)
         except WebSocketDisconnect:
             log.info("browser disconnected")
-        except Exception:
-            log.exception("conversation failed")
+        except Exception as failed:
+            self._reporter.capture(
+                failed,
+                where="voice",
+                turns=len(self._talking.result.turns) if self._talking else 0,
+                minutes=round(self._minutes(), 2),
+                rotations=self._live.rotations if self._live else 0,
+            )
             await self._push(
                 {"type": "error", "message": "the conversation ended unexpectedly"}
             )

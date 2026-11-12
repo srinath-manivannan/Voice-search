@@ -451,3 +451,44 @@ TABS.forEach((id, index) => {
   });
 });
 
+
+// --- telling the server when the page breaks --------------------------------
+//
+// The rule asks for frontend errors as well as backend ones, and the browser
+// does not get a DSN to report them with: a key in a page is a key anyone can
+// read. So the page says what broke and the server reports it, through the
+// same scrubber as everything else.
+//
+// A message, a file and a line. Deliberately no stack: a browser stack
+// carries whatever was in scope, and on this page that is the conversation.
+
+let reported = 0;
+
+function reportToServer(message, source, line) {
+  // Three per page load. A render loop that throws every frame would
+  // otherwise post a thousand times a minute, which is a denial of service
+  // we would be performing on ourselves.
+  if (reported >= 3) return;
+  reported += 1;
+  fetch('/api/v1/client-errors', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      message: String(message).slice(0, 300),
+      source: String(source || '').split('/').pop().slice(0, 200),
+      line: Number(line) || 0,
+    }),
+  }).catch(() => {});
+}
+
+window.addEventListener('error', (event) => {
+  reportToServer(event.message, event.filename, event.lineno);
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+  const reason = event.reason;
+  reportToServer(
+    (reason && reason.message) || String(reason), 'promise', 0
+  );
+});
+

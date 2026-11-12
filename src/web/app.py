@@ -17,6 +17,7 @@ installed in, and holds no rule of its own:
 
     middleware  request id, security headers, no caching
     errors      one error shape, whichever way the request came in
+    reporting   where a failure goes, once it has been scrubbed
     routes      URL to handler
     services    what the handlers actually do
 """
@@ -31,6 +32,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from src.config import Config, load
+from src.observability.reporting import build as build_reporter
 from src.web import errors, middleware, routes
 from src.web.routes.pages import STATIC
 
@@ -61,8 +63,14 @@ def create_app(config: Config | None = None) -> FastAPI:
         allow_methods=["GET", "POST"],
         allow_headers=["content-type", "x-request-id"],
     )
+    # Built once, and it is also what teaches the scrubber which strings are
+    # secrets. Off unless SENTRY_DSN is set, in which case reports go to the
+    # log as well - never instead.
+    reporter = build_reporter(settings)
+    app.state.reporter = reporter
+
     middleware.install(app)
-    errors.install(app)
+    errors.install(app, reporter)
 
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     routes.install(app, settings)

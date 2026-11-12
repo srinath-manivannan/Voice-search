@@ -99,6 +99,12 @@ class Config:
     # incident - is the larger one.
     release: str
 
+    # Where errors are reported, as well as to the log. Empty means nowhere
+    # leaves this process, which is the default: sending reports to a third
+    # party is a data decision and it is Poorvika's to make. See
+    # src/observability/reporting.py.
+    sentry_dsn: str
+
     log_level: str
     env: str
 
@@ -212,6 +218,7 @@ def load(env: str | None = None) -> Config:
         ),
         max_calls_per_minute=int(os.environ.get("MAX_CALLS_PER_MINUTE", "6")),
         release=os.environ.get("APP_RELEASE", "unknown"),
+        sentry_dsn=os.environ.get("SENTRY_DSN", ""),
         log_level=os.environ.get("LOG_LEVEL", defaults.LOG_LEVEL),
         env=env,
     )
