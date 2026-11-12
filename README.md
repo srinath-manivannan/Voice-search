@@ -25,6 +25,7 @@ make test
 | `make live` | real Gemini Live calls — spends a few cents |
 | `make check` | everything CI runs, in the same order |
 | `make lock` | recompile the lockfiles after editing a `.in` |
+| `make alerts` | regenerate `deploy/alerts.yml` from the rule definitions |
 | `make fmt` | reformat in place |
 | `make mic` | switch capture to the built-in microphone array |
 
@@ -96,9 +97,11 @@ true, the thing in the wrong place is the one to move.
 | `x-request-id` | on every response, and on every log line for that request |
 | release | baked into the image, reported by `/healthz` — `docs/ROLLBACK.md` is the runbook |
 | errors | scrubbed, then logged; also to Sentry if `SENTRY_DSN` is set. Browser errors post to `/api/v1/client-errors` |
+| `GET /metrics` | Prometheus text. Behind `METRICS_TOKEN` when one is set |
+| alerts | thresholds in `src/observability/alerts.py`, rendered to `deploy/alerts.yml` by `make alerts`. Each call also writes an `ALERT` line a log search can match |
 
 `docs/RULES.md` checks this repository against the full-stack rules one by
-one, including the four gaps that are still open.
+one, including the three gaps that are still open.
 
 
 ## Status
@@ -112,7 +115,8 @@ one, including the four gaps that are still open.
 | Health, readiness, request ids, rate limits | ✅ 15 tests |
 | Container image | ✅ multistage, non-root; built and probed in CI |
 | Session rotation instead of compression | ✅ `src/voice/rotating.py`, 23 tests |
-| Error reporting, scrubbed | ✅ `src/observability/`, 26 tests; off unless a DSN is set |
+| Error reporting, scrubbed | ✅ `src/observability/`, 30 tests; off unless a DSN is set |
+| Metrics and alert thresholds | ✅ `/metrics`, `deploy/alerts.yml`, 20 tests |
 | Gemini Live adapter | ✅ 9 offline tests + 3 against the real API |
 | Thinking off, verified on the wire | ✅ `thoughtsTokenCount == 0` |
 | Transport seam (`AudioSource` / `AudioSink`) | ✅ what Phase 2 swaps |
@@ -171,7 +175,7 @@ ours are committed. And it has no container story at all — ours is a root
    Inventory host and a token for the mode it is sent with, so the agent
    reports that stock could not be checked — which is the truth, and is a
    different sentence from "there is none".
-5. **Four rules are open**, listed with what each would take at the bottom of
+5. **Three rules are open**, listed with what each would take at the bottom of
    `docs/RULES.md`.
 
 ## Security

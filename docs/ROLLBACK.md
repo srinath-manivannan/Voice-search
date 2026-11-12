@@ -47,6 +47,11 @@ in production and the one in front of you did not.
 | First audio p50 over 1 s, p95 over 2 s | Judgement. Roll back if it is a step change rather than a drift |
 | One customer reports one odd answer | Do not roll back. Get the trace |
 
+These figures are also the alert thresholds. `src/observability/alerts.py`
+holds them, `deploy/alerts.yml` is generated from it, and a test fails if
+the two disagree - because at three in the morning the argument should be
+about the call that is failing, not about which of two numbers is right.
+
 **Who decides.** Whoever is on call decides to roll back, alone, without
 waiting for anyone. Rolling back is cheap and reversible; a bad voice agent
 talking to customers is neither. Tell the team after it is done, not before.

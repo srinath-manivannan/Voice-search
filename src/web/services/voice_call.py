@@ -30,6 +30,12 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from src.agent.persona import GREETING
 from src.config import Config
+from src.observability.alerts import announce
+from src.observability.metrics import (
+    LATENCY_BUCKETS_MS,
+    METRICS,
+    RUPEE_BUCKETS,
+)
 from src.observability.reporting import Reporter
 from src.voice.budget import BudgetExceeded, SessionBudget
 from src.voice.gemini_live import GeminiLiveSession
@@ -82,6 +88,15 @@ class VoiceCall:
 
     async def _push(self, payload: dict[str, Any]) -> None:
         """Send one update, then enforce the budget if a turn just ended."""
+        if payload.get("type") == "turn":
+            first_audio = payload.get("first_audio_ms")
+            if isinstance(first_audio, (int, float)):
+                METRICS.observe(
+                    "voice_first_audio_ms",
+                    "End of speech to the first byte of the reply",
+                    float(first_audio),
+                    LATENCY_BUCKETS_MS,
+                )
         if payload.get("type") == "turn" and self._usage is not None:
             # The whole bill, broken out per charge line, live - rather than
             # one number after the call has ended, which is too late to tell
@@ -116,6 +131,10 @@ class VoiceCall:
                 ),
             )
         except BudgetExceeded as stop:
+            METRICS.count(
+                "voice_calls_stopped_by_budget_total",
+                "Calls a session ceiling ended mid-conversation",
+            )
             log.warning("session stopped: %s", stop.reason)
             self._talking.trace.record("budget_exceeded", reason=stop.reason)
             with contextlib.suppress(Exception):
@@ -180,6 +199,7 @@ class VoiceCall:
         )
 
     async def run(self) -> None:
+        METRICS.count("voice_calls_total", "Voice calls accepted")
         try:
             tools = dependencies.tool_session(self._settings)
             async with self._model(tools) as model:
@@ -205,6 +225,7 @@ class VoiceCall:
         except WebSocketDisconnect:
             log.info("browser disconnected")
         except Exception as failed:
+            METRICS.count("voice_calls_failed_total", "Voice calls that errored")
             self._reporter.capture(
                 failed,
                 where="voice",
@@ -240,6 +261,27 @@ class VoiceCall:
         )
 
     async def _close(self) -> None:
+        if self._usage is not None and self._minutes() > 1 / 60:
+            METRICS.observe(
+                "voice_rupees_per_minute",
+                "Model cost of a connected minute, GST included",
+                self._usage.inr_per_minute(
+                    self._settings.usd_inr,
+                    self._settings.gst_rate,
+                    self._minutes(),
+                ),
+                RUPEE_BUCKETS,
+            )
+        if self._live is not None and self._live.rotations:
+            METRICS.count(
+                "voice_rotations_total",
+                "Times a call moved to a fresh socket",
+                self._live.rotations,
+            )
+        # Evaluated when a call ends, which is the only moment every number
+        # it contributes is final. One ALERT line per breach, for a log
+        # search to match - alerting that works before a host is chosen.
+        announce()
         if self._talking is not None:
             saved = self._talking.trace.save(TRACES)
             log.info("call trace written to %s", saved)

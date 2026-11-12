@@ -20,6 +20,7 @@ from fastapi import FastAPI, Request
 from pydantic import BaseModel, Field
 
 from src.config import Config
+from src.observability.metrics import METRICS
 from src.observability.reporting import Reporter
 
 log = logging.getLogger(__name__)
@@ -45,6 +46,7 @@ class _BrowserFailure(Exception):
 def install(app: FastAPI, settings: Config) -> None:
     @app.post("/api/v1/client-errors", status_code=202)
     async def client_error(report: BrowserError, request: Request) -> dict[str, Any]:
+        METRICS.count("client_errors_total", "Errors reported by the page")
         reporter: Reporter = request.app.state.reporter
         reporter.capture(
             _BrowserFailure(report.message),

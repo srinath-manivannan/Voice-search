@@ -104,6 +104,10 @@ class Config:
     # party is a data decision and it is Poorvika's to make. See
     # src/observability/reporting.py.
     sentry_dsn: str
+    # Guards /metrics. Empty leaves it open, which is right for development
+    # and wrong for anywhere else: the numbers are not secrets but they are
+    # commercial, and how many calls Poorvika takes is not for a public URL.
+    metrics_token: str
 
     log_level: str
     env: str
@@ -219,6 +223,7 @@ def load(env: str | None = None) -> Config:
         max_calls_per_minute=int(os.environ.get("MAX_CALLS_PER_MINUTE", "6")),
         release=os.environ.get("APP_RELEASE", "unknown"),
         sentry_dsn=os.environ.get("SENTRY_DSN", ""),
+        metrics_token=os.environ.get("METRICS_TOKEN", ""),
         log_level=os.environ.get("LOG_LEVEL", defaults.LOG_LEVEL),
         env=env,
     )

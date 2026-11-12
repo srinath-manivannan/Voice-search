@@ -16,11 +16,11 @@ in the module that owns it.
 
 | | |
 |---|---|
-| applied | 63 |
+| applied | 64 |
 | not applicable to this stack | 33 |
-| **open gaps** | **4** |
+| **open gaps** | **3** |
 
-The four gaps are listed at the bottom with what each would take. None is
+The three gaps are listed at the bottom with what each would take. None is
 hidden in the table.
 
 ---
@@ -136,7 +136,7 @@ Rules 72–80: **n/a** (React rendering, memoisation, virtualisation).
 | 90 | Capture errors after removing sensitive information | ✅ `src/observability/` — one scrubber, then the log, and Sentry too when a DSN is set. Browser errors are posted to the server and reported from there, because a DSN in a page is a DSN anyone can read |
 | 91 | Request ids in logs; never log secrets | ✅ `src/web/middleware.py`; method, path, status and duration only — never a header or a query string |
 | 92 | Audit trail | ✅ `CallTrace` records every decision with a timestamp, and deliberately no audio and no speech |
-| 93 | Watch errors, latency and resource use; health checks and alerts | ✅ `/healthz` and `/readyz`, plus per-turn latency on screen. **Gap 7**: no alerting |
+| 93 | Watch errors, latency and resource use; health checks and alerts | ✅ `/healthz`, `/readyz`, `/metrics`, and thresholds in `src/observability/alerts.py` that both generate `deploy/alerts.yml` and write a matchable `ALERT` line at the end of every call |
 
 ## 10 Test, review and release
 
@@ -269,13 +269,34 @@ arrives whole, and a fragment of a key is still a key.
 Re-probed after the fix: zero characters of the key anywhere in the log,
 and the log still names what broke.
 
-## The four open gaps
+**Gap 7 — alerting.** The thresholds are in code, beside the reason each
+one exists, because the alert that wakes somebody and the rule that tells
+them to roll back have to be the same number. `docs/ROLLBACK.md` has the
+decision table and a test fails if the two disagree.
+
+They fire two ways, since the host is still gap 9. **From logs, today**:
+every call is evaluated when it ends and each breach is one `ALERT` line any
+log search can match — alerting that works before anybody has chosen a
+monitoring product. **From metrics, later**: `/metrics` is Prometheus text,
+and `deploy/alerts.yml` is generated from the same definitions so the rule
+that fires cannot drift from the rule that was reviewed.
+
+What is deliberately NOT alerted on: being over the ₹2.00 target. Every call
+is, today. An alert that fires on every call is one people turn off, and the
+real ones go with it — so the cost alert sits at the ₹8 ceiling, where a
+caller is actually being cut off.
+
+`/metrics` carries counters and buckets and no label but `le`: a label is a
+cardinality decision as well as a privacy one, and one per caller would be
+both. It answers 404 rather than 401 to a wrong token, because an endpoint
+that announces itself as protected is one somebody now knows to attack.
+
+## The three open gaps
 
 | | Gap | What it would take |
 |---|---|---|
 | 4 | CPU is not profiled | a profiler run under a real call, against a stated target |
 | 5 | HTTPS is not terminated here | a Phase 2 decision; it depends on the telephony provider |
-| 7 | No alerting | thresholds on latency, error rate and rupees a minute, wherever this ends up hosted |
 | 9 | No deploy target | `deploy.sh` builds and stops, on purpose — Phase 2 |
 
 Gaps 5 and 9 are the same decision wearing two hats: where this runs.

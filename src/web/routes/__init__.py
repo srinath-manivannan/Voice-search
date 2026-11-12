@@ -10,7 +10,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from src.config import Config
-from src.web.routes import chat, client_errors, pages, voice
+from src.web.routes import chat, client_errors, metrics, pages, voice
 
 
 def install(app: FastAPI, settings: Config) -> None:
@@ -19,3 +19,4 @@ def install(app: FastAPI, settings: Config) -> None:
     voice.install(app, settings)
     chat.install(app, settings)
     client_errors.install(app, settings)
+    metrics.install(app, settings)

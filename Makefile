@@ -7,7 +7,7 @@
 VENV := .venv/bin
 PY   := $(VENV)/python
 
-.PHONY: help install lock ui talk test audio live check fmt mic image
+.PHONY: help install lock ui talk test audio live check fmt mic image alerts
 
 help:                    ## show this list
 	@grep -E '^[a-z-]+:.*?##' $(MAKEFILE_LIST) | sed 's/:.*##/|/' | column -t -s'|'
@@ -67,6 +67,15 @@ image:                   ## build the container and check it answers /healthz
 	  curl -fs http://127.0.0.1:8081/healthz && break || sleep 1; \
 	done; echo
 	docker rm -f poorvika-voice-check
+
+alerts:                  ## regenerate deploy/alerts.yml from the rule definitions
+	# The thresholds live in src/observability/alerts.py, beside the reason
+	# each one exists. Generated rather than written so the rule that fires
+	# cannot drift from the one that was reviewed - a test fails if the
+	# committed file is stale.
+	$(PY) -c "from src.observability.alerts import rules_yaml; \
+	  open('deploy/alerts.yml','w').write(rules_yaml())"
+	@echo "wrote deploy/alerts.yml"
 
 mic:                     ## switch capture to the built-in microphone array
 	@pactl set-default-source alsa_input.pci-0000_00_1f.3-platform-skl_hda_dsp_generic.HiFi__hw_sofhdadsp_6__source

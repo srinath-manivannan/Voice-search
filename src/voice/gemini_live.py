@@ -27,6 +27,7 @@ from typing import Any, Protocol
 
 from src.config import Config
 from src.voice.events import AudioOut, Event, Transcript, TurnComplete, TurnInterrupted
+from src.observability.metrics import METRICS
 from src.voice.usage import SessionUsage, TurnUsage
 
 log = logging.getLogger(__name__)
@@ -463,9 +464,11 @@ class GeminiLiveSession:
             if self._on_tool_call is None:
                 result: dict[str, Any] = {"error": "no_tool_handler"}
             else:
+                METRICS.count("tool_calls_total", "Tool calls the model made")
                 try:
                     result = await self._on_tool_call(name, call.get("args") or {})
                 except Exception:  # noqa: BLE001 - the call must still be answered
+                    METRICS.count("tool_failures_total", "Tool calls that failed")
                     log.exception("tool %s failed", name)
                     result = {"error": "tool_failed"}
             responses.append({"id": call.get("id"), "name": name, "response": result})
