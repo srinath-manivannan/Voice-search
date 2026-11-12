@@ -185,3 +185,38 @@ def test_an_unexpected_failure_says_one_safe_sentence_and_logs_the_rest(config):
         "request_id": body["request_id"],
     }
     assert "sk-do-not-print-this" not in response.text
+
+
+# --- knowing what is running ------------------------------------------------
+
+
+def test_the_health_endpoint_says_which_release_it_is(client):
+    """The first question of every rollback is what is actually running.
+
+    Answering it from a deployment log is how a rollback gets done twice: a
+    log says what was asked for, this says what answered.
+    """
+    body = client.get("/healthz").json()
+    assert "release" in body
+    assert body["release"] == "unknown"  # not built as an image
+
+
+def test_the_release_comes_from_the_environment_the_image_sets(monkeypatch):
+    """Baked in at build time by deploy.sh, CI and `make image` alike, so a
+    tag that says one thing while the process says another is caught at
+    build rather than during an incident."""
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key-not-real")
+    monkeypatch.setenv("APP_RELEASE", "4f9c2a1b")
+    from src.config import load
+
+    with TestClient(create_app(load("development"))) as made:
+        assert made.get("/healthz").json()["release"] == "4f9c2a1b"
+
+
+def test_the_release_is_a_build_id_and_not_the_whole_stack(client):
+    """A short sha of a private repository is not a secret. The model, the
+    vendor and the word caps still are, and /healthz must not drift into
+    publishing them the way /api/v1/config was never allowed to."""
+    serialised = str(client.get("/healthz").json()).lower()
+    for leak in ("gemini", "model", "api_key", "flash", "token"):
+        assert leak not in serialised

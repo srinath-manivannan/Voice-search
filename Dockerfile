@@ -26,6 +26,10 @@ RUN pip install --no-cache-dir --upgrade pip \
 
 FROM python:3.10.12-slim AS runtime
 
+# What build this is. Passed by deploy.sh and by CI; "unknown" if somebody
+# builds by hand, which is itself worth seeing on /healthz.
+ARG APP_RELEASE=unknown
+
 # Not root. A voice session parses audio off the network; if anything in that
 # path is ever exploitable, it should not be exploitable as uid 0.
 RUN useradd --create-home --uid 10001 poorvika
@@ -45,7 +49,15 @@ USER poorvika
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     APP_ENV=main \
+    APP_RELEASE=$APP_RELEASE \
     PORT=8080
+
+# Readable without starting the container, which matters when the thing you
+# are holding is an image and the question is whether it is the one to roll
+# back to.
+LABEL org.opencontainers.image.revision=$APP_RELEASE \
+      org.opencontainers.image.title="poorvika-voice" \
+      org.opencontainers.image.source="https://gitlab.com/poorvika/poorvika-voice" 
 
 EXPOSE 8080
 

@@ -23,12 +23,15 @@ def install(app: FastAPI, settings: Config) -> None:
     async def healthz() -> dict[str, Any]:
         """Is this process alive? Nothing downstream is contacted.
 
-        Deliberately cheap and deliberately uninformative: a load balancer
-        polls this every few seconds, and a health check that calls Gemini
-        would both cost money and fail the container for somebody else's
-        outage.
+        Deliberately cheap: a load balancer polls this every few seconds,
+        and a health check that calls Gemini would both cost money and fail
+        the container for somebody else's outage.
+
+        It does carry the release, because the first question of every
+        rollback is "what is actually running right now?" and answering it
+        from a deployment log is how a rollback gets done twice.
         """
-        return {"status": "ok", "env": settings.env}
+        return {"status": "ok", "env": settings.env, "release": settings.release}
 
     @app.get("/readyz")
     async def readyz() -> dict[str, Any]:

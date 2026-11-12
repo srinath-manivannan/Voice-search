@@ -82,6 +82,16 @@ class Config:
     # a cost control as much as an abuse control.
     max_calls_per_minute: int
 
+    # Which build this is. Baked into the image at build time and reported
+    # by /healthz, because a rollback you cannot observe is a rollback you
+    # are guessing at: "is the old one back up yet?" has to be answerable
+    # without reading a deployment log. "unknown" outside a built image.
+    #
+    # A short commit sha of a private repository is not a secret, and the
+    # cost of not having it - guessing which version is live during an
+    # incident - is the larger one.
+    release: str
+
     log_level: str
     env: str
 
@@ -189,6 +199,7 @@ def load(env: str | None = None) -> Config:
             if origin.strip()
         ),
         max_calls_per_minute=int(os.environ.get("MAX_CALLS_PER_MINUTE", "6")),
+        release=os.environ.get("APP_RELEASE", "unknown"),
         log_level=os.environ.get("LOG_LEVEL", defaults.LOG_LEVEL),
         env=env,
     )

@@ -16,11 +16,11 @@ in the module that owns it.
 
 | | |
 |---|---|
-| applied | 61 |
+| applied | 62 |
 | not applicable to this stack | 33 |
-| **open gaps** | **6** |
+| **open gaps** | **5** |
 
-The six gaps are listed at the bottom with what each would take. None is
+The five gaps are listed at the bottom with what each would take. None is
 hidden in the table.
 
 ---
@@ -148,7 +148,7 @@ Rules 72–80: **n/a** (React rendering, memoisation, virtualisation).
 | 97 | Code review before merge | **process, not repository** — the GitHub workflow gates pull requests |
 | 98 | `.github/workflows/*.yml` for formatting, types, tests and builds | ✅ `.github/workflows/ci.yml`, all four, plus a container build that must answer its own health check |
 | 99 | Root Dockerfile and `.dockerignore`, multistage, runtime secrets | ✅ two stages, non-root user, no secret in any layer — `.env` is in `.dockerignore` as well as `.gitignore` |
-| 100 | Test the production build, monitor the release, keep a rollback plan | ✅ CI builds the image and probes it. **Gap 8**: no rollback plan. **Gap 9**: the deploy target is not chosen |
+| 100 | Test the production build, monitor the release, keep a rollback plan | ✅ CI builds the image, starts it and makes it report its own release; `docs/ROLLBACK.md` is the runbook. **Gap 9**: the deploy target is not chosen, so two lines of that runbook are marked `<host>` |
 
 ---
 
@@ -212,7 +212,28 @@ Verified rather than assumed: a throwaway venv built only from the two
 lockfiles, with `--require-hashes`, installs 44 packages and runs the whole
 suite and the type check.
 
-## The six open gaps
+**Gap 8 — a rollback plan.** `docs/ROLLBACK.md`, and the mechanism it rests
+on, which did not exist either:
+
+- Every image is tagged with the commit it was built from and there is no
+  `:latest`, so the tag that was live last week still exists and still runs.
+  Rolling back is starting an older tag, not rebuilding anything.
+- The release is baked in at build time and reported on `/healthz`, because
+  the first question of a rollback is what is actually running and answering
+  it from a deployment log is how a rollback gets done twice.
+- `deploy.sh` refuses an image whose reported release does not match its
+  tag, and prints the previous tag *before* the build.
+- CI starts the image it built and fails if it cannot name itself.
+
+The runbook leads with the decision, not the commands: a per-signal table of
+roll back now / do not, and that whoever is on call decides alone without
+waiting for anyone. It also says what a rollback does **not** undo — host
+environment variables, Poorvika's own upstream services, the traces the bad
+release wrote, the money already spent.
+
+Two lines of it are marked `<host>`, because that is gap 9.
+
+## The five open gaps
 
 | | Gap | What it would take |
 |---|---|---|
@@ -220,10 +241,9 @@ suite and the type check.
 | 5 | HTTPS is not terminated here | a Phase 2 decision; it depends on the telephony provider |
 | 6 | Errors are logged, never shipped | Sentry or equivalent, with the request id attached and the payload stripped |
 | 7 | No alerting | thresholds on latency, error rate and rupees a minute, wherever this ends up hosted |
-| 8 | No rollback plan | write it down: previous image tag, how to switch, who decides |
 | 9 | No deploy target | `deploy.sh` builds and stops, on purpose — Phase 2 |
 
-Gaps 5, 8 and 9 are the same decision wearing three hats: where this runs.
+Gaps 5 and 9 are the same decision wearing two hats: where this runs.
 Nothing else is blocked on it.
 
 The numbering is the original one. A gap that closes is struck from the list

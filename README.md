@@ -94,9 +94,10 @@ true, the thing in the wrong place is the one to move.
 | `GET /healthz` | is the process alive? Contacts nothing downstream |
 | `GET /readyz` | is it configured? Names the missing capability, never its value |
 | `x-request-id` | on every response, and on every log line for that request |
+| release | baked into the image, reported by `/healthz` — `docs/ROLLBACK.md` is the runbook |
 
 `docs/RULES.md` checks this repository against the full-stack rules one by
-one, including the six gaps that are still open.
+one, including the five gaps that are still open.
 
 
 ## Status
@@ -162,7 +163,7 @@ ours are committed. And it has no container story at all — ours is a root
    Inventory host and a token for the mode it is sent with, so the agent
    reports that stock could not be checked — which is the truth, and is a
    different sentence from "there is none".
-5. **Six rules are open**, listed with what each would take at the bottom of
+5. **Five rules are open**, listed with what each would take at the bottom of
    `docs/RULES.md`.
 
 ## Security

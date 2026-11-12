@@ -70,16 +70,24 @@ jobs:
       # change; where the image GOES is a deployment decision and lives in
       # deploy.sh, behind GitLab's environment-scoped secrets.
       - name: Build the image
-        run: docker build -t poorvika-voice:${{ github.sha }} .
+        run: |
+          docker build \
+            --build-arg APP_RELEASE=${GITHUB_SHA::8} \
+            -t poorvika-voice:${{ github.sha }} .
 
-      - name: It starts, and it answers its own health check
+      - name: It starts, answers its health check, and knows what it is
         run: |
           docker run -d --name probe -p 8080:8080 \
             -e GEMINI_API_KEY=not-a-real-key \
             poorvika-voice:${{ github.sha }}
           for _ in $(seq 1 30); do
-            if curl -fs http://127.0.0.1:8080/healthz; then
-              echo "healthy"; docker rm -f probe; exit 0
+            if curl -fs http://127.0.0.1:8080/healthz > health.json; then
+              cat health.json
+              # A release the image cannot report is a rollback nobody can
+              # verify. Checked here so it cannot rot unnoticed.
+              grep -q "${GITHUB_SHA::8}" health.json || {
+                echo "image does not report its own release"; exit 1; }
+              docker rm -f probe; exit 0
             fi
             sleep 1
           done

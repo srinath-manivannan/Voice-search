@@ -59,7 +59,8 @@ fmt:                     ## reformat in place
 	$(VENV)/ruff check --fix src tests
 
 image:                   ## build the container and check it answers /healthz
-	docker build -t poorvika-voice:local .
+	docker build --build-arg APP_RELEASE=$$(git rev-parse --short HEAD) \
+	  -t poorvika-voice:local .
 	docker run -d --rm --name poorvika-voice-check -p 8081:8080 \
 	  -e GEMINI_API_KEY=not-a-real-key poorvika-voice:local
 	@for i in $$(seq 1 30); do \
