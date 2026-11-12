@@ -145,10 +145,12 @@ conversation in it.
 
 ### What would actually close the gap
 
-**Measured and written up in [PIPELINE.md](PIPELINE.md):** moving the
-conversation off the Live API and keeping it as the mouth only lands at
-about Rs 2.1 a minute with first audio still near 550 ms. The rest of this
-section is the arithmetic that leads there.
+**Decided, and written up in [PIPELINE.md](PIPELINE.md):** not the cascade.
+Its reasoning leg was timed at ~1,100 ms to first token, which makes the
+whole thing about three times slower than today for 60 paise. Rotating the
+Live session onto a fresh socket carrying a text summary instead of audio
+history lands at Rs 2.70-3.82 at unchanged speed, and fixes the budget
+amnesia as a side effect. The rest of this section is the arithmetic.
 
 Not this knob, and not the answers. Within the Live API, the window cannot
 go below the prompt, the prompt is charged on every generation, and the
