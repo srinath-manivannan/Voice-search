@@ -32,6 +32,8 @@ from src.agent.persona import GREETING
 from src.config import Config
 from src.voice.budget import BudgetExceeded, SessionBudget
 from src.voice.gemini_live import GeminiLiveSession
+from src.voice.handover import note
+from src.voice.rotating import RotatingLiveSession
 from src.voice.session import Conversation
 from src.voice.usage import SessionUsage
 from src.agent.tools.runner import ToolSession
@@ -153,14 +155,28 @@ class VoiceCall:
 
     # -- the call -----------------------------------------------------------
 
+    def _model(self, tools: ToolSession) -> RotatingLiveSession:
+        """One conversation, however many sockets it takes.
+
+        The rotation threshold lives in config and zero turns it off, in
+        which case this is one socket for the whole call - the behaviour it
+        replaces. What crosses a rotation is `handover.note`: a few
+        sentences composed from ToolSession, never asked of the model.
+        """
+        declarations = dependencies.declarations_for(self._settings)
+        runner = self._tool_runner(tools)
+        return RotatingLiveSession(
+            lambda: GeminiLiveSession(
+                self._settings, tools=declarations, on_tool_call=runner
+            ),
+            lambda: note(tools),
+            rotate_above_audio_tokens=self._settings.rotate_above_audio_tokens,
+        )
+
     async def run(self) -> None:
         try:
             tools = dependencies.tool_session(self._settings)
-            async with GeminiLiveSession(
-                self._settings,
-                tools=dependencies.declarations_for(self._settings),
-                on_tool_call=self._tool_runner(tools),
-            ) as model:
+            async with self._model(tools) as model:
                 self._usage = model.usage
                 await self._push({"type": "ready"})
                 # Speak first. A call that answers and then says nothing
@@ -176,6 +192,8 @@ class VoiceCall:
                     agent_opens=True,
                 )
                 await self._pump_until_either_ends()
+                if model.rotations and self._talking is not None:
+                    self._talking.trace.record("rotations", count=model.rotations)
                 await self._send_summary(model.usage)
         except WebSocketDisconnect:
             log.info("browser disconnected")

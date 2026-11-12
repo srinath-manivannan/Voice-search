@@ -26,16 +26,34 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 
-from collections.abc import Awaitable, Callable
-from typing import Any
+from collections.abc import AsyncIterator, Awaitable, Callable
+from typing import Any, Protocol
 
-from src.voice.events import AudioOut, TurnComplete, Transcript, TurnInterrupted
-from src.voice.gemini_live import GeminiLiveSession
+from src.voice.events import AudioOut, Event, TurnComplete, Transcript, TurnInterrupted
 from src.voice.trace import CallTrace
 from src.voice.transport import AudioSink, AudioSource
 from src.voice.vad import EnergyVad, VadFrame
 
 log = logging.getLogger(__name__)
+
+
+class VoiceModel(Protocol):
+    """What this file needs from a model, and nothing more.
+
+    Stated as a protocol because there are two: one socket for the whole
+    call, and `RotatingLiveSession`, which is several and hides it. Naming
+    the concrete class here would make the second one a special case of the
+    first, when it is neither - it is the same conversation.
+    """
+
+    @property
+    def turn_id(self) -> int: ...
+
+    async def send_audio(self, pcm: bytes) -> None: ...
+
+    async def end_of_speech(self) -> None: ...
+
+    def events(self) -> AsyncIterator[Event]: ...
 
 
 @dataclass
@@ -68,7 +86,7 @@ class ConversationResult:
 class Conversation:
     def __init__(
         self,
-        model: GeminiLiveSession,
+        model: VoiceModel,
         source: AudioSource,
         sink: AudioSink,
         vad: EnergyVad | None = None,

@@ -88,3 +88,9 @@ CONTEXT_TARGET_TOKENS = 2400
 # Browsers allowed to open a socket here. Development is the machine you are
 # sitting at; production names the real host and nothing else.
 ALLOWED_ORIGINS = "http://127.0.0.1:8080,http://localhost:8080"
+
+# Session rotation. 600 audio tokens is about twenty-four seconds of retained
+# speech, which measured as roughly two exchanges - the point at which
+# re-billing the history costs more than carrying a summary. Zero switches it
+# off and leaves one socket for the whole call.
+ROTATE_ABOVE_AUDIO_TOKENS = 600

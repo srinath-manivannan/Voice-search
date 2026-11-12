@@ -189,19 +189,65 @@ is not on the table; Rs 2.70 is, and it is half of today.
   function call on the same socket - that is the 1007 that killed every call
   on 2026-11-10, arrived at from the other direction.
 
-## What this costs to build
+## What it took to build
 
-Not a setting. A second voice path, behind a config flag, reusing what is
-already here:
+Three files and a setting, which is most of the argument for it over the
+cascade's second voice path.
 
-- `src/voice/vad.py` and the microphone gate already do endpointing.
-- `src/chat/gemini_text.py` already runs flash-lite with tool calling.
-- `src/agent/tools/runner.py` is already shared by both surfaces.
+| | |
+|---|---|
+| `src/voice/rotating.py` | the conversation across several sockets. Presents exactly the surface `Conversation` uses, so nothing above it knows |
+| `src/voice/handover.py` | the few sentences that cross, composed from `ToolSession` - never asked of the model, which costs a generation and can invent a price |
+| `GeminiLiveSession.prime()` | hands a fresh socket that text as context rather than as a turn to answer |
+| `ROTATE_ABOVE_AUDIO_TOKENS` | 600, about twenty-four seconds of retained speech. Zero leaves one socket for the whole call, which is the behaviour it replaces |
 
-What is new: a speaker pool over the Live API with warm-spare rotation,
-barge-in against it, and a turn loop that hands audio to flash-lite and text
-to the speaker. Latency has to be measured on a real call before it ships,
-against the Phase 1 targets of 1 s p50 and 2 s p95.
+`Conversation` now takes a `VoiceModel` protocol rather than the concrete
+session. There are two implementations and neither is a special case of the
+other - it is the same conversation, over one socket or several.
+
+### Measured on the shipped path, 2026-11-12
+
+Five caller turns through `RotatingLiveSession` against the real API, driven
+the way `Conversation` drives it:
+
+| turn | first audio | `prompt_audio` | `prompt_text` |
+|---|---|---|---|
+| 1 | 364 ms | 222 | 1,485 |
+| 2 | 711 ms | 395 | 1,879 |
+| 3 | 713 ms | 724 | 1,940 |
+| | | **rotated** | |
+| 4 | 789 ms | **222** | 1,542 |
+| 5 | 513 ms | 329 | 1,564 |
+| 6 | 607 ms | 415 | 1,599 |
+
+The retained audio resets and starts again, which is the whole point, and
+first audio stays where it was - the caller cannot tell the socket changed.
+The last turn was "naan modhalla sonna budget enna?" and the answer was
+"Neenga 20,000-la irunthu 25,000 rupees budget sonneenga", across the
+rotation, from a socket that never heard it said.
+
+That exchange cost **Rs 2.70** against **Rs 3.45** had the history kept
+climbing on one socket: 22% off six generations, and the gap widens with
+every turn after, because the thing that was growing has stopped.
+
+### What the tests caught before a call did
+
+A rotation that could not happen - no spare, a connection refused - left the
+loop asking the session for `events()` a second time, which starts a NEW
+generator and replays the call from its first turn. Forever. The fix is to
+hold the stream rather than the session: breaking out of an async generator
+suspends it, and iterating the same object again resumes where it stopped.
+
+The other three worth naming, all of them quiet failures:
+
+- Rotating on a generation that produced no audio would split a function
+  call from its response across two sockets. That is the 1007 again, from
+  the other direction, so a rotation only happens after the agent has
+  actually spoken.
+- Turn ids restart at zero on a new socket, and a consumer drops audio for
+  abandoned turns *by id*. An id that went backwards would silence a turn
+  still being spoken.
+- The bill for a call is otherwise however much the last socket cost.
 
 ## Rates used
 

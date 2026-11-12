@@ -37,6 +37,13 @@ class Config:
     context_trigger_tokens: int
     context_target_tokens: int
 
+    # Session rotation, which does what compression cannot: move to a fresh
+    # socket and hand it a few sentences of TEXT instead of the audio. The
+    # threshold is retained caller+agent audio in tokens - 25 of them a
+    # second - and zero leaves one socket for the whole call. See
+    # src/voice/rotating.py and docs/PIPELINE.md.
+    rotate_above_audio_tokens: int
+
     # Assumptions, not measurements. Named so a reviewer can see what the cost
     # report rests on.
     usd_inr: float
@@ -156,6 +163,11 @@ def load(env: str | None = None) -> Config:
             os.environ.get("CONTEXT_TARGET_TOKENS", defaults.CONTEXT_TARGET_TOKENS)
         ),
         playback_sample_rate=int(os.environ.get("PLAYBACK_SAMPLE_RATE", "24000")),
+        rotate_above_audio_tokens=int(
+            os.environ.get(
+                "ROTATE_ABOVE_AUDIO_TOKENS", defaults.ROTATE_ABOVE_AUDIO_TOKENS
+            )
+        ),
         usd_inr=float(os.environ.get("USD_INR", "89.0")),
         max_session_turns=int(os.environ.get("MAX_SESSION_TURNS", "40")),
         max_session_minutes=float(os.environ.get("MAX_SESSION_MINUTES", "10")),

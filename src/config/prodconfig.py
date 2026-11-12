@@ -88,3 +88,9 @@ CONTEXT_TARGET_TOKENS = 2400
 # environment is used - an empty list refuses every cross-origin page, which
 # is the safe way to be misconfigured.
 ALLOWED_ORIGINS = ""
+
+# Session rotation. 600 audio tokens is about twenty-four seconds of retained
+# speech, which measured as roughly two exchanges - the point at which
+# re-billing the history costs more than carrying a summary. Zero switches it
+# off and leaves one socket for the whole call.
+ROTATE_ABOVE_AUDIO_TOKENS = 600

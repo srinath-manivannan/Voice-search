@@ -289,6 +289,53 @@ class GeminiLiveSession:
         except _ClosedSocket:
             return
 
+    async def say(self, text: str) -> None:
+        """A caller turn as text. Measurement harnesses only.
+
+        Real callers arrive as audio. This exists so a conversation can be
+        driven end to end without a microphone, which is how the window
+        settings and the rotation threshold were sized.
+        """
+        self._turn_id += 1
+        self._speech_ended_at = self._clock()
+        self._first_audio_at = None
+        await self._require_socket().send(
+            json.dumps(
+                {
+                    "clientContent": {
+                        "turns": [{"role": "user", "parts": [{"text": text}]}],
+                        "turnComplete": True,
+                    }
+                }
+            )
+        )
+
+    async def prime(self, context: str) -> None:
+        """Hand this session what the one before it knew, as text.
+
+        Sent with `turnComplete` false, so it becomes context rather than a
+        turn the model is expected to answer - priming must not make the
+        agent say anything, least of all before the customer has spoken.
+
+        A no-op for an empty note, because rotating before there is anything
+        to carry should hand over nothing rather than an empty claim.
+        """
+        if not context.strip():
+            return
+        await self._require_socket().send(
+            json.dumps(
+                {
+                    "clientContent": {
+                        "turns": [
+                            {"role": "user", "parts": [{"text": context}]},
+                            {"role": "model", "parts": [{"text": "Sari."}]},
+                        ],
+                        "turnComplete": False,
+                    }
+                }
+            )
+        )
+
     async def greet(self, text: str) -> None:
         """Have the agent speak first, saying exactly this.
 

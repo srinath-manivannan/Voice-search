@@ -63,6 +63,11 @@ async def main() -> int:
     print("speak when ready. Ctrl-C to stop.\n")
 
     started = time.perf_counter()
+    # One socket on purpose, where the browser path rotates. This harness
+    # runs without tools, so `handover.note` would have nothing to carry and
+    # a rotation would simply lose the conversation. It measures the model's
+    # own latency; the browser path is where the cost of a real call is
+    # measured. Do not "fix" this to match without giving it tools first.
     async with GeminiLiveSession(config) as model:
         conversation = Conversation(model, source, sink)
         runner = asyncio.create_task(conversation.run())

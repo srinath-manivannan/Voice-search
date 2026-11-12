@@ -110,6 +110,7 @@ one, including the five gaps that are still open.
 | Routes / services split, versioned API | ✅ `/api/v1`, no rules in a route file |
 | Health, readiness, request ids, rate limits | ✅ 15 tests |
 | Container image | ✅ multistage, non-root; built and probed in CI |
+| Session rotation instead of compression | ✅ `src/voice/rotating.py`, 18 tests |
 | Gemini Live adapter | ✅ 9 offline tests + 3 against the real API |
 | Thinking off, verified on the wire | ✅ `thoughtsTokenCount == 0` |
 | Transport seam (`AudioSource` / `AudioSink`) | ✅ what Phase 2 swaps |

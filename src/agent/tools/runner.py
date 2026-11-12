@@ -120,6 +120,33 @@ class ToolSession:
         # EMI as "unknown" - which the agent is told means "nobody could
         # check" - and it would say so about something nobody ever asked.
         self._facts: dict[str, tuple[frozenset[str], estate_api.Facts]] = {}
+        # What the call is ABOUT, as opposed to what it has fetched. Read by
+        # `src/voice/handover.py` when a session is rotated, so the new socket
+        # starts knowing the budget and the shortlist instead of being handed
+        # the audio of having been told them. Nothing else reads it.
+        self._budget: tuple[int | None, int | None] | None = None
+        self._discussed: Candidate | None = None
+
+    # ── what this conversation is about ───────────────────────────────────
+
+    @property
+    def shortlist(self) -> tuple[Candidate, ...]:
+        """The products the customer has been told about, in order."""
+        return tuple(self._shortlist)
+
+    @property
+    def budget(self) -> tuple[int | None, int | None] | None:
+        """What they asked to spend, as (floor, ceiling), or None.
+
+        Taken from the search the model made rather than from anything it
+        said, because the arguments are what it actually acted on.
+        """
+        return self._budget
+
+    @property
+    def discussed(self) -> Candidate | None:
+        """The one they were last asking about, if they narrowed down."""
+        return self._discussed
 
     async def run(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
         if name == "search_products":
@@ -180,6 +207,11 @@ class ToolSession:
 
         shortlist, priced, over = await self._price(found.products, max_price)
         self._shortlist = shortlist
+        if min_price is not None or max_price is not None:
+            self._budget = (min_price, max_price)
+        # A new shortlist means "the one we were discussing" no longer points
+        # anywhere a customer would recognise.
+        self._discussed = None
 
         out: dict[str, Any] = {
             "total_matching": found.total,
@@ -348,6 +380,10 @@ class ToolSession:
                 "error": "no_such_product",
                 "known_refs": [c.ref for c in self._shortlist],
             }
+
+        # Asking for one product's details is the clearest signal there is
+        # that the conversation has narrowed to it.
+        self._discussed = picked
 
         want = [str(w).lower() for w in (args.get("want") or ["price"])]
         sections: tuple[str, ...] = tuple(
