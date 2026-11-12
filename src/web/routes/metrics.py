@@ -15,7 +15,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 
 from src.config import Config
-from src.observability.metrics import METRICS
+from src.observability.metrics import METRICS, resources
 
 PROMETHEUS = "text/plain; version=0.0.4; charset=utf-8"
 
@@ -28,4 +28,8 @@ def install(app: FastAPI, settings: Config) -> None:
             # Compared whole, and the header is never logged or echoed.
             if offered != f"Bearer {settings.metrics_token}":
                 raise HTTPException(status_code=404, detail="Not Found")
+        # Read now rather than sampled on a timer: a gauge that is only
+        # as fresh as a background task is a gauge that lies after the
+        # task dies.
+        resources(METRICS)
         return PlainTextResponse(METRICS.render(), media_type=PROMETHEUS)

@@ -214,3 +214,31 @@ def test_a_refused_scrape_looks_like_nothing_is_there(monkeypatch):
         refused = client.get("/metrics", headers={"authorization": "Bearer wrong"})
     assert refused.status_code == 404
     assert "metrics" not in refused.text.lower()
+
+
+# --- resource use -----------------------------------------------------------
+
+
+def test_the_process_reports_its_own_cpu_and_memory(metrics):
+    """The rule asks for resource use watched, not only latency and errors.
+
+    A profiler run on a laptop says what a call costs here, today. These
+    say what it is costing in production, which is the version anybody is
+    actually alerted on.
+    """
+    from src.observability.metrics import resources
+
+    resources(metrics)
+    text = metrics.render()
+    assert "process_cpu_seconds_total" in text
+    assert "process_resident_memory_bytes" in text
+
+
+def test_resource_gauges_are_read_at_scrape_time_not_sampled(config):
+    """A gauge only as fresh as a background task is one that lies after
+    the task dies."""
+    with TestClient(create_app(config)) as client:
+        first = client.get("/metrics").text
+        second = client.get("/metrics").text
+    assert "process_cpu_seconds_total" in first
+    assert "process_cpu_seconds_total" in second

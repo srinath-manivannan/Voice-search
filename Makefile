@@ -7,7 +7,7 @@
 VENV := .venv/bin
 PY   := $(VENV)/python
 
-.PHONY: help install lock ui talk test audio live check fmt mic image alerts
+.PHONY: help install lock ui talk test audio live check fmt mic image alerts profile
 
 help:                    ## show this list
 	@grep -E '^[a-z-]+:.*?##' $(MAKEFILE_LIST) | sed 's/:.*##/|/' | column -t -s'|'
@@ -67,6 +67,9 @@ image:                   ## build the container and check it answers /healthz
 	  curl -fs http://127.0.0.1:8081/healthz && break || sleep 1; \
 	done; echo
 	docker rm -f poorvika-voice-check
+
+profile:                 ## what one call costs in CPU - no network, no money
+	$(PY) -m src.tools.profile_call --seconds 180 --profile
 
 alerts:                  ## regenerate deploy/alerts.yml from the rule definitions
 	# The thresholds live in src/observability/alerts.py, beside the reason

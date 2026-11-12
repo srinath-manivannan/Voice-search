@@ -138,6 +138,39 @@ def _number(value: float) -> str:
     return repr(round(value, 4))
 
 
+def resources(metrics: Metrics) -> None:
+    """This process's own CPU and memory, read at scrape time.
+
+    The rule asks for resource use watched, not only latency and errors, and
+    a profiler run on a laptop is not that: it says what a call costs here,
+    on this machine, today. These two numbers say what it is costing in
+    production, which is the version anybody is actually alerted on.
+
+    Read from the standard library and /proc, so nothing is sampled and
+    nothing is kept - a scrape costs two syscalls.
+    """
+    import resource as rusage
+
+    used = rusage.getrusage(rusage.RUSAGE_SELF)
+    metrics.gauge(
+        "process_cpu_seconds_total",
+        "CPU seconds this process has consumed, user plus system",
+        used.ru_utime + used.ru_stime,
+    )
+    try:
+        with open("/proc/self/statm") as statm:
+            pages = int(statm.read().split()[1])
+        metrics.gauge(
+            "process_resident_memory_bytes",
+            "Resident memory of this process",
+            float(pages * 4096),
+        )
+    except OSError:
+        # Not Linux, or /proc is not mounted. One missing gauge is not a
+        # reason for a scrape to fail.
+        pass
+
+
 # One per process, like the log. Passed where it can be, reached for where
 # a call site would otherwise have to thread it through four layers.
 METRICS = Metrics()

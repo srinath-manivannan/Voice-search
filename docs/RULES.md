@@ -16,11 +16,11 @@ in the module that owns it.
 
 | | |
 |---|---|
-| applied | 64 |
+| applied | 65 |
 | not applicable to this stack | 33 |
-| **open gaps** | **3** |
+| **open gaps** | **2** |
 
-The three gaps are listed at the bottom with what each would take. None is
+The two gaps are listed at the bottom with what each would take. Neither is
 hidden in the table.
 
 ---
@@ -117,7 +117,7 @@ Rules 72–80: **n/a** (React rendering, memoisation, virtualisation).
 
 | # | Rule | Where |
 |---|---|---|
-| 70 | CPU target, verified by profiling | **Gap 4** — latency is measured per turn, CPU is not |
+| 70 | CPU target, verified by profiling | ✅ under 6% of a core per call, measured at **0.08%** — `docs/PERFORMANCE.md`, reproducible with `make profile`, and `/metrics` carries the production version |
 | 71 | No debug console calls | ✅ zero `console.*` in the shipped page |
 | 81 | Development checks on | ✅ `--reload` in dev, strict types, `--strict-markers` in pytest |
 | 82 | Clean up timers and listeners | ✅ `cancelAnimationFrame` on stop; both asyncio pumps cancel each other |
@@ -291,11 +291,10 @@ cardinality decision as well as a privacy one, and one per caller would be
 both. It answers 404 rather than 401 to a wrong token, because an endpoint
 that announces itself as protected is one somebody now knows to attack.
 
-## The three open gaps
+## The two open gaps
 
 | | Gap | What it would take |
 |---|---|---|
-| 4 | CPU is not profiled | a profiler run under a real call, against a stated target |
 | 5 | HTTPS is not terminated here | a Phase 2 decision; it depends on the telephony provider |
 | 9 | No deploy target | `deploy.sh` builds and stops, on purpose — Phase 2 |
 

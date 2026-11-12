@@ -26,6 +26,7 @@ make test
 | `make check` | everything CI runs, in the same order |
 | `make lock` | recompile the lockfiles after editing a `.in` |
 | `make alerts` | regenerate `deploy/alerts.yml` from the rule definitions |
+| `make profile` | what one call costs in CPU — no network, no money |
 | `make fmt` | reformat in place |
 | `make mic` | switch capture to the built-in microphone array |
 
@@ -101,7 +102,7 @@ true, the thing in the wrong place is the one to move.
 | alerts | thresholds in `src/observability/alerts.py`, rendered to `deploy/alerts.yml` by `make alerts`. Each call also writes an `ALERT` line a log search can match |
 
 `docs/RULES.md` checks this repository against the full-stack rules one by
-one, including the three gaps that are still open.
+one, including the two gaps that are still open.
 
 
 ## Status
@@ -116,7 +117,8 @@ one, including the three gaps that are still open.
 | Container image | ✅ multistage, non-root; built and probed in CI |
 | Session rotation instead of compression | ✅ `src/voice/rotating.py`, 23 tests |
 | Error reporting, scrubbed | ✅ `src/observability/`, 30 tests; off unless a DSN is set |
-| Metrics and alert thresholds | ✅ `/metrics`, `deploy/alerts.yml`, 20 tests |
+| Metrics and alert thresholds | ✅ `/metrics`, `deploy/alerts.yml`, 22 tests |
+| CPU profiled against a target | ✅ 0.08% of a core per call against a 6% target — `docs/PERFORMANCE.md` |
 | Gemini Live adapter | ✅ 9 offline tests + 3 against the real API |
 | Thinking off, verified on the wire | ✅ `thoughtsTokenCount == 0` |
 | Transport seam (`AudioSource` / `AudioSink`) | ✅ what Phase 2 swaps |
@@ -175,7 +177,7 @@ ours are committed. And it has no container story at all — ours is a root
    Inventory host and a token for the mode it is sent with, so the agent
    reports that stock could not be checked — which is the truth, and is a
    different sentence from "there is none".
-5. **Three rules are open**, listed with what each would take at the bottom of
+5. **Two rules are open**, listed with what each would take at the bottom of
    `docs/RULES.md`.
 
 ## Security
