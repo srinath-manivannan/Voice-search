@@ -25,6 +25,12 @@ const el = (id) => document.getElementById(id);
 
 // The orb is the primary state indicator - it is what someone across the room
 // sees. The text line underneath is the detail, not the signal.
+// The button holds an icon beside its label, so only the label is rewritten -
+// setting textContent would throw the SVG away.
+function setCtaLabel(text) {
+  el('toggle').querySelector('span').textContent = text;
+}
+
 const ORB_STATE = {
   '': 'idle', live: 'listening', agent: 'agent', bad: 'error',
 };
@@ -156,7 +162,7 @@ function flushPlayback() {
 // Sample rates and the greeting, nothing else. The page has no business
 // knowing which model is behind it, and anything it knows is public.
 async function loadConfig() {
-  state.config = await (await fetch('/api/config')).json();
+  state.config = await (await fetch('/api/v1/config')).json();
   return state.config;
 }
 
@@ -389,120 +395,3 @@ el('share').addEventListener('click', async () => {
   setTimeout(() => button.classList.remove('copied'), 1200);
 });
 loadConfig().catch(() => setStatus('cannot reach the server', 'bad'));
-
-// --- chat -----------------------------------------------------------------
-//
-// Its own socket, not message types on the voice one. The voice socket carries
-// fifty binary audio frames a second; multiplexing text onto it would couple
-// two unrelated lifecycles for no gain, since only one tab is ever visible.
-
-const chat = { socket: null, bubble: null, greeted: false, turns: 0 };
-
-// The button holds an icon beside its label, so only the label is rewritten -
-// setting textContent would throw the SVG away.
-function setCtaLabel(text) {
-  el('toggle').querySelector('span').textContent = text;
-}
-
-function bubble(text, mine) {
-  const row = document.createElement('div');
-  row.className = 'msg' + (mine ? ' me' : '');
-  if (!mine) {
-    const av = document.createElement('div');
-    av.className = 'av';
-    av.setAttribute('aria-label', 'Poorvika');
-    row.appendChild(av);
-  }
-  const body = document.createElement('div');
-  body.className = 'bubble';
-  body.textContent = text;
-  row.appendChild(body);
-  el('messages').appendChild(row);
-  el('messages').scrollTop = el('messages').scrollHeight;
-  return body;
-}
-
-function connectChat() {
-  if (chat.socket) return;
-  const url = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws/chat';
-  chat.socket = new WebSocket(url);
-
-  chat.socket.onmessage = (event) => {
-    const message = JSON.parse(event.data);
-    switch (message.type) {
-      case 'ready':
-        // The greeting is the same sentence the voice agent opens with - one
-        // persona, two surfaces.
-        if (!chat.greeted) { bubble(message.greeting, false); chat.greeted = true; }
-        break;
-      case 'start':
-        chat.bubble = bubble('…', false);
-        chat.bubble.classList.add('thinking');
-        chat.bubble.textContent = '';
-        break;
-      case 'delta':
-        if (chat.bubble) {
-          chat.bubble.classList.remove('thinking');
-          chat.bubble.textContent += message.text;
-          el('messages').scrollTop = el('messages').scrollHeight;
-        }
-        break;
-      case 'done':
-        chat.bubble = null;
-        el('chat-send').disabled = false;
-        el('chat-input').disabled = false;
-        el('chat-input').focus();
-        addChatTurn(message);
-        break;
-      case 'error':
-        // Remove the whole row - removing just the bubble leaves an orphan
-        // avatar floating with nothing beside it.
-        if (chat.bubble) chat.bubble.closest('.msg').remove();
-        chat.bubble = null;
-        bubble(message.message, false).classList.add('thinking');
-        el('chat-send').disabled = false;
-        el('chat-input').disabled = false;
-        break;
-    }
-  };
-  chat.socket.onclose = () => { chat.socket = null; };
-}
-
-function sendChat() {
-  const input = el('chat-input');
-  const text = input.value.trim();
-  if (!text || !chat.socket || chat.socket.readyState !== WebSocket.OPEN) return;
-  bubble(text, true);
-  chat.socket.send(JSON.stringify({ text }));
-  input.value = '';
-  input.disabled = true;
-  el('chat-send').disabled = true;
-}
-
-function addChatTurn(message) {
-  chat.turns += 1;
-  const row = document.createElement('tr');
-  row.innerHTML =
-    '<td>c' + chat.turns + '</td>' +
-    '<td>' + (message.conversation_inr != null ? '₹' + message.conversation_inr.toFixed(3) : '—') + '</td>' +
-    '<td>' + message.response_tokens + '</td>' +
-    '<td class="' + (message.thinking_tokens ? 'warn' : '') + '">' + message.thinking_tokens + '</td>';
-  el('turns').appendChild(row);
-}
-
-el('chat-send').addEventListener('click', sendChat);
-el('chat-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendChat(); });
-
-// --- tabs -----------------------------------------------------------------
-
-function showTab(which) {
-  const voice = which === 'voice';
-  el('voice-panel').hidden = !voice;
-  el('chat-panel').hidden = voice;
-  el('tab-voice').setAttribute('aria-selected', String(voice));
-  el('tab-chat').setAttribute('aria-selected', String(!voice));
-  if (!voice) { connectChat(); el('chat-input').focus(); }
-}
-
-el('tab-voice').addEventListener('click', () => showTab('voice'));
-el('tab-chat').addEventListener('click', () => showTab('chat'));

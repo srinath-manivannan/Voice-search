@@ -19,7 +19,7 @@ from dataclasses import dataclass
 class Config:
     gemini_api_key: str
     gemini_live_model: str
-    # Chat deliberately runs on a cheaper text model. See CHAT-PLAN.md.
+    # Chat deliberately runs on a cheaper text model. See ../CHAT-PLAN.md.
     gemini_text_model: str
 
     # Phase 0 measured both of these. They are the two cheapest levers we have
@@ -72,6 +72,15 @@ class Config:
     # Passed through to the Worker's own `env` binding under the names it
     # reads, so the mapping lives here rather than being spelled out twice.
     estate_secrets: dict[str, str]
+
+    # Browsers allowed to call this server. Exact origins, never "*": the
+    # socket carries a live conversation and a page on any other origin has
+    # no business opening one.
+    allowed_origins: tuple[str, ...]
+    # New calls accepted per client per minute. A voice session holds a socket
+    # open for minutes and spends real money for every one of them, so this is
+    # a cost control as much as an abuse control.
+    max_calls_per_minute: int
 
     log_level: str
     env: str
@@ -172,6 +181,14 @@ def load(env: str | None = None) -> Config:
                 "OFFERS_MODE",
             )
         },
+        allowed_origins=tuple(
+            origin.strip()
+            for origin in os.environ.get(
+                "ALLOWED_ORIGINS", defaults.ALLOWED_ORIGINS
+            ).split(",")
+            if origin.strip()
+        ),
+        max_calls_per_minute=int(os.environ.get("MAX_CALLS_PER_MINUTE", "6")),
         log_level=os.environ.get("LOG_LEVEL", defaults.LOG_LEVEL),
         env=env,
     )

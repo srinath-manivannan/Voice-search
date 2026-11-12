@@ -84,3 +84,7 @@ ESTATE_SRC_PATH = "../../Search-proxy/products-search-engine"
 # and expect the bill to go up, not down.
 CONTEXT_TRIGGER_TOKENS = 3000
 CONTEXT_TARGET_TOKENS = 2400
+
+# Browsers allowed to open a socket here. Development is the machine you are
+# sitting at; production names the real host and nothing else.
+ALLOWED_ORIGINS = "http://127.0.0.1:8080,http://localhost:8080"

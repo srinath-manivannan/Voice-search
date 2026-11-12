@@ -4,7 +4,7 @@
 #
 # What differs is the target. search-proxy deploys a Cloudflare Worker with
 # wrangler. A voice session holds a socket open for minutes, which Workers do
-# not express, so this ships a container instead - see docs/ADR-001.
+# not express, so this ships a container instead - see docs/PIPELINE.md.
 set -e
 
 ENV=${1:-development}

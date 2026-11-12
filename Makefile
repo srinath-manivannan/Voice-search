@@ -7,7 +7,7 @@
 VENV := .venv/bin
 PY   := $(VENV)/python
 
-.PHONY: help install ui talk test audio live check fmt mic
+.PHONY: help install ui talk test audio live check fmt mic image
 
 help:                    ## show this list
 	@grep -E '^[a-z-]+:.*?##' $(MAKEFILE_LIST) | sed 's/:.*##/|/' | column -t -s'|'
@@ -18,7 +18,7 @@ install:                 ## create the venv and install everything
 	@echo "done. copy .env.example to .env and add your key."
 
 ui:                      ## browser UI at http://localhost:8080 (costs money)
-	$(VENV)/uvicorn --factory src.web.server:create_app --host 127.0.0.1 --port 8080 --reload --reload-dir src
+	$(VENV)/uvicorn --factory src.web.app:create_app --host 127.0.0.1 --port 8080 --reload --reload-dir src
 
 talk:                    ## talk to the agent in the terminal (costs money)
 	$(PY) -m src.tools.talk --seconds 180
@@ -35,13 +35,22 @@ live:                    ## real Gemini Live calls - spends a few cents
 check:                   ## everything CI runs, in the same order
 	$(VENV)/ruff check src tests
 	$(VENV)/ruff format --check src tests
-	$(VENV)/mypy src
+	$(VENV)/mypy src          # strict; see mypy.ini
 	$(PY) -m pytest
 	$(VENV)/detect-secrets scan --baseline .secrets.baseline
 
 fmt:                     ## reformat in place
 	$(VENV)/ruff format src tests
 	$(VENV)/ruff check --fix src tests
+
+image:                   ## build the container and check it answers /healthz
+	docker build -t poorvika-voice:local .
+	docker run -d --rm --name poorvika-voice-check -p 8081:8080 \
+	  -e GEMINI_API_KEY=not-a-real-key poorvika-voice:local
+	@for i in $$(seq 1 30); do \
+	  curl -fs http://127.0.0.1:8081/healthz && break || sleep 1; \
+	done; echo
+	docker rm -f poorvika-voice-check
 
 mic:                     ## switch capture to the built-in microphone array
 	@pactl set-default-source alsa_input.pci-0000_00_1f.3-platform-skl_hda_dsp_generic.HiFi__hw_sofhdadsp_6__source

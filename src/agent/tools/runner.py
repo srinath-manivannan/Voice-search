@@ -68,36 +68,23 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
-from dataclasses import dataclass
 from typing import Any
 
 from src.agent.tools import estate as estate_api
 from src.agent.tools.catalogue import Catalogue, CatalogueUnavailable, Product
+from src.agent.tools.shortlist import (
+    CANDIDATES,
+    SHORTLIST,
+    Candidate,
+    candidate_from,
+    money,
+    outside,
+    resolve,
+    search_key,
+)
+from src.agent.tools.speech import WANTED, spoken, why
 
 log = logging.getLogger(__name__)
-
-SHORTLIST = 3  # nobody can hold a longer list read aloud
-# More than the shortlist, but only when there is a ceiling to drop against:
-# the index's own price is sometimes wrong by enough to put a phone outside
-# the budget it was found for, and those have to be droppable without leaving
-# the customer with one option. With no budget nothing can be dropped, so
-# pricing six to speak three is three upstream calls bought for nothing - and
-# the slowest of six is what the caller waits for. Measured at 1,313ms for six
-# against 502-568ms for the searches that had a budget.
-CANDIDATES = 6
-
-# What each thing the customer might ask needs fetched. Ordinary code, not the
-# model's choice: a table is faster than a round trip and cannot invent an
-# endpoint. EMI is the one with a dependency - the calculator is keyed by the
-# SKU, which only PIM product has, and by the selling price, which only the
-# price list has.
-WANTED: dict[str, tuple[str, ...]] = {
-    "price": ("pricing",),
-    "stock": ("stock",),
-    "offers": ("offers", "pricing"),
-    "emi": ("product", "pricing", "emi"),
-}
 
 # Fetched with the price, in the same request, for the items that survive into
 # the shortlist. The estate takes a list of sections and answers them
@@ -108,42 +95,6 @@ WANTED: dict[str, tuple[str, ...]] = {
 # then the calculator, which is a longer chain for a rarer question, and
 # putting it on every search would buy latency nobody asked for.
 WITH_PRICE: tuple[str, ...] = ("pricing", "stock", "offers")
-
-
-_WORDS = re.compile(r"[a-z0-9]+")
-# Words that point at a product without naming one. Left in, "that one" would
-# match any product whose name happens to contain "one".
-_VAGUE = {
-    "that",
-    "this",
-    "the",
-    "one",
-    "it",
-    "ithu",
-    "antha",
-    "inthu",
-    "atha",
-    "first",
-    "second",
-    "third",
-    "last",
-    "phone",
-    "mobile",
-    "model",
-}
-
-
-@dataclass
-class Candidate:
-    ref: str
-    item_code: str
-    name: str
-    price: int | None
-    was: int | None
-    brand: str | None
-    in_stock_hint: bool
-    specs: dict[str, str]
-    rating: float | None
 
 
 class ToolSession:
@@ -188,13 +139,13 @@ class ToolSession:
         # the upstream call is skipped, and - more important than the latency
         # - the shortlist is NOT rebuilt, so the refs the customer has been
         # told about keep pointing at the same phones.
-        key = _search_key(args)
+        key = search_key(args)
         if (remembered := self._searches.get(key)) is not None:
             log.info("search already answered this call: %s", key)
             return remembered
 
-        max_price = _money(args.get("max_price"))
-        min_price = _money(args.get("min_price"))
+        max_price = money(args.get("max_price"))
+        min_price = money(args.get("min_price"))
         asked = str(args.get("query") or "").strip()
         # Only a ceiling can drop a candidate, so only a ceiling earns the
         # extra ones.
@@ -290,7 +241,7 @@ class ToolSession:
             }
             out["in_stock_hint"] = None
         else:
-            out["stock"] = _why(facts.stock.state, facts.stock.reason)
+            out["stock"] = why(facts.stock.state, facts.stock.reason)
         if facts.offers.state == estate_api.KNOWN and facts.offers.best_amount:
             best = facts.offers.items[0] if facts.offers.items else None
             out["best_offer"] = {
@@ -319,7 +270,7 @@ class ToolSession:
         if estate is None:
             return (
                 [
-                    _candidate(str(i + 1), p, p.price, None)
+                    candidate_from(str(i + 1), p, p.price, None)
                     for i, p in enumerate(products)
                 ],
                 False,
@@ -356,7 +307,7 @@ class ToolSession:
             price = in_force.selling if in_force else product.price
             if in_force:
                 confirmed += 1
-                if price is not None and _outside(price, max_price):
+                if price is not None and outside(price, max_price):
                     log.info(
                         "dropping %s: price list says %s, over the ceiling",
                         product.item_code,
@@ -369,7 +320,7 @@ class ToolSession:
             # with a price-list selling price produced "was 24,499, now
             # 30,999" - a rise, read aloud as a discount.
             kept.append(
-                _candidate(
+                candidate_from(
                     str(len(kept) + 1),
                     product,
                     price,
@@ -385,10 +336,13 @@ class ToolSession:
 
     # ── one item ──────────────────────────────────────────────────────────
 
+    def _resolve_ref(self, ref: Any) -> Candidate | None:
+        return resolve(self._shortlist, ref)
+
     async def _details(self, args: dict[str, Any]) -> dict[str, Any]:
         if self._estate is None:
             return {"error": "details_not_configured"}
-        picked = self._resolve(args.get("ref"))
+        picked = self._resolve_ref(args.get("ref"))
         if picked is None:
             return {
                 "error": "no_such_product",
@@ -407,7 +361,7 @@ class ToolSession:
         # call, and the customer hears the answer in the same breath.
         held = self._facts.get(picked.item_code)
         if held is not None and held[0].issuperset(sections):
-            return _spoken(held[1], picked, want)
+            return spoken(held[1], picked, want)
 
         # Ask for what is missing together with what we would have asked for
         # anyway, so one more round trip answers everything about this item.
@@ -422,173 +376,4 @@ class ToolSession:
             return {"error": "details_unavailable"}
 
         self._facts[picked.item_code] = (frozenset(sections), facts)
-        return _spoken(facts, picked, want)
-
-    def _resolve(self, ref: Any) -> Candidate | None:
-        """A ref into the shortlist, or a name the customer repeated back.
-
-        A customer says "that Samsung" and "the second one", not "52064". The
-        number is tried first because that is what the model is told to send;
-        the words are a fallback for when it sends them anyway.
-
-        Two candidates matching is not resolved by picking the first. One
-        short question costs a turn; the wrong phone costs the sale.
-        """
-        if not self._shortlist:
-            return None
-        asked = str(ref or "").strip().lower()
-        if not asked:
-            # One candidate and no ref is not ambiguous.
-            return self._shortlist[0] if len(self._shortlist) == 1 else None
-
-        for candidate in self._shortlist:
-            if asked == candidate.ref:
-                return candidate
-
-        words = {w for w in _WORDS.findall(asked) if w not in _VAGUE}
-        matched = [
-            c for c in self._shortlist if words & set(_WORDS.findall(c.name.lower()))
-        ]
-        return matched[0] if len(matched) == 1 else None
-
-
-def _search_key(args: dict[str, Any]) -> str:
-    """A search, as the thing it asks for rather than as the JSON it arrived in.
-
-    The model sent {"category":"phone","query":"18 Pro"} and then
-    {"query":"18 Pro","category":"phone"} - the same search twice, nine
-    seconds apart, and a key built on the raw dict would have missed it
-    because the keys came in a different order. So: sorted, lowercased,
-    trimmed, and only the fields that change the answer.
-    """
-    parts = []
-    for field in ("query", "category", "min_price", "max_price"):
-        value = args.get(field)
-        if value in (None, ""):
-            continue
-        parts.append(f"{field}={str(value).strip().lower()}")
-    return "|".join(sorted(parts)) or "*"
-
-
-def _candidate(
-    ref: str, product: Product, price: int | None, was: int | None
-) -> Candidate:
-    return Candidate(
-        ref=ref,
-        item_code=product.item_code,
-        name=product.name,
-        price=price,
-        was=was if was and was != price else None,
-        brand=product.brand,
-        in_stock_hint=product.in_stock,
-        specs=dict(product.specs),
-        rating=product.rating,
-    )
-
-
-def _money(value: Any) -> int | None:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _outside(price: int, high: int | None) -> bool:
-    """Over the ceiling is a problem. Under the floor is a bargain.
-
-    The ceiling is strict. A 5% margin here let a 30,999 phone through a
-    20,000-30,000 question and the agent presented it as inside the range; a
-    salesperson may offer to stretch a budget, but not silently.
-
-    The floor is not a filter at all, and making it one was a worse bug than
-    the one it was copied from. A customer asked for a Vivo between 25,000 and
-    30,000, the index had exactly one, the price list said 22,999 - and it was
-    dropped for being too cheap. They were told nothing was available. Nobody
-    asking for a phone under 30,000 is disappointed by one at 22,999, and
-    "innum kammi - 22,999" is a sentence that sells.
-    """
-    return high is not None and price > high
-
-
-def _why(state: str, reason: str | None) -> dict[str, Any]:
-    """A state, and the reason only when there is one to give.
-
-    `none` needs no reason - there is simply no offer. `unknown` always has
-    one, and it is what tells the agent this is "I could not check" rather
-    than "there is none".
-    """
-    return {"state": state, "reason": reason} if reason else {"state": state}
-
-
-def _spoken(
-    facts: estate_api.Facts, picked: Candidate, want: list[str]
-) -> dict[str, Any]:
-    """What may be said about one item. No codes, no field names, no JSON.
-
-    Each part carries its own state, and `could_not_check` names the ones that
-    did not answer - because "there is no offer" and "we could not ask about
-    offers" are different sentences, and saying the first when the second is
-    true is how a customer is told a discount does not exist.
-    """
-    out: dict[str, Any] = {"product": facts.name or picked.name}
-
-    if "price" in want or facts.price.state == estate_api.KNOWN:
-        out["price_inr"] = facts.price.selling
-        if facts.price.list_price and facts.price.list_price != facts.price.selling:
-            out["was_inr"] = facts.price.list_price
-            out["discount_percent"] = facts.price.discount_percent
-
-    if "stock" in want:
-        stock = facts.stock
-        out["stock"] = (
-            {
-                "state": stock.state,
-                "available": stock.in_stock,
-                "quantity": stock.quantity,
-                "branches": stock.branches,
-            }
-            if stock.state == estate_api.KNOWN
-            else _why(stock.state, stock.reason)
-        )
-
-    if "offers" in want:
-        offers = facts.offers
-        out["offers"] = (
-            {
-                "state": offers.state,
-                "best_inr": offers.best_amount,
-                "price_after_best_offer_inr": offers.effective_price,
-                # Stated by the price service itself: these are alternatives.
-                "offers_stack": offers.stacks,
-                "items": [
-                    {
-                        "label": o.label,
-                        "amount_inr": o.amount,
-                        "only_with": o.condition,
-                    }
-                    for o in offers.items
-                ],
-            }
-            if offers.state == estate_api.KNOWN
-            else _why(offers.state, offers.reason)
-        )
-
-    if "emi" in want:
-        emi = facts.emi
-        out["emi"] = (
-            {
-                "state": emi.state,
-                "from_inr_per_month": emi.per_month,
-                "months": emi.months,
-                "provider": emi.provider,
-                "plan": emi.kind,
-                "banks": emi.provider_count,
-                "quoted_by": "the bank, through Poorvika's own calculator",
-            }
-            if emi.state == estate_api.KNOWN
-            else _why(emi.state, emi.reason)
-        )
-
-    if unanswered := [p for p in facts.unanswered if p in want or p == "pricing"]:
-        out["could_not_check"] = unanswered
-    return out
+        return spoken(facts, picked, want)

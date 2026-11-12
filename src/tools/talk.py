@@ -7,9 +7,11 @@ This is how Phase 1 gets measured. It prints per-turn first-audio latency and
 token counts, then p50/p95 at the end, which are the numbers Phase 1 completes
 on: p50 <= 1 s, p95 <= 2 s, reply length at or under the cap.
 
-It costs money - every turn is a real Live API call. The cost line it prints at
-the end carries both billing hypotheses, because which one is real is still
-unsettled. See BILLING-VERIFICATION.md.
+It costs money - every turn is a real Live API call. The cost line it prints
+at the end is the single documented billing rule, not a pair of hypotheses:
+Google re-processes and charges the whole context window on every turn. The
+measurements that settled it are in ../BILLING-VERIFICATION.md and the pricing
+is explained in docs/COST.md.
 """
 
 from __future__ import annotations

@@ -21,13 +21,14 @@ wrong by looking at one turn and thinking it looks reasonable.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 from src.voice.cost import FLASH_LITE, LIVE, Breakdown, Rates, price
 
 __all__ = ["FLASH_LITE", "LIVE", "Rates", "SessionUsage", "TurnUsage"]
 
 
-def _by_modality(details: list[dict] | None) -> dict[str, int]:
+def _by_modality(details: list[dict[str, Any]] | None) -> dict[str, int]:
     return {
         d.get("modality", "UNKNOWN"): d.get("tokenCount", 0) for d in (details or [])
     }
@@ -49,7 +50,7 @@ class TurnUsage:
     thoughts: int = 0
 
     @classmethod
-    def parse(cls, usage_metadata: dict) -> TurnUsage:
+    def parse(cls, usage_metadata: dict[str, Any]) -> TurnUsage:
         p = _by_modality(usage_metadata.get("promptTokensDetails"))
         r = _by_modality(usage_metadata.get("responseTokensDetails"))
         return cls(
@@ -61,10 +62,6 @@ class TurnUsage:
         )
 
     @property
-    def prompt_total(self) -> int:
-        return self.prompt_audio + self.prompt_text
-
-    @property
     def billable_output(self) -> int:
         """Output tokens actually charged, thinking included.
 
@@ -73,7 +70,7 @@ class TurnUsage:
         return self.response_audio + self.response_text + self.thoughts
 
     @classmethod
-    def parse_text(cls, usage_metadata: dict) -> TurnUsage:
+    def parse_text(cls, usage_metadata: dict[str, Any]) -> TurnUsage:
         """The text API reports flat counts, not the Live API's modality split."""
         return cls(
             prompt_text=usage_metadata.get("promptTokenCount", 0),
@@ -102,12 +99,12 @@ class SessionUsage:
     turns: list[TurnUsage] = field(default_factory=list)
     rates: Rates = LIVE
 
-    def record(self, usage_metadata: dict) -> TurnUsage:
+    def record(self, usage_metadata: dict[str, Any]) -> TurnUsage:
         turn = TurnUsage.parse(usage_metadata)
         self.turns.append(turn)
         return turn
 
-    def record_text(self, usage_metadata: dict) -> TurnUsage:
+    def record_text(self, usage_metadata: dict[str, Any]) -> TurnUsage:
         turn = TurnUsage.parse_text(usage_metadata)
         self.turns.append(turn)
         return turn

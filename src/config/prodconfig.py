@@ -83,3 +83,8 @@ ESTATE_SRC_PATH = "../../Search-proxy/products-search-engine"
 # and expect the bill to go up, not down.
 CONTEXT_TRIGGER_TOKENS = 3000
 CONTEXT_TARGET_TOKENS = 2400
+
+# Browsers allowed to open a socket here. Set to the real host before this
+# environment is used - an empty list refuses every cross-origin page, which
+# is the safe way to be misconfigured.
+ALLOWED_ORIGINS = ""

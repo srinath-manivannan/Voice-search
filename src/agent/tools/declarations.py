@@ -4,7 +4,7 @@ Two tools: one finds products, one answers about a product already found.
 The model's job is to turn "20,000-30,000 kulla oru phone" into a budget and a
 category, and "stock irukka?" into the thing the customer wants checked; it is
 not to choose between seven endpoints. Which services each question needs is
-ordinary code - see `runner.WANTED` and VOICE-COMMERCE-PLAN.md - because a
+ordinary code - see `runner.WANTED` and ../VOICE-COMMERCE-PLAN.md - because a
 table is faster than a round trip and cannot invent an endpoint.
 
 The split matters for latency as much as for correctness. Every service except

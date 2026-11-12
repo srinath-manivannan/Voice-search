@@ -2,7 +2,7 @@
 
 Everything above this speaks `src.voice.events`. Swapping provider means a new
 file here and one line in the composition root, which is the seam the
-architecture decision in PHASE0-REPORT.md depends on.
+architecture decision in ../PHASE0-REPORT.md depends on.
 
 Two Phase 0 measurements are wired in as defaults rather than left to callers:
 
@@ -91,7 +91,10 @@ class _WebsocketAdapter:
         import websockets.exceptions as wse
 
         try:
-            return await self._socket.recv()
+            # The library is untyped at this seam; the protocol above says
+            # what we accept, and _decode rejects anything else.
+            received: str | bytes = await self._socket.recv()
+            return received
         except wse.ConnectionClosed as closed:
             raise _ClosedSocket(closed.code, closed.reason or "") from closed
 
@@ -253,7 +256,10 @@ class GeminiLiveSession:
 
     @staticmethod
     def _decode(raw: str | bytes) -> dict[str, Any]:
-        return json.loads(raw if isinstance(raw, str) else raw.decode())
+        decoded: dict[str, Any] = json.loads(
+            raw if isinstance(raw, str) else raw.decode()
+        )
+        return decoded
 
     def _require_socket(self) -> Socket:
         if self._socket is None:

@@ -94,15 +94,15 @@ def test_the_config_endpoint_publishes_nothing_about_the_stack(config):
     model id, orchestration framework - straight off a config blob its public
     page served. The same blob here would hand ours over the same way.
     """
-    from src.web.server import create_app
+    from src.web.app import create_app
 
     with TestClient(create_app(config)) as client:
-        body = client.get("/api/config").json()
+        body = client.get("/api/v1/config").json()
 
     serialised = str(body).lower()
     assert "test-key-not-real" not in serialised
     for leak in ("gemini", "model", "thinking", "word_cap", "api_key", "flash"):
-        assert leak not in serialised, f"/api/config leaks {leak!r}"
+        assert leak not in serialised, f"/api/v1/config leaks {leak!r}"
 
     # Exactly what the browser needs to open its audio devices, and no more.
     assert set(body) == {"capture_sample_rate", "playback_sample_rate", "greeting"}
@@ -110,7 +110,7 @@ def test_the_config_endpoint_publishes_nothing_about_the_stack(config):
 
 
 def test_the_page_is_served(config):
-    from src.web.server import create_app
+    from src.web.app import create_app
 
     with TestClient(create_app(config)) as client:
         page = client.get("/")
