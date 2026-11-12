@@ -102,16 +102,14 @@ function addChatTurn(message) {
 el('chat-send').addEventListener('click', sendChat);
 el('chat-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendChat(); });
 
-// --- tabs -----------------------------------------------------------------
-
-function showTab(which) {
-  const voice = which === 'voice';
-  el('voice-panel').hidden = !voice;
-  el('chat-panel').hidden = voice;
-  el('tab-voice').setAttribute('aria-selected', String(voice));
-  el('tab-chat').setAttribute('aria-selected', String(!voice));
-  if (!voice) { connectChat(); el('chat-input').focus(); }
-}
-
-el('tab-voice').addEventListener('click', () => showTab('voice'));
-el('tab-chat').addEventListener('click', () => showTab('chat'));
+// The shell owns the tabs; this only reacts to its own becoming visible.
+// A backwards dependency - chat.js reaching into app.js's switcher - is how
+// a shared control ends up living in the feature that happened to need it
+// first.
+document.addEventListener('tab:chat', (event) => {
+  connectChat();
+  // Only when a pointer brought us here. Arrow keys move between tabs, and
+  // stealing focus into the composer on an arrow press is how a keyboard
+  // user gets stuck in a panel they were only passing.
+  if (event.detail && event.detail.focusPanel) el('chat-input').focus();
+});

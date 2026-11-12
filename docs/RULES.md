@@ -16,11 +16,11 @@ in the module that owns it.
 
 | | |
 |---|---|
-| applied | 58 |
+| applied | 60 |
 | not applicable to this stack | 33 |
-| **open gaps** | **9** |
+| **open gaps** | **7** |
 
-The nine gaps are listed at the bottom with what each would take. None is
+The seven gaps are listed at the bottom with what each would take. None is
 hidden in the table.
 
 ---
@@ -63,7 +63,7 @@ hidden in the table.
 | 22 | Services hold the rules | ✅ `src/web/services/voice_call.py`, `chat_relay.py` |
 | 23 | Repositories for data queries | ✅ *adapted* — no database; the data access layer is `catalogue.py` and `estate_backends.py`, separate from the services that call them |
 | 24 | Validate incoming data | ✅ tool arguments are coerced and bounded in `runner.py`; the socket accepts binary as audio and JSON as control and nothing else |
-| 25 | Consistent responses, errors and status codes | **Gap 2** — socket messages are consistent (`{"type": ...}`); HTTP still returns FastAPI's default error shape |
+| 25 | Consistent responses, errors and status codes | ✅ `src/web/errors.py` — every HTTP error answers `{type, message, request_id}`, the same shape the sockets use. The status code stays HTTP's own; a 500 says one fixed sentence and the detail goes to the log |
 | 26 | Version breaking changes | ✅ `/api/v1/config`; the unversioned path is gone and a test asserts it 404s |
 | 27 | Authentication | **n/a for Phase 1** — no accounts and no user data. Phase 2 identifies a caller by the telephony leg, not by a session cookie |
 | 28 | Authorization | **n/a** — same |
@@ -84,7 +84,7 @@ Rules 39, 41, 45, 46: **n/a** (MUI, theming, components, SPA routing).
 | 40 | Styles kept separate | ✅ one stylesheet block in `index.html`, no inline styles in JS |
 | 42 | Responsive | ✅ the page works at phone width |
 | 43 | Render business data from the API, never hardcode | ✅ every product, price and cost figure on screen came off the socket |
-| 44 | Accessibility | ✅ `aria-label`, `aria-selected`, `aria-hidden` on the decorative SVGs. **Gap 3**: no keyboard path through the tabs and no contrast audit |
+| 44 | Accessibility | ✅ a real tablist with arrow, Home and End keys and a roving tabindex; a visible `:focus-visible` ring; a label on the composer; every text colour measured against AA on both grounds. `tests/test_accessibility.py` recomputes all of it |
 | 47 | Error boundaries | ✅ *adapted* — a failed call sends `{"type": "error"}` and the page shows it rather than freezing |
 | 48 | Loading, empty, success and error states, no fake data | ✅ |
 
@@ -152,13 +152,47 @@ Rules 72–80: **n/a** (React rendering, memoisation, virtualisation).
 
 ---
 
-## The nine open gaps
+## Closed since the first pass
+
+**Gap 2 — one error shape.** `src/web/errors.py`. The sockets had always
+answered `{"type": "error", "message": ...}` and HTTP answered
+`{"detail": ...}`, so the page had two failure shapes for one service and
+the second was written down nowhere. Both now carry a `request_id`, so the
+sentence on screen and the stack trace in the log can be joined up by
+somebody holding only one of them.
+
+**Gap 3 — keyboard and contrast.** Measured rather than eyeballed, and the
+audit found eight failing pairs:
+
+| | was | now |
+|---|---|---|
+| `--dim`, every muted label | 3.45 / 3.31 | 5.10 / 4.89 |
+| `--good`, cost figures | 3.30 | 5.02 |
+| `--warn`, cost figures | 3.19 | 5.02 |
+| `#b0b0b0`, `#a3a3a3` ad-hoc greys | 2.17, 2.52 | folded into `--dim` |
+| `#c7c7c7` input focus border | **1.69** | `--brand-ink` at 5.18 |
+
+The last one was the input's focus border — the single thing a keyboard user
+needs to be able to see. A ninth, `.icon-btn.copied` at 3.30:1, was found by
+the test rather than by the audit, which is the argument for the test.
+
+The tabs were two buttons with an `aria-selected` attribute. They are now a
+tablist: arrow keys, Home and End, a roving tabindex so Tab moves past the
+list rather than through it, `aria-controls` and `aria-labelledby` joining
+each tab to its panel, and a `:focus-visible` ring that does not draw for
+mouse users. The composer has a real label instead of a placeholder.
+
+One bug the browser caught that review did not: the first version moved
+focus into the chat composer whenever the panel appeared, which with a
+pointer is a kindness and with the arrow keys is a trap — focus leaves the
+tablist and the other tab can no longer be reached. Arrows move between
+tabs; Tab enters the panel.
+
+## The seven open gaps
 
 | | Gap | What it would take |
 |---|---|---|
 | 1 | Pins are not hashed | `pip-compile --generate-hashes`, and a lockfile to review |
-| 2 | HTTP errors use FastAPI's default shape | one exception handler returning the same `{type, message}` the sockets use |
-| 3 | No keyboard path or contrast audit | a tab order through the two tabs, and a contrast check against WCAG AA |
 | 4 | CPU is not profiled | a profiler run under a real call, against a stated target |
 | 5 | HTTPS is not terminated here | a Phase 2 decision; it depends on the telephony provider |
 | 6 | Errors are logged, never shipped | Sentry or equivalent, with the request id attached and the payload stripped |
@@ -168,3 +202,7 @@ Rules 72–80: **n/a** (React rendering, memoisation, virtualisation).
 
 Gaps 5, 8 and 9 are the same decision wearing three hats: where this runs.
 Nothing else is blocked on it.
+
+The numbering is the original one. A gap that closes is struck from the list
+and not renumbered, so "gap 6" means the same thing in a week as it does
+today.

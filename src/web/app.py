@@ -16,6 +16,7 @@ The file is deliberately short. It names the pieces and the order they are
 installed in, and holds no rule of its own:
 
     middleware  request id, security headers, no caching
+    errors      one error shape, whichever way the request came in
     routes      URL to handler
     services    what the handlers actually do
 """
@@ -30,7 +31,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from src.config import Config, load
-from src.web import middleware, routes
+from src.web import errors, middleware, routes
 from src.web.routes.pages import STATIC
 
 log = logging.getLogger(__name__)
@@ -61,6 +62,7 @@ def create_app(config: Config | None = None) -> FastAPI:
         allow_headers=["content-type", "x-request-id"],
     )
     middleware.install(app)
+    errors.install(app)
 
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     routes.install(app, settings)

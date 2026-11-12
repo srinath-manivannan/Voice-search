@@ -94,7 +94,7 @@ true, the thing in the wrong place is the one to move.
 | `x-request-id` | on every response, and on every log line for that request |
 
 `docs/RULES.md` checks this repository against the full-stack rules one by
-one, including the nine gaps that are still open.
+one, including the seven gaps that are still open.
 
 
 ## Status
@@ -160,7 +160,7 @@ ours are committed. And it has no container story at all — ours is a root
    Inventory host and a token for the mode it is sent with, so the agent
    reports that stock could not be checked — which is the truth, and is a
    different sentence from "there is none".
-5. **Nine rules are open**, listed with what each would take at the bottom of
+5. **Seven rules are open**, listed with what each would take at the bottom of
    `docs/RULES.md`.
 
 ## Security

@@ -129,3 +129,59 @@ def test_a_limit_of_zero_means_no_limit_rather_than_no_service():
     nothing at all."""
     limiter = RateLimiter(max_per_minute=0)
     assert all(limiter.allow("anyone") for _ in range(50))
+
+
+# --- one error shape --------------------------------------------------------
+
+
+def test_a_missing_page_answers_in_the_same_shape_as_the_sockets(client):
+    """The page had two failure shapes to parse for one service.
+
+    Sockets said {"type": "error", "message": ...}; HTTP said
+    {"detail": ...}, and nobody had written the second one down.
+    """
+    body = client.get("/no-such-thing").json()
+    assert body["type"] == "error"
+    assert isinstance(body["message"], str) and body["message"]
+    assert body["request_id"]
+
+
+def test_an_error_carries_the_request_id_that_is_in_the_log(client):
+    """So the sentence on screen and the stack trace can be joined up by
+    somebody who has only one of them."""
+    response = client.get("/no-such-thing", headers={REQUEST_ID_HEADER: "trace-me"})
+    assert response.json()["request_id"] == "trace-me"
+    assert response.headers[REQUEST_ID_HEADER] == "trace-me"
+
+
+def test_the_status_code_is_still_http_s_own(client):
+    """Rule 25 asks for consistent status codes, not invented ones. What a
+    404 means is HTTP's business."""
+    assert client.get("/no-such-thing").status_code == 404
+    assert client.post("/healthz").status_code == 405
+
+
+def test_an_unexpected_failure_says_one_safe_sentence_and_logs_the_rest(config):
+    """An exception's text is written for whoever wrote the code, and
+    regularly carries a URL, a payload or a token. It does not go on screen.
+    """
+    from fastapi import FastAPI
+
+    from src.web.errors import UNEXPECTED
+
+    app: FastAPI = create_app(config)
+
+    @app.get("/boom")
+    async def boom() -> dict[str, str]:
+        raise RuntimeError("token=sk-do-not-print-this and a stack full of paths")
+
+    with TestClient(app, raise_server_exceptions=False) as made:
+        response = made.get("/boom")
+    assert response.status_code == 500
+    body = response.json()
+    assert body == {
+        "type": "error",
+        "message": UNEXPECTED,
+        "request_id": body["request_id"],
+    }
+    assert "sk-do-not-print-this" not in response.text
