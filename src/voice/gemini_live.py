@@ -6,8 +6,14 @@ architecture decision in ../PHASE0-REPORT.md depends on.
 
 Two Phase 0 measurements are wired in as defaults rather than left to callers:
 
-  thinkingBudget = 0     thinking is billed and is absent from totalTokenCount.
-                         Measured at 126 tokens/turn, net about Rs 0.14/min.
+  thinking               gemini-3.8-live does not accept thinkingConfig at all.
+                         Sending thinkingBudget or thinkingLevel closes the
+                         socket. Interleaved thinking still runs and is billed
+                         as thoughtsTokenCount, which is not inside
+                         totalTokenCount. Older models still get a budget of 0,
+                         then the lowest level, then no field, and the shape
+                         that connected is reused so a rotation does not pay
+                         the refusal again.
   reply word cap         "under 15 words" instead of "under 25" roughly halved
                          response tokens, and output audio is the largest single
                          cost line in the whole stack.
@@ -33,6 +39,44 @@ from src.voice.usage import SessionUsage, TurnUsage
 log = logging.getLogger(__name__)
 
 HOST = "generativelanguage.googleapis.com"
+
+# Lowest thinkingLevel the Live API documents. MINIMAL is rejected on
+# gemini-3.8-live-extended-thinking. gemini-3.8-live accepts neither a
+# level nor a budget: the thinking guide says to omit thinkingConfig.
+# https://ai.google.dev/gemini-api/docs/live-api/thinking (read 2026-11-13)
+_LOWEST_THINKING_LEVEL = "low"
+
+# model id -> "budget" | "level" | "omit". Filled after a setup connects,
+# so the next socket (a rotation) does not repeat a setup the server closed.
+_thinking_modes: dict[str, str] = {}
+
+
+def thinking_plan(model: str) -> tuple[str, ...]:
+    """Which thinking setups to try, first success remembered.
+
+    gemini-3.8-live: omit the field. Sending it is what produced
+    "Thinking budget is not supported for this model" and a reconnect on
+    every socket, including each rotation.
+
+    gemini-3.8-live-extended-thinking: thinkingLevel low, medium, or high.
+    low is the cheapest it allows. A refusal falls through to omitting
+    the field rather than dropping the call.
+
+    Anything else still gets thinkingBudget first (0 means off, on the
+    models that honoured it), then the level, then no field.
+    """
+    if model == "gemini-3.8-live":
+        return ("omit",)
+    if model.endswith("extended-thinking"):
+        return ("level", "omit")
+    return ("budget", "level", "omit")
+
+
+def forget_thinking_modes() -> None:
+    """Tests only. A remembered refusal must not leak into the next case."""
+    _thinking_modes.clear()
+
+
 PATH = "/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
 
 
@@ -155,18 +199,20 @@ class GeminiLiveSession:
         """The turn currently being spoken. Used to discard abandoned audio."""
         return self._turn_id
 
-    def _setup_message(self, with_thinking_config: bool = True) -> dict[str, Any]:
+    def _setup_message(self, thinking: str) -> dict[str, Any]:
         generation: dict[str, Any] = {
             "responseModalities": ["AUDIO"],
             "temperature": 0.7,
         }
-        # A budget of 0 switches thinking off entirely; measured, not assumed.
-        # Omitting the key leaves the model's default on, which costs money and
-        # latency, so this is set explicitly even when the value is the default.
-        if with_thinking_config:
+        # The shape is chosen in thinking_plan. Omitting the key is the
+        # correct setup for gemini-3.8-live, not an accident: the server
+        # closes the socket if the field is present.
+        if thinking == "budget":
             generation["thinkingConfig"] = {
                 "thinkingBudget": self._config.thinking_budget
             }
+        elif thinking == "level":
+            generation["thinkingConfig"] = {"thinkingLevel": _LOWEST_THINKING_LEVEL}
 
         setup: dict[str, Any] = {
             "model": f"models/{self._config.gemini_live_model}",
@@ -198,51 +244,62 @@ class GeminiLiveSession:
         return {"setup": setup}
 
     async def __aenter__(self) -> GeminiLiveSession:
-        """Connect, preferring to switch thinking off, but not insisting.
+        """Connect. A thinking setup this model already refused is not retried.
 
-        thinkingConfig was accepted on this model and measured to work - 126
-        thinking tokens a turn down to zero - and then started being refused
-        with "Thinking budget is not supported for this model", closing the
-        socket at setup. The capability came and went without notice, which is
-        what a preview model is entitled to do.
-
-        So it is attempted and not depended on. If the server refuses it, the
-        session reconnects without it rather than failing the call. Thinking
-        then costs what it costs - roughly Rs 0.14 a minute by the Phase 0
-        measurement - and `thinking_disabled` says which happened.
+        gemini-3.8-live closes the socket on thinkingBudget and on
+        thinkingLevel. The first socket learns that; every later socket,
+        including a rotation, sends the shape that connected. Thinking that
+        still happens is billed as thoughtsTokenCount, which the cost meter
+        adds on top of totalTokenCount.
         """
-        self.thinking_disabled = await self._open(with_thinking_config=True)
-        if not self.thinking_disabled:
-            log.warning(
-                "model refused thinkingConfig; reconnected without it. "
-                "Thinking tokens are billed and absent from totalTokenCount."
-            )
+        self.thinking_disabled = await self._open()
         return self
 
-    async def _open(self, with_thinking_config: bool) -> bool:
-        """Returns True when the session was opened with thinking switched off."""
-        url = f"wss://{HOST}{PATH}?key={self._config.gemini_api_key}"
-        self._socket = await self._connect(url)
-        try:
-            await self._socket.send(
-                json.dumps(self._setup_message(with_thinking_config))
-            )
-            return await self._await_setup(with_thinking_config)
-        except _ClosedSocket:
-            # The server closes the socket on a setup it will not accept, so
-            # the refusal arrives as a close rather than an error message.
-            if not with_thinking_config:
-                raise SetupFailed(
-                    "Live API closed the connection during setup"
-                ) from None
-            await self._open(with_thinking_config=False)
-            return False
+    async def _open(self) -> bool:
+        """Returns True only when a budget of 0 was accepted.
 
-    async def _await_setup(self, with_thinking_config: bool) -> bool:
+        On gemini-3.8-live this is False: thinking is not a setting there,
+        and claiming it was switched off would hide the tokens on the bill.
+        """
+        model = self._config.gemini_live_model
+        modes = (
+            (_thinking_modes[model],)
+            if model in _thinking_modes
+            else thinking_plan(model)
+        )
+        url = f"wss://{HOST}{PATH}?key={self._config.gemini_api_key}"
+        refused = False
+        for index, mode in enumerate(modes):
+            self._socket = await self._connect(url)
+            try:
+                await self._socket.send(json.dumps(self._setup_message(mode)))
+                await self._await_setup()
+            except _ClosedSocket:
+                # The server closes the socket on a setup it will not accept,
+                # so the refusal arrives as a close rather than an error message.
+                refused = True
+                if index == len(modes) - 1:
+                    raise SetupFailed(
+                        "Live API closed the connection during setup"
+                    ) from None
+                continue
+            _thinking_modes[model] = mode
+            if refused:
+                log.warning(
+                    "Live model %s refused a thinking setup; keeping %s. "
+                    "Further sockets skip the refused setup. thoughtsTokenCount "
+                    "is billed and is not included in totalTokenCount.",
+                    model,
+                    mode,
+                )
+            return mode == "budget" and self._config.thinking_budget == 0
+        raise SetupFailed("Live API closed the connection during setup")
+
+    async def _await_setup(self) -> None:
         while True:
             message = self._decode(await self._socket.recv())  # type: ignore[union-attr]
             if "setupComplete" in message:
-                return with_thinking_config
+                return
             if "error" in message:
                 # Never include the raw message verbatim - the URL carries the
                 # API key as a query parameter and servers echo it back.

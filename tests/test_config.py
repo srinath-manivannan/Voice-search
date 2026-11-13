@@ -7,7 +7,22 @@ from src.config import devconfig, load, prodconfig
 
 @pytest.fixture
 def env(monkeypatch):
+    """A developer's .env must not decide what these tests assert.
+
+    `create_app` calls `load_dotenv()`, which writes the real .env into
+    `os.environ` for the rest of the process. A machine with GROK_MEMORY=1
+    then fails the "off by default" test. Clearing the knobs here leaves
+    runtime loading alone.
+    """
     monkeypatch.setenv("GEMINI_API_KEY", "test-key-not-real")
+    for name in (
+        "GROK_MEMORY",
+        "XAI_API_KEY",
+        "GROK_MODEL",
+        "GROK_SUMMARY_EVERY_TURNS",
+        "GROK_TIMEOUT_SECONDS",
+    ):
+        monkeypatch.delenv(name, raising=False)
     return monkeypatch
 
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 
 import pytest
+from dotenv import load_dotenv
 
 from src.memory.grok import GrokClient
 from src.memory.summariser import CallMemory
@@ -19,6 +20,9 @@ pytestmark = pytest.mark.live
 
 
 async def test_grok_writes_a_handover_from_a_short_transcript():
+    # Same loader the app uses in create_app. A key that lives only in .env
+    # is not in the shell, and pytest does not export it on its own.
+    load_dotenv()
     key = os.environ.get("XAI_API_KEY", "")
     if not key:
         pytest.skip("XAI_API_KEY not set")
