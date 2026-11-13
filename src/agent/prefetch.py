@@ -196,7 +196,7 @@ def read_intent(text: str) -> Intent | None:
 class Searcher(Protocol):
     """The slice of `ToolSession` a prefetch needs."""
 
-    async def run(self, name: str, args: dict[str, Any]) -> dict[str, Any]: ...
+    async def search_ahead(self, args: dict[str, Any]) -> dict[str, Any]: ...
 
     @property
     def shortlist(self) -> tuple[Any, ...]: ...
@@ -279,7 +279,7 @@ class Prefetcher:
     async def _go(self, intent: Intent) -> None:
         try:
             result = await asyncio.wait_for(
-                self._tools.run("search_products", intent.as_args()), self._timeout
+                self._tools.search_ahead(intent.as_args()), self._timeout
             )
         except asyncio.CancelledError:
             raise

@@ -159,3 +159,61 @@ async def test_the_model_cannot_ask_product_details_for_what_search_already_sent
     await tools.run("search_products", {"query": "vivo"})
     answer = await tools.run("product_details", {"ref": "1", "want": ["offers"]})
     assert "error" not in answer
+
+
+async def test_a_prefetched_search_pays_for_emi_and_a_live_one_does_not():
+    """The latency objection, and why a prefetch is exempt from it.
+
+    EMI was kept out of the search because it needs the product section for
+    the SKU and then the calculator - a longer chain for a question most
+    callers never ask, with the customer waiting through it.
+
+    A prefetch runs while the caller is still talking. There is no wait to
+    spend, so it asks for the chain, and the EMI arrives in the search result
+    instead of costing a whole product_details generation later.
+    """
+    estate = FakeEstate({"53952": ANSWERED})
+    tools = ToolSession(
+        catalogue_of(document("53952", "Vivo Y51 Pro 5G", 34999)), estate=estate
+    )
+
+    ahead = await tools.search_ahead({"category": "phone", "max_price": 40000})
+    assert "emi" in estate.asked[0][1]
+    # And the agent can speak it without calling anything: provider, months
+    # and where the instalment starts, which is the sentence persona.py asks
+    # for. No more than that - every field is re-billed on every turn.
+    emi = ahead["products"][0]["emi"]
+    assert emi == {
+        "from_inr_per_month": 992,
+        "months": emi["months"],
+        "provider": emi["provider"],
+    }
+
+    # The model's own search stays shallow. There the customer is waiting.
+    estate.asked.clear()
+    plain = ToolSession(
+        catalogue_of(document("53952", "Vivo Y51 Pro 5G", 34999)), estate=estate
+    )
+    found = await plain.run("search_products", {"category": "phone"})
+    assert "emi" not in estate.asked[0][1]
+    assert "emi" not in found["products"][0]
+
+
+async def test_the_prefetched_emi_answers_product_details_without_asking_again():
+    """Belt and braces: if the model calls anyway, it costs no round trip.
+
+    The generation is already spent by then - that is what the prefetch was
+    for - but there is no reason to also make the customer wait for the
+    estate a second time.
+    """
+    estate = FakeEstate({"53952": ANSWERED})
+    tools = ToolSession(
+        catalogue_of(document("53952", "Vivo Y51 Pro 5G", 34999)), estate=estate
+    )
+    await tools.search_ahead({"category": "phone", "max_price": 40000})
+    upstream = len(estate.asked)
+
+    answer = await tools.run("product_details", {"ref": "1", "want": ["emi"]})
+
+    assert len(estate.asked) == upstream
+    assert answer["emi"]["from_inr_per_month"] == 992

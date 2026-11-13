@@ -122,8 +122,8 @@ class FakeTools:
     def shortlist(self) -> tuple:
         return self._shortlist
 
-    async def run(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
-        self.calls.append((name, args))
+    async def search_ahead(self, args: dict[str, Any]) -> dict[str, Any]:
+        self.calls.append(("search_ahead", args))
         if isinstance(self._result, Exception):
             raise self._result
         return self._result
@@ -160,7 +160,7 @@ async def test_it_searches_before_the_model_asks_and_primes_the_result():
     # a call that arrives anyway is answered from the session's cache.
     assert tools.calls == [
         (
-            "search_products",
+            "search_ahead",
             {"category": "phone", "max_price": 25000, "min_price": 20000},
         )
     ]
