@@ -39,7 +39,14 @@ import logging
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
-from src.voice.events import AudioOut, Event, Transcript, TurnComplete, TurnInterrupted
+from src.voice.events import (
+    AudioOut,
+    CallerTranscript,
+    Event,
+    Transcript,
+    TurnComplete,
+    TurnInterrupted,
+)
 from src.voice.gemini_live import GeminiLiveSession
 from src.voice.usage import SessionUsage
 
@@ -125,6 +132,18 @@ class RotatingLiveSession:
             if self._current is not None:
                 await self._current.greet(text)
 
+    async def prime(self, context: str) -> None:
+        """Add context without asking for an answer.
+
+        Rotation uses this on a fresh socket. A prefetch uses it mid-call, on
+        whichever socket is current - through the same lock, because landing a
+        prefetched shortlist on a socket that is being retired puts it in a
+        stream nobody is reading.
+        """
+        async with self._swapping:
+            if self._current is not None:
+                await self._current.prime(context)
+
     async def say(self, text: str) -> None:
         """Put words in the caller's mouth. Measurement harnesses only.
 
@@ -195,6 +214,8 @@ class RotatingLiveSession:
                 return AudioOut(turn_id=outer, pcm=event.pcm)
             case Transcript():
                 return Transcript(turn_id=outer, text=event.text)
+            case CallerTranscript():
+                return CallerTranscript(turn_id=outer, text=event.text)
             case TurnInterrupted():
                 return TurnInterrupted(turn_id=outer)
             case TurnComplete():

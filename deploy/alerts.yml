@@ -34,7 +34,7 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: p95 cost at or over the Rs 8 session ceiling. Deliberately not the Rs 2 target: every call is over that today, and an alert that fires every time is one people turn off.
+          summary: p95 cost at or over the Rs 8 session ceiling. Deliberately not the Rs 2.50 target: every call is over that today, and an alert that fires every time is one people turn off.
           runbook: docs/ROLLBACK.md
       - alert: UpstreamIsStruggling
         expr: increase(tool_failures_total[15m]) / clamp_min(increase(tool_calls_total[15m]), 1) > 0.1

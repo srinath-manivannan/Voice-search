@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import struct
+from typing import Any
 
-from src.voice.events import AudioOut, TurnComplete, TurnInterrupted
+from src.voice.events import AudioOut, Transcript, TurnComplete, TurnInterrupted
 from src.voice.session import Conversation
 from src.voice.usage import TurnUsage
 from src.voice.vad import EnergyVad
@@ -479,3 +480,53 @@ async def test_the_trace_records_what_the_prompt_cost():
     assert turn["prompt_audio"] == 4400
     assert turn["prompt_text"] == 1100
     assert turn["response_tokens"] == 150
+
+
+async def test_only_a_spoken_reply_to_the_caller_counts_as_their_turn():
+    """Grok runs after the caller's reply, not after the greeting or a tool.
+
+    A silent tool generation comes back with no audio. The caller turn stays
+    open until the spoken answer, so four replies are four summaries-worth
+    of turns and not eight.
+    """
+    seen: list[dict[str, Any]] = []
+
+    async def collect(payload: dict[str, Any]) -> None:
+        seen.append(payload)
+
+    usage = TurnUsage()
+    spoken = TurnUsage(response_audio=80)
+    model = StubModel(
+        [
+            TurnComplete(turn_id=1, usage=spoken, first_audio_ms=400.0),
+            Transcript(turn_id=2, text="Poco, "),
+            Transcript(turn_id=2, text="19999."),
+            TurnComplete(turn_id=3, usage=usage, first_audio_ms=None),
+            TurnComplete(turn_id=4, usage=spoken, first_audio_ms=500.0),
+        ]
+    )
+    conversation = Conversation(model, FakeSource([]), FakeSink(), on_update=collect)
+    await conversation._pump_model()
+
+    replies = [item for item in seen if item.get("type") == "turn"]
+    assert [item["caller_reply"] for item in replies] == [False, False, False]
+
+    conversation._reply_belongs_to_caller = True
+    model._events = [
+        TurnComplete(turn_id=5, usage=usage, first_audio_ms=None),
+        TurnComplete(turn_id=6, usage=spoken, first_audio_ms=450.0),
+    ]
+    # The stub already exhausted its script. Drive the two completions by a
+    # fresh model pump on the same conversation.
+    conversation._model = StubModel(model._events)
+    await conversation._pump_model()
+    replies = [item for item in seen if item.get("type") == "turn"]
+    assert [item["caller_reply"] for item in replies] == [
+        False,
+        False,
+        False,
+        False,
+        True,
+    ]
+    texts = [item["text"] for item in seen if item.get("type") == "transcript"]
+    assert texts == ["Poco, ", "19999."]

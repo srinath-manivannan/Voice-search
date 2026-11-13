@@ -96,6 +96,17 @@ log = logging.getLogger(__name__)
 # putting it on every search would buy latency nobody asked for.
 WITH_PRICE: tuple[str, ...] = ("pricing", "stock", "offers")
 
+# What a PREFETCHED search asks for instead. The reason EMI was left out above
+# was latency, and a prefetch has none to spend: it runs while the caller is
+# still talking, so the longer chain finishes before anybody could have asked.
+# A search the model made itself is still shallow - there the latency is real
+# and the customer is waiting through it.
+WITH_EMI: tuple[str, ...] = (*WITH_PRICE, "product", "emi")
+
+# How many of the shortlist get the deep fetch. EMI is only ever asked about a
+# phone the agent has named out loud, and it names two or three.
+EMI_FOR_TOP = 2
+
 
 class ToolSession:
     """The tools, for one conversation.
@@ -158,7 +169,17 @@ class ToolSession:
 
     # ── discovery ─────────────────────────────────────────────────────────
 
-    async def _search(self, args: dict[str, Any]) -> dict[str, Any]:
+    async def search_ahead(self, args: dict[str, Any]) -> dict[str, Any]:
+        """The search the model was about to make, run early and asked deeper.
+
+        Called by `agent/prefetch.py` off the critical path, so it can afford
+        the EMI chain that `_search` will not pay for when the customer is
+        waiting. The result is cached under exactly the key the model's own
+        call produces, so a call that arrives anyway is answered from it.
+        """
+        return await self._search(args, deep=True)
+
+    async def _search(self, args: dict[str, Any], deep: bool = False) -> dict[str, Any]:
         if self._catalogue is None:
             return {"error": "catalogue_not_configured"}
 
@@ -205,7 +226,7 @@ class ToolSession:
             log.warning("catalogue unavailable: %s", down)
             return {"error": "catalogue_unavailable"}
 
-        shortlist, priced, over = await self._price(found.products, max_price)
+        shortlist, priced, over = await self._price(found.products, max_price, deep)
         self._shortlist = shortlist
         if min_price is not None or max_price is not None:
             self._budget = (min_price, max_price)
@@ -282,10 +303,42 @@ class ToolSession:
             }
         elif facts.offers.state == estate_api.NONE:
             out["best_offer"] = None
+        # Gated on what was ASKED for, not on what came back. The cache
+        # already records the sections for this reason - and a backend that
+        # answers more than it was asked would otherwise put EMI in the result
+        # of a shallow search, which is the latency this was built to avoid
+        # being claimed without being paid for.
+        #
+        # Three fields only: provider, months, and where the instalment
+        # starts, which is the sentence persona.py requires. The rest of what
+        # `spoken` returns for EMI is for a question actually asked, and every
+        # field here is re-billed on every turn.
+        if (
+            "emi" in held[0]
+            and facts.emi.state == estate_api.KNOWN
+            and facts.emi.per_month
+        ):
+            out["emi"] = {
+                "from_inr_per_month": facts.emi.per_month,
+                "months": facts.emi.months,
+                "provider": facts.emi.provider,
+            }
         return out
 
+    @staticmethod
+    def _sections_for(index: int, deep: bool) -> tuple[str, ...]:
+        """What to ask the estate for about the item at this position.
+
+        EMI is the one follow-up the search did not already answer, and it is
+        only ever asked about a phone the agent has named - in practice the
+        first or second. So a deep search asks for it for those two and not
+        for the rest, which keeps the extra work proportional to the question
+        anyone actually asks.
+        """
+        return WITH_EMI if deep and index < EMI_FOR_TOP else WITH_PRICE
+
     async def _price(
-        self, products: list[Product], max_price: int | None
+        self, products: list[Product], max_price: int | None, deep: bool = False
     ) -> tuple[list[Candidate], bool, list[dict[str, Any]]]:
         """Replace index prices with the price in force, and drop the misfits.
 
@@ -310,7 +363,7 @@ class ToolSession:
             )
 
         async def selling(
-            product: Product,
+            product: Product, sections: tuple[str, ...]
         ) -> tuple[Product, estate_api.Price | None]:
             # Stock and offers ride along with the price. The estate answers a
             # list of sections in one request, so this is the same round trip
@@ -318,18 +371,19 @@ class ToolSession:
             # generation of the model.
             try:
                 facts = estate_api.read(
-                    await estate.product(product.item_code, WITH_PRICE)
+                    await estate.product(product.item_code, sections)
                 )
             except estate_api.EstateUnavailable as down:
                 log.info("pricing %s unavailable: %s", product.item_code, down)
                 return product, None
-            self._facts[product.item_code] = (frozenset(WITH_PRICE), facts)
+            self._facts[product.item_code] = (frozenset(sections), facts)
             if facts.price.state != estate_api.KNOWN:
                 return product, None
             return product, facts.price
 
         answered = await asyncio.gather(
-            *(selling(p) for p in products), return_exceptions=False
+            *(selling(p, self._sections_for(i, deep)) for i, p in enumerate(products)),
+            return_exceptions=False,
         )
 
         kept: list[Candidate] = []

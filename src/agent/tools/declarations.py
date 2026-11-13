@@ -25,6 +25,20 @@ five of twenty-four generations said nothing at all. Three of those were
 searches for a phone the session had already found, and one asked for stock
 that the search had already fetched. So the descriptions now say what the
 search result already contains, and that it stays valid.
+
+## Why `want` has one value in it
+
+Saying it in prose was not enough. Across 22 traces the model called
+product_details three times, and one of those asked for OFFERS - which the
+search result already carried, and which the runner answered out of its cache
+with no round trip at all. The round trip was saved and the generation was
+not: the call itself is a whole turn, and a turn re-bills the entire context
+window.
+
+So the enum is now `["emi"]` and the wasted call is unavailable rather than
+discouraged. The runner stays tolerant of the other values on purpose - a
+model that sends one anyway gets an answer instead of an error - but it is no
+longer told they exist.
 """
 
 from __future__ import annotations
@@ -34,10 +48,9 @@ from typing import Any
 SEARCH_PRODUCTS = {
     "name": "search_products",
     "description": (
-        "Search Poorvika's live catalogue. Each result carries a `ref`, its "
-        "price, its stock and its best card offer - so do not call "
-        "product_details for those. Results stay valid for the whole call: "
-        "never search again for a product you have already found."
+        "Poorvika's live catalogue. Each result carries `ref`, price, stock "
+        "and best card offer - do not call product_details for those. "
+        "Results stay valid all call: never search twice for one product."
     ),
     "parameters": {
         "type": "object",
@@ -45,8 +58,8 @@ SEARCH_PRODUCTS = {
             "query": {
                 "type": "string",
                 "description": (
-                    "Brand or model words only, e.g. 'Samsung', 'iPhone 15'. "
-                    "Empty when they gave only a budget and a category."
+                    "Brand or model words, e.g. 'Samsung'. Empty for a budget "
+                    "and category alone."
                 ),
             },
             "category": {
@@ -56,14 +69,11 @@ SEARCH_PRODUCTS = {
             },
             "min_price": {
                 "type": "integer",
-                "description": "Rupees, when they gave a range.",
+                "description": "Rupees.",
             },
             "max_price": {
                 "type": "integer",
-                "description": (
-                    "Rupees. Set whenever they say under, below, within, "
-                    "kulla, or give a range."
-                ),
+                "description": ("Rupees. Set for under, below, within, kulla."),
             },
         },
         "required": [],
@@ -76,8 +86,7 @@ PRODUCT_DETAILS = {
     "description": (
         "EMI for ONE product already shown by search_products - the monthly "
         "instalment, which search results do not carry. Price, stock and "
-        "offers are already in the search result; asking here for those "
-        "costs the customer a wait and tells you nothing new."
+        "offers are already there; asking here for those only costs a wait."
     ),
     "parameters": {
         "type": "object",
@@ -86,17 +95,16 @@ PRODUCT_DETAILS = {
                 "type": "string",
                 "description": (
                     "Which product from your last search: '1' is the first "
-                    "one you told the customer about, '2' the second. 'the "
-                    "second one' and 'that Samsung' both mean one of these."
+                    "you named, '2' the second. 'the second one' means these."
                 ),
             },
             "want": {
                 "type": "array",
-                "items": {
-                    "type": "string",
-                    "enum": ["price", "stock", "offers", "emi"],
-                },
-                "description": "Only what they actually asked about.",
+                "items": {"type": "string", "enum": ["emi"]},
+                "description": (
+                    "Always ['emi']. Price, stock and offers came with the "
+                    "search result - asking for them here is a wasted turn."
+                ),
             },
         },
         "required": ["ref", "want"],

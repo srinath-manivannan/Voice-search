@@ -43,7 +43,7 @@ in production and the one in front of you did not.
 | `/readyz` says a capability is missing that was there before | **Roll back now** |
 | Error rate over 1 in 20 calls, or rising | **Roll back now** |
 | Cost per connected minute over the ₹8 session ceiling | **Roll back now** — the ceiling ends calls, so customers are already being cut off |
-| Cost over the ₹2 target but under the ceiling | Do not roll back. That is every release today; see `COST.md` |
+| Cost over the ₹2.50 target but under the ceiling | Do not roll back. That is every release today; see `COST.md` |
 | First audio p50 over 1 s, p95 over 2 s | Judgement. Roll back if it is a step change rather than a drift |
 | One customer reports one odd answer | Do not roll back. Get the trace |
 

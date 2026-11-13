@@ -71,6 +71,23 @@ def _discussed_sentence(session: ToolSession) -> str | None:
     return f"They were asking about the {picked.name}."
 
 
+def with_memory(session: ToolSession, memory: str) -> str:
+    """The tool note, then Grok's, when a summary has landed.
+
+    The tool note stays first because it is built from the shortlist and
+    cannot invent a price. Grok may compress what was said. It may not
+    overrule a price the tool note already stated, and an empty summary —
+    memory off, or a call that failed — leaves this as exactly `note`.
+    """
+    base = note(session)
+    extra = memory.strip()
+    if not extra:
+        return base
+    if not base:
+        return extra
+    return f"{base}\n{extra}"
+
+
 def note(session: ToolSession) -> str:
     """The carry-over, or an empty string when there is nothing to carry.
 

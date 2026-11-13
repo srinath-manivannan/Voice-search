@@ -1,4 +1,4 @@
-# Getting to Rs 2 a minute without getting slower
+# Getting to Rs 2.50 a minute without getting slower
 
 Everything here is measured against the live API on 2026-11-10, not quoted
 from a pricing page. Where a figure is a rate rather than a measurement it
@@ -6,7 +6,7 @@ says so. All rupee figures include 18% GST at Rs 89 to the dollar.
 
 ## The two constraints
 
-- **Rs 2.00 a connected minute, everything in.** Today it is Rs 5.28.
+- **Rs 2.50 a connected minute, everything in.** Today it is Rs 5.28.
 - **Fast.** First audio after the caller stops is about 500 ms today and must
   stay near that. The agent's replies are not to be shortened.
 
@@ -107,7 +107,7 @@ So the cascade is:
                                                     call needs two of them
 
 Against about 500 ms today. **The cascade is cheaper and three times
-slower**, and the two requirements it was meant to satisfy together - Rs 2 a
+slower**, and the two requirements it was meant to satisfy together - Rs 2.50 a
 minute and a fast agent - turn out to pull against each other.
 
 | | Rs/min | first audio |
@@ -168,10 +168,10 @@ budget bug. **Rotation.**
 
 ### Saying plainly what rotation does not do
 
-It does not reach Rs 2.00 at this speed. Nothing measured does. Of the
+It does not reach Rs 2.50 at this speed. Nothing measured does. Of the
 Rs 2.70, Rs 1.19 is the agent's own voice - charged once, at a rate nothing
 discounts, and the replies are not being shortened - and most of the rest is
-the standing prompt charged on every generation. Rs 2.00 with a fast agent
+the standing prompt charged on every generation. Rs 2.50 with a fast agent
 is not on the table; Rs 2.70 is, and it is half of today.
 
 ### How it would work

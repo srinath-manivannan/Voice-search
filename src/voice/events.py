@@ -34,6 +34,19 @@ class Transcript:
 
 
 @dataclass(frozen=True)
+class CallerTranscript:
+    """What the caller said, one string, emitted when their turn ends.
+
+    Partials are buffered below this layer. The consumer records the
+    finished line. Nothing here is awaited, so it cannot sit in front of
+    the first audio byte.
+    """
+
+    turn_id: int
+    text: str
+
+
+@dataclass(frozen=True)
 class TurnInterrupted:
     """The server detected the caller speaking over the model.
 
@@ -57,4 +70,4 @@ class TurnComplete:
     first_audio_ms: float | None
 
 
-Event = AudioOut | Transcript | TurnInterrupted | TurnComplete
+Event = AudioOut | Transcript | CallerTranscript | TurnInterrupted | TurnComplete

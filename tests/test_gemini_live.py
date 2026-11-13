@@ -14,8 +14,13 @@ from collections import deque
 import pytest
 
 from src.config import load
-from src.voice.events import AudioOut, Transcript, TurnComplete, TurnInterrupted
-from src.voice.gemini_live import GeminiLiveSession, SetupFailed
+from src.voice.events import (
+    AudioOut,
+    Transcript,
+    TurnComplete,
+    TurnInterrupted,
+)
+from src.voice.gemini_live import GeminiLiveSession, SetupFailed, forget_thinking_modes
 
 
 class FakeSocket:
@@ -75,20 +80,42 @@ USAGE = {
 }
 
 
+@pytest.fixture(autouse=True)
+def _no_remembered_thinking_setup():
+    """A refusal learned in one test must not skip the probe in the next."""
+    forget_thinking_modes()
+    yield
+    forget_thinking_modes()
+
+
 @pytest.fixture
 def config(monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "test-key-not-real")
     return load("development")
 
 
-async def test_setup_switches_thinking_off_explicitly(config):
+def legacy_config(monkeypatch):
+    """A model that still takes thinkingBudget. 3.8 Live does not."""
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key-not-real")
+    monkeypatch.setenv(
+        "GEMINI_LIVE_MODEL", "gemini-2.5-flash-native-audio-preview-12-2025"
+    )
+    return load("development")
+
+
+async def test_gemini_3_8_live_omits_thinking_config(config):
+    """thinkingBudget and thinkingLevel both close this model's socket.
+
+    The Live thinking guide says to omit thinkingConfig for gemini-3.8-live.
+    Interleaved thinking still runs. The bill sees it as thoughtsTokenCount,
+    not as a field we can set to zero.
+    """
     sock = FakeSocket([{"setupComplete": {}}])
-    async with GeminiLiveSession(config, connect=connector(sock)):
-        pass
+    async with GeminiLiveSession(config, connect=connector(sock)) as session:
+        assert session.thinking_disabled is False
     generation = sock.sent[0]["setup"]["generationConfig"]
-    # Explicit even when it matches the model default - leaving it out costs
-    # money and latency, and the omission would be invisible in review.
-    assert generation["thinkingConfig"]["thinkingBudget"] == 0
+    assert "thinkingConfig" not in generation
+    assert len(sock.sent) == 1
 
 
 async def test_setup_carries_the_measured_word_cap(config):
@@ -228,9 +255,9 @@ async def test_the_greeting_takes_a_turn_id_of_its_own(config):
 class RefusingSocket(FakeSocket):
     """Closes the connection the way the server does on a setup it rejects."""
 
-    def __init__(self, refuse_thinking: bool) -> None:
+    def __init__(self, refuse_budget: bool) -> None:
         super().__init__([{"setupComplete": {}}])
-        self.refuse_thinking = refuse_thinking
+        self.refuse_budget = refuse_budget
 
     async def send(self, data: str) -> None:
         import json as _json
@@ -238,42 +265,51 @@ class RefusingSocket(FakeSocket):
         from src.voice.gemini_live import _ClosedSocket
 
         payload = _json.loads(data)
-        wants_thinking = "thinkingConfig" in (
-            payload.get("setup", {}).get("generationConfig", {})
+        thinking = (
+            payload.get("setup", {}).get("generationConfig", {}).get("thinkingConfig")
+            or {}
         )
-        if self.refuse_thinking and wants_thinking:
+        # gemini-3.8-live closes on thinkingBudget. A later level is a
+        # different field and is what the fallback sends.
+        if self.refuse_budget and "thinkingBudget" in thinking:
+            self.sent.append(payload)
             raise _ClosedSocket
         await super().send(data)
 
 
-async def test_a_refused_thinking_config_reconnects_without_it(config):
-    """It was accepted, measured to work, and then refused without notice.
+async def test_a_refused_budget_falls_back_to_the_lowest_level(monkeypatch):
+    """Older models took thinkingBudget. This one closes the socket on it.
 
-    A preview model is entitled to do that. Depending on the capability turned
-    every call into a failed setup and a dead line, so it is attempted and not
-    relied on.
+    The next try is thinkingLevel low, which is the lowest level the Live
+    API still documents. The call connects. A second socket reuses that
+    shape and does not pay the refused setup again.
     """
-    sockets = [
-        RefusingSocket(refuse_thinking=True),
-        RefusingSocket(refuse_thinking=True),
-    ]
-    opened = []
+    config = legacy_config(monkeypatch)
+    opened: list[RefusingSocket] = []
 
-    async def connect(_url):
-        socket = sockets.pop(0)
+    async def connect(_url: str) -> RefusingSocket:
+        socket = RefusingSocket(refuse_budget=True)
         opened.append(socket)
         return socket
 
     async with GeminiLiveSession(config, connect=connect) as session:
-        assert session.thinking_disabled is False, "the fallback was not recorded"
+        assert session.thinking_disabled is False
 
-    assert len(opened) == 2, "it did not reconnect"
-    # The retry went out without the field the server refused.
-    retry = opened[1].sent[0]["setup"]["generationConfig"]
-    assert "thinkingConfig" not in retry
+    assert len(opened) == 2
+    first = opened[0].sent[0]["setup"]["generationConfig"]["thinkingConfig"]
+    assert first == {"thinkingBudget": 0}
+    second = opened[1].sent[0]["setup"]["generationConfig"]["thinkingConfig"]
+    assert second == {"thinkingLevel": "low"}
+
+    async with GeminiLiveSession(config, connect=connect):
+        pass
+    assert len(opened) == 3, "the remembered setup was probed again"
+    reused = opened[2].sent[0]["setup"]["generationConfig"]["thinkingConfig"]
+    assert reused == {"thinkingLevel": "low"}
 
 
-async def test_thinking_config_is_still_sent_when_the_model_accepts_it(config):
+async def test_thinking_budget_is_still_sent_when_the_model_accepts_it(monkeypatch):
+    config = legacy_config(monkeypatch)
     sock = FakeSocket([{"setupComplete": {}}])
     async with GeminiLiveSession(config, connect=connector(sock)) as session:
         assert session.thinking_disabled is True
