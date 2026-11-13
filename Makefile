@@ -71,6 +71,9 @@ image:                   ## build the container and check it answers /healthz
 profile:                 ## what one call costs in CPU - no network, no money
 	$(PY) -m src.tools.profile_call --seconds 180 --profile
 
+prompt:                  ## size of the standing prompt, section by section - free
+	$(PY) -m src.tools.count_prompt
+
 alerts:                  ## regenerate deploy/alerts.yml from the rule definitions
 	# The thresholds live in src/observability/alerts.py, beside the reason
 	# each one exists. Generated rather than written so the rule that fires
