@@ -39,7 +39,14 @@ import logging
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
-from src.voice.events import AudioOut, Event, Transcript, TurnComplete, TurnInterrupted
+from src.voice.events import (
+    AudioOut,
+    CallerTranscript,
+    Event,
+    Transcript,
+    TurnComplete,
+    TurnInterrupted,
+)
 from src.voice.gemini_live import GeminiLiveSession
 from src.voice.usage import SessionUsage
 
@@ -195,6 +202,8 @@ class RotatingLiveSession:
                 return AudioOut(turn_id=outer, pcm=event.pcm)
             case Transcript():
                 return Transcript(turn_id=outer, text=event.text)
+            case CallerTranscript():
+                return CallerTranscript(turn_id=outer, text=event.text)
             case TurnInterrupted():
                 return TurnInterrupted(turn_id=outer)
             case TurnComplete():

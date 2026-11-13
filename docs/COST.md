@@ -56,6 +56,16 @@ Two things the docs leave open, both flagged on screen rather than buried:
   Priced here at the text rate; if it is the audio rate, that line is 2.7x.
 - **Audio input.** The table prints "$3.00 or $0.005/min", but 25 tok/s × 60 ×
   $3.00/M is $0.0045/min. Unexplained. We price the tokens the API reports.
+- **Transcripts.** `inputAudioTranscription` and `outputAudioTranscription`
+  are both on. Google charges the text they emit at the **text output**
+  rate, $4.50 per million, on top of the audio. The Live Transcribe model
+  is estimated at about 175 text tokens per minute of speech. The measured
+  caller speaks 42% of a connected minute, so the caller line is about
+  75 tokens, or **₹0.03 to ₹0.04** at ₹89 and 18% GST (about ₹0.03 at ₹88).
+  A minute of continuous caller speech would be about ₹0.08. The meter does
+  not estimate this: `response_text` on the usage block is priced as
+  "Transcripts, caller and agent". Output transcription was already in that
+  line. Input transcription is the new part of it.
 
 ## A correction, and why it is at the top
 

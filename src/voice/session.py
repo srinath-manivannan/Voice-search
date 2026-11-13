@@ -29,7 +29,14 @@ from dataclasses import dataclass, field
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any, Protocol
 
-from src.voice.events import AudioOut, Event, TurnComplete, Transcript, TurnInterrupted
+from src.voice.events import (
+    AudioOut,
+    CallerTranscript,
+    Event,
+    TurnComplete,
+    Transcript,
+    TurnInterrupted,
+)
 from src.voice.trace import CallTrace
 from src.voice.transport import AudioSink, AudioSource
 from src.voice.vad import EnergyVad, VadFrame
@@ -313,6 +320,13 @@ class Conversation:
 
                 case Transcript(text=text, turn_id=turn_id):
                     await self._notify(type="transcript", text=text, turn_id=turn_id)
+
+                case CallerTranscript(text=text, turn_id=turn_id):
+                    # The line is already finished. Recording it does not
+                    # wait on Grok, and it is not what starts playback.
+                    await self._notify(
+                        type="caller_transcript", text=text, turn_id=turn_id
+                    )
 
                 case TurnInterrupted(turn_id=turn_id):
                     # Distinct from our own barge-in: this is the model saying

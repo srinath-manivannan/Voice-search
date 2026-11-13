@@ -32,7 +32,14 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any, Protocol
 
 from src.config import Config
-from src.voice.events import AudioOut, Event, Transcript, TurnComplete, TurnInterrupted
+from src.voice.events import (
+    AudioOut,
+    CallerTranscript,
+    Event,
+    Transcript,
+    TurnComplete,
+    TurnInterrupted,
+)
 from src.observability.metrics import METRICS
 from src.voice.usage import SessionUsage, TurnUsage
 
@@ -190,6 +197,9 @@ class GeminiLiveSession:
         self._speech_ended_at: float | None = None
         self._first_audio_at: float | None = None
         self._pending_usage = TurnUsage()
+        # Pieces of serverContent.inputTranscription for the turn in
+        # progress. Flushed once, when the turn ends, not as they arrive.
+        self._caller_parts: list[str] = []
         # Set at connect time: did the server let us switch thinking off?
         self.thinking_disabled = False
         self.usage = SessionUsage()
@@ -218,6 +228,14 @@ class GeminiLiveSession:
             "model": f"models/{self._config.gemini_live_model}",
             "generationConfig": generation,
             "systemInstruction": {"parts": [{"text": self._config.system_instruction}]},
+            # Both empty objects are the Live setup fields, not the SDK's
+            # snake_case names. Output was already on. Input is what lets a
+            # side summariser hear the caller. Every socket builds this
+            # message, including a rotation and the spare that is opened
+            # while the agent is still talking.
+            # Transcript text is billed at the text output rate, on top of
+            # the audio. See docs/COST.md.
+            "inputAudioTranscription": {},
             "outputAudioTranscription": {},
         }
         # Keep the session's context from growing for the whole call.
@@ -485,7 +503,16 @@ class GeminiLiveSession:
 
             server_content = message.get("serverContent") or {}
 
+            if (heard := server_content.get("inputTranscription")) and heard.get(
+                "text"
+            ):
+                # Held until the turn ends. Yielding each partial would
+                # still be cheap, but the summariser wants one line.
+                self._caller_parts.append(heard["text"])
+
             if server_content.get("interrupted"):
+                if caller := self._finish_caller_transcript():
+                    yield CallerTranscript(turn_id=turn_id, text=caller)
                 yield TurnInterrupted(turn_id=turn_id)
                 continue
 
@@ -501,12 +528,25 @@ class GeminiLiveSession:
             ) and transcription.get("text"):
                 yield Transcript(turn_id=turn_id, text=transcription["text"])
 
+            # After audio in this message. The caller line cannot precede
+            # the first byte of a reply that was already in the same frame,
+            # and it is not what the speaker is waiting on.
+            if server_content.get("turnComplete"):
+                if caller := self._finish_caller_transcript():
+                    yield CallerTranscript(turn_id=turn_id, text=caller)
+
             if server_content.get("turnComplete"):
                 yield TurnComplete(
                     turn_id=turn_id,
                     usage=self._pending_usage,
                     first_audio_ms=self._first_audio_ms(),
                 )
+
+    def _finish_caller_transcript(self) -> str:
+        """Join the partials and clear them. Empty when the caller was silent."""
+        text = "".join(self._caller_parts).strip()
+        self._caller_parts.clear()
+        return text
 
     async def _answer_tool_call(self, tool_call: dict[str, Any]) -> None:
         """Execute what the model asked for and send the result straight back.

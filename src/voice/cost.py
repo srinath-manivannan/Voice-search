@@ -122,7 +122,7 @@ LABELS = {
     IN_AUDIO: "Caller voice + audio history",
     IN_TEXT: "Prompt + tools + text history",
     OUT_AUDIO: "Agent voice",
-    OUT_TEXT: "Transcription",
+    OUT_TEXT: "Transcripts, caller and agent",
     THINKING: "Thinking",
     GROK: "Grok memory",
 }

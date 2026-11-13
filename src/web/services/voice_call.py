@@ -52,6 +52,25 @@ from src.web.services.cost_report import report, spent_inr
 
 log = logging.getLogger(__name__)
 
+
+def remember(memory: CallMemory | None, payload: dict[str, Any]) -> None:
+    """Copy a screen update into the summariser, when memory is on.
+
+    Caller text arrives once, already joined, as `caller_transcript`.
+    Agent text still arrives in chunks. Neither call waits on Grok.
+    """
+    if memory is None:
+        return
+    if payload.get("type") == "transcript":
+        turn_id = payload.get("turn_id")
+        memory.add_agent(
+            str(payload.get("text") or ""),
+            turn_id if isinstance(turn_id, int) else None,
+        )
+    elif payload.get("type") == "caller_transcript":
+        memory.add_caller(str(payload.get("text") or ""))
+
+
 # Gitignored. Traces hold decisions and timings, never audio or speech, but
 # they are still call records and belong on the machine that made them.
 TRACES = Path(__file__).resolve().parents[3] / "out" / "traces"
@@ -103,12 +122,7 @@ class VoiceCall:
                     float(first_audio),
                     LATENCY_BUCKETS_MS,
                 )
-        if payload.get("type") == "transcript" and self._memory is not None:
-            turn_id = payload.get("turn_id")
-            self._memory.add_agent(
-                str(payload.get("text") or ""),
-                turn_id if isinstance(turn_id, int) else None,
-            )
+        remember(self._memory, payload)
         if (
             payload.get("type") == "turn"
             and payload.get("caller_reply")

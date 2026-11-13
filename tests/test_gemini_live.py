@@ -14,7 +14,12 @@ from collections import deque
 import pytest
 
 from src.config import load
-from src.voice.events import AudioOut, Transcript, TurnComplete, TurnInterrupted
+from src.voice.events import (
+    AudioOut,
+    Transcript,
+    TurnComplete,
+    TurnInterrupted,
+)
 from src.voice.gemini_live import GeminiLiveSession, SetupFailed, forget_thinking_modes
 
 
