@@ -107,8 +107,8 @@ calls that is 8.24 generations, and every one of them re-bills the window.
 An earlier version of this file read 5.73 off the trace and wrote it in this
 column, which understated the rate by about a rupee.
 
-Poorvika's target is Rs 2.00. **We are over it, and over the incumbent's
-Rs 4.85 as well.** The target is Rs 2.00, shown on screen and coloured
+Poorvika's target is Rs 2.50. **We are over it, and over the incumbent's
+Rs 4.85 as well.** The target is Rs 2.50, shown on screen and coloured
 against; the session ceiling that actually ends a call sits at Rs 8, because hanging up on
 a customer mid-sentence does not refund the rupee.
 
@@ -177,7 +177,7 @@ sets the floor under the window, so it cuts twice. Worth about Rs 0.47 if it
 comes down to 700.
 
 Those two together, with a tighter window, reach roughly **Rs 3.40**. They do
-not reach Rs 2.00, and nothing inside this architecture does.
+not reach Rs 2.50, and nothing inside this architecture does.
 
 **3. Stop using native audio for the whole call.** Transcribe the caller,
 reason in text, speak with a TTS engine. History then lives as text at

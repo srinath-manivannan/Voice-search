@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 # edges do not bracket the number you promise cannot tell you whether you
 # kept the promise.
 LATENCY_BUCKETS_MS = (250.0, 500.0, 750.0, 1000.0, 1500.0, 2000.0, 3000.0, 5000.0)
-# Rupees a connected minute. The target is 2.00 and the ceiling that ends a
+# Rupees a connected minute. The target is 2.50 and the ceiling that ends a
 # call is 8.00; both are boundaries here for the same reason.
 RUPEE_BUCKETS = (1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 6.0, 8.0, 12.0)
 

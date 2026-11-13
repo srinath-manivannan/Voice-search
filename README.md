@@ -1,7 +1,7 @@
 # poorvika-voice
 
 Inbound telephone voice agent for Poorvika. Tamil, English and Tanglish, over a
-real phone call, under ₹2 per connected minute all-in.
+real phone call, under ₹2.50 per connected minute all-in.
 
 Phase 1 of six. See `../PHASE0-REPORT.md` for the architecture decision and
 `../COST-MODEL.md` for the measurements everything here rests on.
@@ -177,13 +177,13 @@ ours are committed. And it has no container story at all — ours is a root
 
 ## Known limitations
 
-1. **Over the cost target.** Poorvika wants ₹2.00 a connected minute; a real
+1. **Over the cost target.** Poorvika wants ₹2.50 a connected minute; a real
    call runs at about ₹5.28. `docs/COST.md` says where every paisa goes.
    `docs/PIPELINE.md` carries the decision: **not** the cascade, whose
    reasoning leg measured ~1,100 ms to first token and would make the agent
    about three times slower for 60 paise. Rotating the Live session onto a
    fresh socket carrying a text summary instead of audio history reaches
-   ₹2.70–3.82 at unchanged speed. **Not built yet.** ₹2.00 with a fast agent
+   ₹2.70–3.82 at unchanged speed. **Not built yet.** ₹2.50 with a fast agent
    is not available from anything measured: ₹1.19 of it is the agent's own
    voice, and the replies are not being shortened. The session ceiling that
    ends a call sits at ₹8, well above the target, because hanging up on a

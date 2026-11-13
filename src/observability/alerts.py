@@ -16,7 +16,7 @@ Two ways they fire, because the host is not chosen yet (gap 9 in RULES.md):
   Prometheus alerting rules, generated from these definitions so the file
   that fires cannot drift from the file that is reviewed.
 
-What is deliberately NOT alerted on: being over the Rs 2.00 target. Every
+What is deliberately NOT alerted on: being over the Rs 2.50 target. Every
 call is, today. An alert that fires on every call is one people turn off,
 and then the real ones go with it.
 """
@@ -88,7 +88,7 @@ def _failure_rate(metrics: Metrics) -> float | None:
 def _runaway_cost(metrics: Metrics) -> float | None:
     """Over the ceiling that ends calls, not over the target.
 
-    Every call is over the Rs 2.00 target today. An alert that fires every
+    Every call is over the Rs 2.50 target today. An alert that fires every
     time is an alert somebody turns off.
     """
     histogram = metrics.histogram("voice_rupees_per_minute")
@@ -152,7 +152,7 @@ RULES: tuple[Rule, ...] = (
         severity=CRITICAL,
         why=(
             "p95 cost at or over the Rs 8 session ceiling. Deliberately not "
-            "the Rs 2 target: every call is over that today, and an alert "
+            "the Rs 2.50 target: every call is over that today, and an alert "
             "that fires every time is one people turn off."
         ),
         check=_runaway_cost,
