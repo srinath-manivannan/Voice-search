@@ -32,6 +32,26 @@ def test_system_instruction_carries_the_word_cap_and_the_no_inventing_rule(env):
     assert "Never invent" in cfg.system_instruction
 
 
+def test_grok_memory_is_off_until_asked_for(env):
+    cfg = load("development")
+    assert cfg.grok_memory_enabled is False
+    assert cfg.grok_model == "grok-4.3"
+    assert cfg.grok_summary_every_turns == 4
+    assert cfg.xai_api_key == ""
+
+
+def test_grok_memory_reads_the_flag_and_the_model(env):
+    env.setenv("GROK_MEMORY", "1")
+    env.setenv("XAI_API_KEY", "xai-test")
+    env.setenv("GROK_MODEL", "grok-4.20-0309-non-reasoning")
+    env.setenv("GROK_SUMMARY_EVERY_TURNS", "6")
+    cfg = load("development")
+    assert cfg.grok_memory_enabled is True
+    assert cfg.xai_api_key == "xai-test"
+    assert cfg.grok_model == "grok-4.20-0309-non-reasoning"
+    assert cfg.grok_summary_every_turns == 6
+
+
 def test_word_cap_is_overridable_for_measurement(env):
     env.setenv("REPLY_WORD_CAP", "25")
     assert "under 25 words" in load("development").system_instruction

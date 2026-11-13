@@ -104,6 +104,27 @@ true, the thing in the wrong place is the one to move.
 `docs/RULES.md` checks this repository against the full-stack rules one by
 one, including the two gaps that are still open.
 
+## Grok memory
+
+Live stays the voice. Grok, when switched on, writes a short handover after every fourth caller reply and the next rotated socket receives it alongside the tool note. It never runs on the way to the first audio byte. A timeout or an error leaves the tool note in place and the call continues.
+
+```bash
+# in .env
+GROK_MEMORY=1
+XAI_API_KEY=your-xai-key-here
+# optional: GROK_MODEL=grok-4.20-0309-non-reasoning
+```
+
+`make ui`, take a call long enough for four caller replies. The cost panel grows a **Grok memory** row on the update after that summary, and again on the end-of-call summary. With the flag off, or with no key, that row is absent and the handover is only the tool note.
+
+The live check calls Grok for real and is not part of `make test`:
+
+```bash
+XAI_API_KEY=your-xai-key-here .venv/bin/python -m pytest -m live tests/test_grok_live.py
+```
+
+At grok-4.3, every fourth caller turn, about 750 input tokens and 120 output tokens a summary, that row is about **₹0.20 per connected minute** at ₹88 to the dollar and 18% GST when the caller speaks about six times a minute. `grok-4.20-0309-non-reasoning` is the same card. `grok-4.5` and newer are dearer.
+
 
 ## Status
 

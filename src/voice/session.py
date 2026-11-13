@@ -118,6 +118,11 @@ class Conversation:
         # at all. After sixteen seconds it had stopped producing audio
         # entirely.
         self._awaiting_reply = False
+        # Set when the caller has finished a turn and cleared when the
+        # spoken reply to that turn lands. A silent tool generation in
+        # between keeps it set, so a summary counts caller replies rather
+        # than every generation the model spends.
+        self._reply_belongs_to_caller = False
         # The opening greeting is protected from interruption. A trace caught
         # it being cut at 3.2 seconds by a frame at rms 949 - loud enough to
         # clear the threshold, and impossible to tell from a louder speaker.
@@ -272,6 +277,7 @@ class Conversation:
                     # was never measured either.
                     self._heard_speech_this_turn = False
                     self._awaiting_reply = True
+                    self._reply_belongs_to_caller = True
                     self.trace.record("end_of_speech", turn=self._model.turn_id + 1)
                     await self._model.end_of_speech()
 
@@ -305,8 +311,8 @@ class Conversation:
                     self.trace.record("audio_out", turn=turn_id, bytes=len(pcm))
                     await self._sink.write(pcm)
 
-                case Transcript(text=text):
-                    await self._notify(type="transcript", text=text)
+                case Transcript(text=text, turn_id=turn_id):
+                    await self._notify(type="transcript", text=text, turn_id=turn_id)
 
                 case TurnInterrupted(turn_id=turn_id):
                     # Distinct from our own barge-in: this is the model saying
@@ -326,6 +332,14 @@ class Conversation:
                     # call and the caller's later speech is never signalled.
                     # A trace showed one end_of_speech across forty seconds.
                     self._awaiting_reply = False
+                    # A spoken reply closes the caller turn. A tool generation
+                    # that came back with no audio does not: the answer is
+                    # still coming, and the summary waits for it.
+                    caller_reply = self._reply_belongs_to_caller and (
+                        usage.response_audio > 0 or usage.response_text > 0
+                    )
+                    if caller_reply:
+                        self._reply_belongs_to_caller = False
                     # Echo gathered while the agent spoke is not the caller.
                     self._held.clear()
                     self._barge_frames = 0
@@ -354,6 +368,7 @@ class Conversation:
                         response_tokens=record.response_tokens,
                         thinking_tokens=record.thinking_tokens,
                         agent_speaking=False,
+                        caller_reply=caller_reply,
                     )
 
     async def run(self) -> ConversationResult:

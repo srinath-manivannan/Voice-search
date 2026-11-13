@@ -218,6 +218,7 @@ async function start() {
         }
         break;
       case 'turn':    addTurn(message); break;
+      case 'cost':    showCost(message.cost); break;
       case 'summary':
         showCost(message.cost);
         showTrace(message.trace, message.trace_file);

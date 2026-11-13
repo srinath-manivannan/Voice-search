@@ -109,6 +109,16 @@ class Config:
     # commercial, and how many calls Poorvika takes is not for a public URL.
     metrics_token: str
 
+    # Grok writes the text handover a fresh Live socket is given. Off leaves
+    # the tool note exactly as it was. The key is optional: a deploy that
+    # has not set one runs with memory off rather than refusing to boot,
+    # because a missing side-model key is not a reason to drop the call.
+    grok_memory_enabled: bool
+    xai_api_key: str
+    grok_model: str
+    grok_summary_every_turns: int
+    grok_timeout_seconds: float
+
     log_level: str
     env: str
 
@@ -131,6 +141,16 @@ class Config:
         from src.agent.persona import system_instruction
 
         return system_instruction("chat", self.chat_word_cap)
+
+
+def _flag(name: str) -> bool:
+    """A boolean env var. Anything other than the true-words is off.
+
+    Default off, including when the variable is absent. Memory that turns
+    itself on because a string was non-empty would bill Grok on a deploy
+    that only copied the example file.
+    """
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _require(name: str) -> str:
@@ -224,6 +244,11 @@ def load(env: str | None = None) -> Config:
         release=os.environ.get("APP_RELEASE", "unknown"),
         sentry_dsn=os.environ.get("SENTRY_DSN", ""),
         metrics_token=os.environ.get("METRICS_TOKEN", ""),
+        grok_memory_enabled=_flag("GROK_MEMORY"),
+        xai_api_key=os.environ.get("XAI_API_KEY", ""),
+        grok_model=os.environ.get("GROK_MODEL", "grok-4.3"),
+        grok_summary_every_turns=int(os.environ.get("GROK_SUMMARY_EVERY_TURNS", "4")),
+        grok_timeout_seconds=float(os.environ.get("GROK_TIMEOUT_SECONDS", "4")),
         log_level=os.environ.get("LOG_LEVEL", defaults.LOG_LEVEL),
         env=env,
     )

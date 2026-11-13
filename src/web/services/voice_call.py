@@ -38,8 +38,10 @@ from src.observability.metrics import (
 )
 from src.observability.reporting import Reporter
 from src.voice.budget import BudgetExceeded, SessionBudget
+from src.memory.grok import GrokClient
+from src.memory.summariser import CallMemory
 from src.voice.gemini_live import GeminiLiveSession
-from src.voice.handover import note
+from src.voice.handover import note, with_memory
 from src.voice.rotating import RotatingLiveSession
 from src.voice.session import Conversation
 from src.voice.usage import SessionUsage
@@ -79,6 +81,10 @@ class VoiceCall:
         self._usage: SessionUsage | None = None
         # Kept so a failure can report how far the call got.
         self._live: RotatingLiveSession | None = None
+        # None when memory is off. The summary tasks are the Grok calls
+        # kicked after a reply; they are cancelled with the call.
+        self._memory = self._open_memory()
+        self._summaries: set[asyncio.Task[None]] = set()
 
     # -- helpers ------------------------------------------------------------
 
@@ -97,6 +103,21 @@ class VoiceCall:
                     float(first_audio),
                     LATENCY_BUCKETS_MS,
                 )
+        if payload.get("type") == "transcript" and self._memory is not None:
+            turn_id = payload.get("turn_id")
+            self._memory.add_agent(
+                str(payload.get("text") or ""),
+                turn_id if isinstance(turn_id, int) else None,
+            )
+        if (
+            payload.get("type") == "turn"
+            and payload.get("caller_reply")
+            and self._memory is not None
+            and self._memory.caller_reply_finished()
+        ):
+            # After the reply. The task is not awaited here: awaiting it
+            # would hold the next audio frame behind a Grok round trip.
+            self._kick_summary()
         if payload.get("type") == "turn" and self._usage is not None:
             # The whole bill, broken out per charge line, live - rather than
             # one number after the call has ended, which is too late to tell
@@ -180,21 +201,95 @@ class VoiceCall:
 
     # -- the call -----------------------------------------------------------
 
+    def _open_memory(self) -> CallMemory | None:
+        """The summariser, or nothing when the flag or the key is absent.
+
+        A missing key does not refuse the call. The voice still works, and
+        the handover stays the tool note, which is what `GROK_MEMORY` off
+        already does.
+        """
+        settings = self._settings
+        if not settings.grok_memory_enabled:
+            return None
+        if not settings.xai_api_key:
+            log.warning(
+                "GROK_MEMORY is on but XAI_API_KEY is empty; summaries stay off"
+            )
+            return None
+        return CallMemory(
+            GrokClient(
+                settings.xai_api_key,
+                settings.grok_model,
+                timeout_s=settings.grok_timeout_seconds,
+            ),
+            every=settings.grok_summary_every_turns,
+            timeout_s=settings.grok_timeout_seconds,
+            on_usage=self._charge_grok,
+        )
+
+    def _charge_grok(
+        self, prompt: int, cached: int, completion: int, model: str
+    ) -> None:
+        if self._usage is not None:
+            self._usage.add_grok(prompt, cached, completion, model)
+
+    def _kick_summary(self) -> None:
+        if self._memory is None:
+            return
+        task = asyncio.create_task(self._run_summary(), name="grok-summary")
+        self._summaries.add(task)
+        task.add_done_callback(self._summaries.discard)
+
+    async def _run_summary(self) -> None:
+        assert self._memory is not None
+        await self._memory.summarise()
+        if self._usage is None:
+            return
+        await self._push(
+            {
+                "type": "cost",
+                "cost": report(self._usage, self._settings, self._minutes(True)),
+            }
+        )
+
+    async def _drain_summaries(self) -> None:
+        """Let an in-flight summary land before the end-of-call total.
+
+        Bounded by the Grok timeout. The caller has already hung up or the
+        pumps have stopped, so this wait is not a silence on the line.
+        """
+        if not self._summaries:
+            return
+        await asyncio.wait(
+            set(self._summaries),
+            timeout=self._settings.grok_timeout_seconds + 0.5,
+        )
+
     def _model(self, tools: ToolSession) -> RotatingLiveSession:
         """One conversation, however many sockets it takes.
 
         The rotation threshold lives in config and zero turns it off, in
         which case this is one socket for the whole call - the behaviour it
-        replaces. What crosses a rotation is `handover.note`: a few
-        sentences composed from ToolSession, never asked of the model.
+        replaces. What crosses a rotation is the tool note, plus Grok's
+        summary when one has landed. The summary is never asked for here.
         """
         declarations = dependencies.declarations_for(self._settings)
         runner = self._tool_runner(tools)
+        memory = self._memory
+
+        def carry() -> str:
+            # Read at rotation time, which is after a reply, so a summary
+            # that has already landed is included. One that has not yet
+            # returned leaves the tool note, which is the fail-safe.
+            if memory is None:
+                return note(tools)
+            return with_memory(tools, memory.handover)
+
         return RotatingLiveSession(
             lambda: GeminiLiveSession(
                 self._settings, tools=declarations, on_tool_call=runner
             ),
-            lambda: note(tools),
+            carry,
             rotate_above_audio_tokens=self._settings.rotate_above_audio_tokens,
         )
 
@@ -219,6 +314,7 @@ class VoiceCall:
                     agent_opens=True,
                 )
                 await self._pump_until_either_ends()
+                await self._drain_summaries()
                 if model.rotations and self._talking is not None:
                     self._talking.trace.record("rotations", count=model.rotations)
                 await self._send_summary(model.usage)
@@ -281,6 +377,11 @@ class VoiceCall:
         # Evaluated when a call ends, which is the only moment every number
         # it contributes is final. One ALERT line per breach, for a log
         # search to match - alerting that works before a host is chosen.
+        pending = list(self._summaries)
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
         announce()
         if self._talking is not None:
             saved = self._talking.trace.save(TRACES)

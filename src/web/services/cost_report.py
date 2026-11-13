@@ -26,7 +26,12 @@ from src.voice.usage import SessionUsage
 
 def report(usage: SessionUsage, settings: Config, minutes: float) -> dict[str, Any]:
     """Every charge line plus the two numbers it is read against."""
-    payload = usage.breakdown(settings.usd_inr, settings.gst_rate, minutes).as_dict()
+    payload = usage.breakdown(
+        settings.usd_inr,
+        settings.gst_rate,
+        minutes,
+        include_grok=settings.grok_memory_enabled,
+    ).as_dict()
     payload["target_inr_per_min"] = settings.target_inr_per_minute
     payload["ceiling_inr_per_min"] = settings.max_inr_per_minute
     payload["voice_floor_inr_per_min"] = round(
