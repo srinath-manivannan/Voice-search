@@ -25,6 +25,20 @@ five of twenty-four generations said nothing at all. Three of those were
 searches for a phone the session had already found, and one asked for stock
 that the search had already fetched. So the descriptions now say what the
 search result already contains, and that it stays valid.
+
+## Why `want` has one value in it
+
+Saying it in prose was not enough. Across 22 traces the model called
+product_details three times, and one of those asked for OFFERS - which the
+search result already carried, and which the runner answered out of its cache
+with no round trip at all. The round trip was saved and the generation was
+not: the call itself is a whole turn, and a turn re-bills the entire context
+window.
+
+So the enum is now `["emi"]` and the wasted call is unavailable rather than
+discouraged. The runner stays tolerant of the other values on purpose - a
+model that sends one anyway gets an answer instead of an error - but it is no
+longer told they exist.
 """
 
 from __future__ import annotations
@@ -86,11 +100,11 @@ PRODUCT_DETAILS = {
             },
             "want": {
                 "type": "array",
-                "items": {
-                    "type": "string",
-                    "enum": ["price", "stock", "offers", "emi"],
-                },
-                "description": "Only what they actually asked about.",
+                "items": {"type": "string", "enum": ["emi"]},
+                "description": (
+                    "Always ['emi']. Price, stock and offers came with the "
+                    "search result - asking for them here is a wasted turn."
+                ),
             },
         },
         "required": ["ref", "want"],

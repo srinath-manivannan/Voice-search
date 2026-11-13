@@ -9,6 +9,7 @@ testing for are all in the shapes.
 from __future__ import annotations
 
 
+from src.agent.tools.declarations import PRODUCT_DETAILS
 from src.agent.tools.runner import ToolSession
 from tests.payloads import ANSWERED
 from tests.fakes import (
@@ -132,3 +133,29 @@ async def test_a_section_nobody_asked_for_is_never_reported_as_unknown():
     # EMI was not prefetched, so it was fetched - not answered as "unknown".
     assert len(estate.asked) > upstream
     assert answer["emi"]["from_inr_per_month"] == 992
+
+
+async def test_the_model_cannot_ask_product_details_for_what_search_already_sent():
+    """The waste was the CALL, not the round trip.
+
+    Across 22 traces the model called product_details three times and one of
+    them asked for offers. The runner answered that out of its cache without
+    going upstream - and it still cost a whole generation, because the call
+    itself is a turn and a turn re-bills the entire context window.
+
+    Prose had already asked it not to. So the value is gone from the enum: the
+    model is no longer told that `offers` is something this tool accepts.
+    """
+    want = PRODUCT_DETAILS["parameters"]["properties"]["want"]
+    assert want["items"]["enum"] == ["emi"]
+
+    # The runner stays tolerant on purpose. A model that sends one of the old
+    # values anyway gets an answer rather than an error - it is simply never
+    # invited to.
+    estate = FakeEstate({"53952": ANSWERED})
+    tools = ToolSession(
+        catalogue_of(document("53952", "Vivo Y51 Pro 5G", 34999)), estate=estate
+    )
+    await tools.run("search_products", {"query": "vivo"})
+    answer = await tools.run("product_details", {"ref": "1", "want": ["offers"]})
+    assert "error" not in answer
