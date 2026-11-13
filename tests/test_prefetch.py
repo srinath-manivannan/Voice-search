@@ -132,8 +132,18 @@ class FakeTools:
 FOUND = {
     "total_matching": 4,
     "products": [
-        {"ref": "1", "name": "Poco M8 5G", "price_inr": 19999},
-        {"ref": "2", "name": "Realme P4 Lite 5G", "price_inr": 20999},
+        {
+            "ref": "1",
+            "name": "Poco M8 5G",
+            "price_inr": 19999,
+            "specs": {"camera": "45MP"},
+        },
+        {
+            "ref": "2",
+            "name": "Realme P4 Lite 5G",
+            "price_inr": 20999,
+            "specs": {"battery": "5500mAh"},
+        },
     ],
 }
 
@@ -250,3 +260,27 @@ async def test_a_catalogue_error_is_not_primed_as_a_shortlist():
 
     assert said == []
     assert not pre.used
+
+
+async def test_the_note_carries_the_specs_or_the_model_invents_a_reason():
+    """Found by probing the live endpoint, not by reading the code.
+
+    The first version of `note` carried names and prices only. Primed with
+    it, the real model answered "Realme P4 Lite 5G, 20,999 rupees - great
+    camera". Nothing had said anything about a camera.
+
+    persona.py requires one reason per product "from the specs the tool
+    returned", and the search result carries that field with a comment saying
+    why: without it, asked why it suggested something, it made a camera up.
+    Dropping it from the note re-opened exactly that bug.
+    """
+    tools = FakeTools(FOUND)
+    said, prime = primer()
+    pre = Prefetcher(tools, prime)
+
+    pre.heard("20-25k kulla phone")
+    assert pre.task is not None
+    await pre.task
+
+    assert "45MP" in said[0]
+    assert "5500mAh" in said[0]

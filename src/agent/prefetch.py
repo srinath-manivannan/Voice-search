@@ -227,10 +227,21 @@ def note(result: dict[str, Any], intent: Intent) -> str:
     lines = [f"search_products has already run for {intent.category}, {band}:"]
     for item in products:
         price = item.get("price_inr")
-        lines.append(
-            f"{item.get('ref')}) {item.get('name')}"
-            + (f", {price:,} rupees" if isinstance(price, int) else "")
-        )
+        line = f"{item.get('ref')}) {item.get('name')}"
+        if isinstance(price, int):
+            line += f", {price:,} rupees"
+        # The specs are not decoration. persona.py requires one reason per
+        # product "from the specs the tool returned", and a probe against the
+        # live endpoint with a note that carried only names and prices got
+        # "Realme P4 Lite 5G, 20,999 rupees - great camera" back. Nothing had
+        # said anything about a camera. The search result carries this field
+        # with a comment saying exactly that - "without it, asked why it
+        # suggested something, it made a camera up" - and dropping it here
+        # re-opened the bug that comment is about.
+        specs = item.get("specs")
+        if isinstance(specs, dict) and specs:
+            line += " - " + ", ".join(f"{k} {v}" for k, v in specs.items())
+        lines.append(line)
     lines.append("Answer from these. Do not call search_products for this.")
     return "\n".join(lines)
 
