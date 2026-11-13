@@ -183,6 +183,7 @@ class GeminiLiveSession:
         tools: dict[str, Any] | None = None,
         on_tool_call: Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]]
         | None = None,
+        on_caller_speech: Callable[[str], None] | None = None,
     ) -> None:
         self._config = config
         # Declared to the model at setup; executed by the injected callback.
@@ -190,6 +191,11 @@ class GeminiLiveSession:
         # what lets the product logic outlive a change of provider.
         self._tools = tools
         self._on_tool_call = on_tool_call
+        # A side channel for partial input transcription, synchronous and not
+        # awaited, so whatever listens cannot sit in front of the next audio
+        # frame. The turn-end CallerTranscript event is unaffected: this is an
+        # extra listener, not a replacement for it.
+        self._on_caller_speech = on_caller_speech
         self._connect = connect or _default_connect
         self._clock = clock
         self._socket: Socket | None = None
@@ -509,6 +515,11 @@ class GeminiLiveSession:
                 # Held until the turn ends. Yielding each partial would
                 # still be cheap, but the summariser wants one line.
                 self._caller_parts.append(heard["text"])
+                if self._on_caller_speech is not None:
+                    # Everything heard so far this turn, not just the new
+                    # fragment: a prefetch needs a category and a budget
+                    # together, and they arrive in different fragments.
+                    self._on_caller_speech("".join(self._caller_parts))
 
             if server_content.get("interrupted"):
                 if caller := self._finish_caller_transcript():

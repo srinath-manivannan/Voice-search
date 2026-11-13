@@ -38,6 +38,7 @@ from src.observability.metrics import (
 )
 from src.observability.reporting import Reporter
 from src.voice.budget import BudgetExceeded, SessionBudget
+from src.agent.prefetch import Prefetcher
 from src.memory.grok import GrokClient
 from src.memory.summariser import CallMemory
 from src.voice.gemini_live import GeminiLiveSession
@@ -104,6 +105,8 @@ class VoiceCall:
         # kicked after a reply; they are cancelled with the call.
         self._memory = self._open_memory()
         self._summaries: set[asyncio.Task[None]] = set()
+        # Built in `_model`, once there is a ToolSession to search with.
+        self._prefetch: Prefetcher | None = None
 
     # -- helpers ------------------------------------------------------------
 
@@ -291,6 +294,18 @@ class VoiceCall:
         runner = self._tool_runner(tools)
         memory = self._memory
 
+        async def prime(text: str) -> None:
+            # Resolved when the prefetch lands rather than captured now: the
+            # session does not exist until this method returns, and by then
+            # the factory below has already been handed the listener.
+            if self._live is not None:
+                await self._live.prime(text)
+
+        # Only where there is a catalogue to search. Without one the search
+        # tool is not even declared, so there is nothing to get ahead of.
+        self._prefetch = Prefetcher(tools, prime) if declarations else None
+        listener = self._prefetch.heard if self._prefetch else None
+
         def carry() -> str:
             # Read at rotation time, which is after a reply, so a summary
             # that has already landed is included. One that has not yet
@@ -301,7 +316,10 @@ class VoiceCall:
 
         return RotatingLiveSession(
             lambda: GeminiLiveSession(
-                self._settings, tools=declarations, on_tool_call=runner
+                self._settings,
+                tools=declarations,
+                on_tool_call=runner,
+                on_caller_speech=listener,
             ),
             carry,
             rotate_above_audio_tokens=self._settings.rotate_above_audio_tokens,
@@ -331,6 +349,12 @@ class VoiceCall:
                 await self._drain_summaries()
                 if model.rotations and self._talking is not None:
                     self._talking.trace.record("rotations", count=model.rotations)
+                if self._prefetch is not None and self._prefetch.fired:
+                    # Recorded so the lever can be counted the way the silent
+                    # generations were: `used` means the model was handed a
+                    # shortlist, not that it then refrained from searching.
+                    if self._talking is not None:
+                        self._talking.trace.record("prefetch", used=self._prefetch.used)
                 await self._send_summary(model.usage)
         except WebSocketDisconnect:
             log.info("browser disconnected")
@@ -392,6 +416,8 @@ class VoiceCall:
         # it contributes is final. One ALERT line per breach, for a log
         # search to match - alerting that works before a host is chosen.
         pending = list(self._summaries)
+        if self._prefetch is not None and self._prefetch.task is not None:
+            pending.append(self._prefetch.task)
         for task in pending:
             task.cancel()
         if pending:
