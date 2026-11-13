@@ -89,8 +89,13 @@ CONTEXT_TARGET_TOKENS = 2400
 # sitting at; production names the real host and nothing else.
 ALLOWED_ORIGINS = "http://127.0.0.1:8080,http://localhost:8080"
 
-# Session rotation. 600 audio tokens is about twenty-four seconds of retained
-# speech, which measured as roughly two exchanges - the point at which
-# re-billing the history costs more than carrying a summary. Zero switches it
-# off and leaves one socket for the whole call.
-ROTATE_ABOVE_AUDIO_TOKENS = 600
+# Session rotation. A measured call accumulated 195 audio tokens a generation
+# - the caller's speech and the agent's both stay in the window - so 400 is a
+# rotation about every two generations, and 600 was about every three.
+#
+# 400 rather than lower because the spare socket takes 1,735 ms to open and is
+# opened while the agent is still speaking: at two generations there is a whole
+# reply to hide it in, and at 200 - one rotation per generation - there is not.
+# Worth Rs 0.25 a connected minute against 600. Zero switches rotation off and
+# leaves one socket for the whole call. See docs/COST.md.
+ROTATE_ABOVE_AUDIO_TOKENS = 400
