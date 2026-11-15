@@ -97,6 +97,22 @@ SPEAK_ONLY = (
 # differently from the one the tool returned.
 MOUTH_TEMPERATURE = 0.0
 
+# How often the mouth is sent a frame of silence while it has nothing to say.
+#
+# Found by running a whole conversation through this class: the recording
+# socket came back 1008 "Session closed due to client inactivity" between
+# utterances. On the Live path this cannot happen, because the microphone
+# pump sends every frame - and when the gate is held shut it substitutes
+# SILENCE rather than nothing, for exactly this reason. src/voice/session.py
+# says so in a comment that was written after a trace showed 440 held frames
+# and not one byte sent across eleven seconds.
+#
+# The cascade's mouth is the one Live socket in the system that is never sent
+# audio at all. A customer who thinks for half a minute would have hung up on
+# them. Phase 0 measured that silence is not billed.
+KEEPALIVE_SECONDS = 5.0
+KEEPALIVE_FRAME = bytes(640)
+
 # Below this there is nothing to transcribe, only a gate opening and closing.
 MIN_UTTERANCE_SECONDS = 0.4
 
@@ -127,6 +143,8 @@ class Loudspeaker(Protocol):
 
     async def say(self, text: str) -> None: ...
 
+    async def send_audio(self, pcm: bytes) -> None: ...
+
     def events(self) -> AsyncIterator[Event]: ...
 
     async def __aenter__(self) -> Any: ...
@@ -145,6 +163,7 @@ class CascadeSession:
         *,
         rate: int,
         ear_timeout_s: float = 8.0,
+        keepalive_s: float = KEEPALIVE_SECONDS,
         clock: Callable[[], float] = time.perf_counter,
         on_caller_speech: Callable[[str], None] | None = None,
     ) -> None:
@@ -153,6 +172,7 @@ class CascadeSession:
         self._mouth = mouth
         self._rate = rate
         self._ear_timeout = ear_timeout_s
+        self._keepalive_s = keepalive_s
         self._clock = clock
         # The prefetch listener. A cascade hears the caller all at once
         # rather than in fragments, so it fires later here than on the Live
@@ -168,6 +188,7 @@ class CascadeSession:
         self._first_audio_at: float | None = None
         self._pump: asyncio.Task[None] | None = None
         self._thinking: asyncio.Task[None] | None = None
+        self._keepalive: asyncio.Task[None] | None = None
         self.usage = SessionUsage()
         # How much of the brain's own running total has already been added
         # to `usage`, so each turn adds the difference and not the pile.
@@ -183,6 +204,7 @@ class CascadeSession:
     async def __aenter__(self) -> CascadeSession:
         """Open the mouth. The ear and the brain are stateless HTTP."""
         await self._mouth.__aenter__()
+        self._keepalive = asyncio.create_task(self._keep_open(), name="keepalive")
         return self
 
     async def __aexit__(self, *exc: Any) -> None:
@@ -259,8 +281,25 @@ class CascadeSession:
             return
         self._brain.remember(context)
 
+    async def _keep_open(self) -> None:
+        """Send the mouth silence so the server does not close it on us.
+
+        A stream that goes quiet is a stream that can be timed out, and this
+        one is quiet by design between replies. Failures are ignored: if the
+        socket has already gone, the next `say` will report it to the turn
+        that needs it rather than here, where nobody is listening.
+        """
+        while True:
+            await asyncio.sleep(self._keepalive_s)
+            try:
+                await self._mouth.send_audio(KEEPALIVE_FRAME)
+            except asyncio.CancelledError:
+                raise
+            except Exception as failed:  # noqa: BLE001
+                log.info("mouth keepalive failed: %s", type(failed).__name__)
+
     async def close(self) -> None:
-        for task in (self._pump, self._thinking):
+        for task in (self._pump, self._thinking, self._keepalive):
             if task is not None:
                 task.cancel()
 

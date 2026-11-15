@@ -68,6 +68,7 @@ class FakeMouth:
 
     def __init__(self) -> None:
         self.said: list[str] = []
+        self.kept_alive = 0
         self.opened = False
         self._queue: asyncio.Queue[Any] = asyncio.Queue()
         self.fail: Exception | None = None
@@ -83,6 +84,9 @@ class FakeMouth:
         if self.fail is not None:
             raise self.fail
         self.said.append(text)
+
+    async def send_audio(self, pcm: bytes) -> None:
+        self.kept_alive += 1
 
     def speak_back(self, pcm: bytes, turn_id: int = 7) -> None:
         """What the real mouth would emit: audio, then a completed turn."""
@@ -313,6 +317,35 @@ class TestTheRest:
         await session.greet("Poorvika, sollunga.")
         assert mouth.said == ["Poorvika, sollunga."]
         assert session.turn_id == 1
+
+    async def test_the_mouth_is_kept_open_while_it_has_nothing_to_say(self):
+        """Found by running a whole conversation through this class.
+
+        The Live API closed the socket with 1008 "client inactivity" between
+        utterances. The microphone pump never lets that happen on the Live
+        path - when the gate is shut it substitutes SILENCE rather than
+        nothing - and the cascade's mouth is the one Live socket in the
+        system that is never sent audio at all. A customer who paused to
+        think would have been hung up on.
+        """
+        mouth = FakeMouth()
+        session = CascadeSession(
+            FakeEar(), FakeBrain(), mouth, rate=RATE, keepalive_s=0.01
+        )
+        async with session:
+            await asyncio.sleep(0.05)
+        assert mouth.kept_alive >= 2
+
+    async def test_the_keepalive_stops_with_the_call(self):
+        mouth = FakeMouth()
+        session = CascadeSession(
+            FakeEar(), FakeBrain(), mouth, rate=RATE, keepalive_s=0.01
+        )
+        async with session:
+            await asyncio.sleep(0.03)
+        sent = mouth.kept_alive
+        await asyncio.sleep(0.05)
+        assert mouth.kept_alive == sent
 
     async def test_opening_it_opens_the_mouth(self):
         mouth = FakeMouth()
