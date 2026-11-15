@@ -102,6 +102,7 @@ class Conversation:
         agent_opens: bool = False,
         shadow: ShadowEar | None = None,
         trace: CallTrace | None = None,
+        should_end: Callable[[], bool] | None = None,
     ) -> None:
         self._model = model
         self._source = source
@@ -110,6 +111,12 @@ class Conversation:
         # A second transcriber on the same frames, measuring the first. None
         # unless WHISPER_COMPARE is on, and nothing in the call awaits it.
         self._shadow = shadow
+        # Asked at the end of a turn, never during one. The tool layer sets
+        # it when the customer says goodbye; this file stays ignorant of why.
+        self._should_end = should_end
+        # Bytes of the turn being spoken, so the socket is not closed while
+        # the browser is still playing it.
+        self._spoken_bytes = 0
         # Optional, because the CLI does not need it and the telephony
         # transport will not have a screen to update.
         self._on_update = on_update
@@ -171,6 +178,9 @@ class Conversation:
     # relative to the room. Echo surviving the browser's cancellation is neither
     # sustained nor loud, so demanding both is what separates them. 12 frames is
     # 240 ms.
+    # Longest an agent's closing line is allowed to hold the line open.
+    MAX_CLOSING_WAIT_SECONDS = 8.0
+
     BARGE_IN_SPEECH_FRAMES = 12
     BARGE_IN_RMS_FACTOR = 6.0
     # An absolute floor as well as a relative one. A trace showed a barge-in
@@ -335,6 +345,7 @@ class Conversation:
                         self.trace.record("agent_floor", turn=turn_id)
                         await self._notify(type="state", agent_speaking=True)
                     self.trace.record("audio_out", turn=turn_id, bytes=len(pcm))
+                    self._spoken_bytes += len(pcm)
                     await self._sink.write(pcm)
 
                 case Transcript(text=text, turn_id=turn_id):
@@ -414,6 +425,32 @@ class Conversation:
                         agent_speaking=False,
                         caller_reply=caller_reply,
                     )
+
+                    if self._should_end is not None and self._should_end():
+                        await self._let_the_last_line_finish()
+                        self.trace.record("hung_up", turn=turn_id)
+                        await self._notify(type="ended", reason="customer_said_goodbye")
+                        return
+                    # Per turn, not per call: the closing wait is for the
+                    # closing line, and a three-minute call's worth of
+                    # audio would hold the line open for the cap every time.
+                    self._spoken_bytes = 0
+
+    async def _let_the_last_line_finish(self) -> None:
+        """Wait for the browser to play what it has already been sent.
+
+        TurnComplete means the MODEL stopped generating, not that the
+        customer stopped hearing. The closing line is across the network and
+        sitting in the page's playback queue, and `BrowserSink` has no drain
+        to await - the only thing that can play it is the page. So this waits
+        for as long as the audio lasts.
+
+        Capped, because a wait derived from a byte count is a guess about a
+        queue we cannot see, and a caller held on a silent line is a worse
+        failure than a syllable lost.
+        """
+        seconds = self._spoken_bytes / (self._sink.sample_rate * 2)
+        await asyncio.sleep(min(seconds, self.MAX_CLOSING_WAIT_SECONDS))
 
     async def run(self) -> ConversationResult:
         """Run until the microphone stops or the socket closes.

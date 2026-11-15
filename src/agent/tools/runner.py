@@ -137,6 +137,11 @@ class ToolSession:
         # the audio of having been told them. Nothing else reads it.
         self._budget: tuple[int | None, int | None] | None = None
         self._discussed: Candidate | None = None
+        # Set by `end_call` and read by `Conversation` after the agent has
+        # finished speaking. Never acted on here: the closing line is still
+        # being said when the model asks for this.
+        self.hang_up = False
+        self.hang_up_reason = ""
 
     # ── what this conversation is about ───────────────────────────────────
 
@@ -164,8 +169,22 @@ class ToolSession:
             return await self._search(args)
         if name == "product_details":
             return await self._details(args)
+        if name == "end_call":
+            return self._end_call(args)
         log.warning("model asked for an unknown tool: %s", name)
         return {"error": "unknown_tool"}
+
+    def _end_call(self, args: dict[str, Any]) -> dict[str, Any]:
+        """The customer said goodbye. Say the closing line, then hang up.
+
+        A flag rather than an action, because the agent is still speaking
+        when this is called and the socket must not close under a sentence.
+        `Conversation` reads it at the end of the turn and waits for the
+        browser's playback queue before it goes.
+        """
+        self.hang_up = True
+        self.hang_up_reason = str(args.get("reason") or "customer_said_goodbye")
+        return {"ok": True}
 
     # ── discovery ─────────────────────────────────────────────────────────
 

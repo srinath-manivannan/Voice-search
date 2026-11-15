@@ -423,6 +423,22 @@ question.** No turn offers more than two products. No turn asks two things.
    care with the transcript attached. An agent that guesses at stock is worse
    than one that transfers.
 
+### The one thing step 5 did not settle
+
+`REPLY_WORD_CAP` is **15**, and it is the shipped default in both configs.
+The reply this section asks for - two products, a reason each, one binary
+question - is about 25 words, and the persona's own worked example has been
+over the cap since before any of this:
+
+> "Poco M8 5G, 19,999 rupees - 45MP camera. Realme P4 Lite 5G, 20,999 -
+> 5500mAh battery. Edhu paakkalaam?"
+
+So either the cap rises or the second product goes. Raising it buys more
+audio out, which is the one line nothing discounts, so it is a cost change
+and belongs to Poorvika rather than to a commit: **about 10 extra words a
+reply is roughly Rs 0.12 a minute** at 5.73 replies a minute. Left as it is,
+and named here, rather than changed quietly in either direction.
+
 ### Opening and closing
 
 The opening is **one line, then listen**. Not a menu, not a scenario, not
@@ -497,7 +513,7 @@ cost is realised in step three rather than at the end.
 | 2 | ~~**Wire `CI_HOST`.**~~ **Done 2026-11-15.** Production stock answers in ~500 ms; `make estate ARGS=--live` proves it. | the feature the demo is won on | the token is published, so it is also disclosed - rotate before launch |
 | 3 | **Split the brain out.** flash-lite on text, history held by us, the Live session demoted to a mouth that is only ever handed text. | **Rs 3.07 -> ~1.80** | the latency, all of it |
 | 4 | **Temperature routed** by tool round. **Done 2026-11-15**, and worth **nothing** - thinking was already free on Flash-Lite and temperature never cost anything. It buys fewer invented prices. | hallucination, not rupees | none measured |
-| 5 | **The conversation rules** - two products, one binary question, hard budget filter, `end_call`. | the demo | prompt work, needs traces |
+| 5 | ~~**The conversation rules.**~~ **Done 2026-11-15.** `end_call` built, two products enforced in the prompt, the question must name both choices, the stale branch line corrected. The hard budget filter turned out to be built already. | the demo | the word cap, below |
 | 6 | Cross-call memory, **only after** redaction, retention and encryption exist. | returning callers | DPDP |
 
 **Step 3 is the one that can fail.** It is where 1.3 seconds appears, and the

@@ -112,5 +112,31 @@ PRODUCT_DETAILS = {
 }
 
 
+# The call ends when the customer says it does, and only then. Described in
+# terms of what they said rather than what the agent feels, because "the
+# conversation seems finished" is a judgement and "they said thanks" is not.
+END_CALL = {
+    "name": "end_call",
+    "description": (
+        "Call this ONLY after the customer has signed off - 'thank you', "
+        "'nandri', 'sari podhum', 'vechidunga'. Say your closing line in the "
+        "same reply. Never call it while a question is open, never because "
+        "the conversation has gone quiet, and never to end a call the "
+        "customer has not ended."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "reason": {
+                "type": "string",
+                "enum": ["customer_said_goodbye", "handing_to_customer_care"],
+                "description": "Which of the two endings this is.",
+            },
+        },
+        "required": ["reason"],
+    },
+}
+
+
 def tool_config() -> dict[str, Any]:
-    return {"functionDeclarations": [SEARCH_PRODUCTS, PRODUCT_DETAILS]}
+    return {"functionDeclarations": [SEARCH_PRODUCTS, PRODUCT_DETAILS, END_CALL]}

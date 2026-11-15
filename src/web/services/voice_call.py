@@ -481,6 +481,8 @@ class VoiceCall:
                     agent_opens=True,
                     shadow=self._shadow,
                     trace=self._trace,
+                    # The tool layer decides; this file only relays it.
+                    should_end=lambda: tools.hang_up,
                 )
                 await self._pump_until_either_ends()
                 await self._drain_summaries()
