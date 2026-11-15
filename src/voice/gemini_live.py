@@ -185,8 +185,14 @@ class GeminiLiveSession:
         | None = None,
         on_caller_speech: Callable[[str], None] | None = None,
         instruction: str | None = None,
+        temperature: float = 0.7,
     ) -> None:
         self._config = config
+        # 0.7 for the agent, which is choosing what to say. The cascade's
+        # mouth is handed a finished reply and overrides it to 0: a
+        # loudspeaker with room to vary is a loudspeaker that can paraphrase
+        # a price, and nothing downstream would catch it.
+        self._temperature = temperature
         # Normally the agent's own standing prompt. The cascade's mouth
         # overrides it with one that only says "speak this", because a
         # loudspeaker that still holds the persona would answer the text it
@@ -226,7 +232,7 @@ class GeminiLiveSession:
     def _setup_message(self, thinking: str) -> dict[str, Any]:
         generation: dict[str, Any] = {
             "responseModalities": ["AUDIO"],
-            "temperature": 0.7,
+            "temperature": self._temperature,
         }
         # The shape is chosen in thinking_plan. Omitting the key is the
         # correct setup for gemini-3.8-live, not an accident: the server

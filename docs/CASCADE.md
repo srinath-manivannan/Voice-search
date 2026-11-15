@@ -326,16 +326,23 @@ real thinking is needed, to stop tokens being wasted.
 probability distribution a token is drawn from. The same number of tokens is
 generated and billed at the same rate at 0.0 as at 1.0.
 
-What *does* cost money is thinking tokens, and they are a separate control:
+What *does* cost money is thinking tokens. **An earlier version of this file
+said the cascade saves Rs 0.32 a minute by turning them off. That was wrong
+twice over**, and both halves were settled by measurement on 2026-11-15:
 
 | | today | in the cascade |
 |---|---|---|
-| `thinkingConfig` | **rejected by `gemini-3.8-live`** | settable on flash-lite |
-| cost of thinking | Rs 0.32/min, unavoidable | **Rs 0.00 when off** |
+| `thinkingConfig` | rejected by `gemini-3.8-live` | **also rejected**, with a 400 |
+| thinking actually billed | Rs 0.32/min | **0 tokens, measured** |
 
-So the instinct is right and the knob is the wrong one. In the cascade the
-knob finally exists, and turning it off is worth Rs 0.32 a minute - a fifth
-of the whole remaining bill.
+Flash-Lite does not think at all, so there is no knob and nothing to turn
+off. The Rs 0.32 is not *saved* by the cascade, it is simply never incurred -
+and it was already inside the Rs 1.66 to Rs 2.27 at the top of this file.
+Counting it again in the build order would have described the same rupee
+twice.
+
+So the instinct was right, the knob was the wrong one, and the saving was
+already banked.
 
 **Where temperature does matter is hallucination,** which is the other half
 of what was asked for. Low temperature means fewer invented specifications.
@@ -489,7 +496,7 @@ cost is realised in step three rather than at the end.
 | 1 | **Whisper leg behind a flag.** Transcribe with Groq in parallel with the Live session, and compare the two transcripts on real calls. Change nothing else. | nothing yet - it buys the measurement | none, it is read-only |
 | 2 | ~~**Wire `CI_HOST`.**~~ **Done 2026-11-15.** Production stock answers in ~500 ms; `make estate ARGS=--live` proves it. | the feature the demo is won on | the token is published, so it is also disclosed - rotate before launch |
 | 3 | **Split the brain out.** flash-lite on text, history held by us, the Live session demoted to a mouth that is only ever handed text. | **Rs 3.07 -> ~1.80** | the latency, all of it |
-| 4 | **Thinking off, temperature routed** by which tool was called. | Rs 0.32/min | none measured |
+| 4 | **Temperature routed** by tool round. **Done 2026-11-15**, and worth **nothing** - thinking was already free on Flash-Lite and temperature never cost anything. It buys fewer invented prices. | hallucination, not rupees | none measured |
 | 5 | **The conversation rules** - two products, one binary question, hard budget filter, `end_call`. | the demo | prompt work, needs traces |
 | 6 | Cross-call memory, **only after** redaction, retention and encryption exist. | returning callers | DPDP |
 

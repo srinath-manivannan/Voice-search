@@ -91,6 +91,12 @@ SPEAK_ONLY = (
     "only job is to say it. If it is empty, say nothing."
 )
 
+# A loudspeaker has nothing to be creative about. The agent runs at 0.7
+# because it is choosing what to say; by the time the mouth sees the reply
+# the choosing is over, and variation here can only be a price read
+# differently from the one the tool returned.
+MOUTH_TEMPERATURE = 0.0
+
 # Below this there is nothing to transcribe, only a gate opening and closing.
 MIN_UTTERANCE_SECONDS = 0.4
 

@@ -87,14 +87,21 @@ class GeminiTextModel:
         system_instruction: str,
         streamer_factory: Callable[[], Streamer] | None = None,
         tools: dict[str, Any] | None = None,
+        temperature: float = 0.7,
     ) -> None:
         self._api_key = api_key
         self._model = model
         self._system = system_instruction
         self._streamer_factory = streamer_factory or _default_streamer
         self._tools = tools
+        # The default when a caller does not route per request. The chat tab
+        # does not; the voice brain does, because the two halves of a turn
+        # want different things. See `src/chat/session.py`.
+        self._temperature = temperature
 
-    def _payload(self, history: list[dict[str, Any]]) -> dict[str, Any]:
+    def _payload(
+        self, history: list[dict[str, Any]], temperature: float | None = None
+    ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "contents": history,
             "systemInstruction": {"parts": [{"text": self._system}]},
@@ -103,14 +110,22 @@ class GeminiTextModel:
             # does not think at all and REJECTS the field outright with a 400
             # INVALID_ARGUMENT. Copying the voice config across cost an hour
             # and is the reason the upstream body is now in the error.
-            "generationConfig": {"temperature": 0.7},
+            #
+            # Measured 2026-11-15 across a two-turn conversation with tools:
+            # thoughtsTokenCount 0. So the Rs 0.32 a minute the Live path
+            # spends on thinking is not saved by the cascade, it is simply
+            # never incurred - and claiming it twice is how a plan starts
+            # describing the same rupee as two.
+            "generationConfig": {
+                "temperature": self._temperature if temperature is None else temperature
+            },
         }
         if self._tools:
             payload["tools"] = [self._tools]
         return payload
 
     async def stream(
-        self, history: list[dict[str, Any]]
+        self, history: list[dict[str, Any]], temperature: float | None = None
     ) -> AsyncIterator[tuple[str, ChatTurn]]:
         """Yield (delta, turn) as text arrives. The final turn carries usage."""
         turn = ChatTurn()
@@ -124,7 +139,7 @@ class GeminiTextModel:
             # The key goes in a header, never the query string. A URL ends up in
             # exception text, access logs and proxy logs; a header does not.
             headers={"x-goog-api-key": self._api_key},
-            json=self._payload(history),
+            json=self._payload(history, temperature),
         ) as response:
             if response.status_code >= 400:
                 body = (await response.aread()).decode("utf-8", "replace")[:400]

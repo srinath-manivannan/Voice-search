@@ -50,6 +50,21 @@ def _is_question(message: dict[str, Any]) -> bool:
     return any("text" in part for part in message.get("parts") or [])
 
 
+# Reading what the caller wants out of Tanglish that arrives misspelt,
+# half-finished and romanised three different ways. Some slack, because the
+# input varies and what comes out is a tool call rather than a claim.
+READING_TEMPERATURE = 0.2
+# Answering with the tool's result already in the window. Every number it
+# could need is in front of it, so there is nothing to be creative about -
+# and creativity at this point is the word for a price nobody quoted.
+#
+# Temperature costs nothing either way. The same tokens are generated and
+# billed at the same rate at 0.0 as at 1.0; this is a hallucination control
+# and it is only in this file because that is where the two halves of a turn
+# can be told apart for free.
+QUOTING_TEMPERATURE = 0.0
+
+
 class ChatSession:
     # Two rounds, because one question can genuinely need two lookups:
     # "20,000-30,000 kulla phone, stock irukka?" is a search and then a stock
@@ -133,7 +148,11 @@ class ChatSession:
         for _round in range(self.MAX_TOOL_ROUNDS + 1):
             reply = ""
             turn = None
-            async for delta, streamed in self._model.stream(self._history):
+            # The round IS the router, and it costs nothing to ask: round
+            # zero is the model reading the caller, every round after it is
+            # the model quoting something a tool returned.
+            temperature = READING_TEMPERATURE if _round == 0 else QUOTING_TEMPERATURE
+            async for delta, streamed in self._model.stream(self._history, temperature):
                 turn = streamed
                 reply += delta
                 yield delta

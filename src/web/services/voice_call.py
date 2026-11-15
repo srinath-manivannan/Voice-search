@@ -46,7 +46,7 @@ from src.voice.handover import note, with_memory
 from src.voice.rotating import RotatingLiveSession
 from src.chat.gemini_text import GeminiTextModel
 from src.chat.session import ChatSession
-from src.voice.cascade import SPEAK_ONLY, CascadeSession, Ear
+from src.voice.cascade import MOUTH_TEMPERATURE, SPEAK_ONLY, CascadeSession, Ear
 from src.voice.grok_stt import GrokEar
 from src.voice.session import Conversation
 from src.voice.shadow import ShadowEar
@@ -338,8 +338,12 @@ class VoiceCall:
                 ),
                 tools=tools,
             ),
-            # No tools and no persona. It reads what it is given.
-            GeminiLiveSession(settings, instruction=SPEAK_ONLY),
+            # No tools, no persona, and no room to vary. It reads what it
+            # is given, and a loudspeaker that can paraphrase a price is
+            # worse than one that cannot speak at all.
+            GeminiLiveSession(
+                settings, instruction=SPEAK_ONLY, temperature=MOUTH_TEMPERATURE
+            ),
             rate=settings.capture_sample_rate,
             ear_timeout_s=settings.whisper_timeout_seconds,
             on_caller_speech=listener,
