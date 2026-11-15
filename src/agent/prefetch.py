@@ -43,6 +43,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from src.agent.tamil_numbers import digitise
+
 log = logging.getLogger(__name__)
 
 # What the catalogue actually has shelves for. The enum in the tool
@@ -75,8 +77,14 @@ _RANGE = re.compile(
     rf"(\d[\d,]*)\s*{_UNIT}\s*{_JOIN}\s*(\d[\d,]*)\s*{_UNIT}",
     re.IGNORECASE,
 )
-# A ceiling on its own: "25k kulla", "under 25000", "25,000-ku keezha"
-_CEILING_WORDS = r"kulla|kkulla|under|below|within|ulla|குள்ள|கீழ|keezha|ku keezha"
+# A ceiling on its own: "25k kulla", "under 25000", "25,000-ku keezha".
+# வரை and வரைக்கும் are "up to" and came off the cascade's ear on a real
+# transcript - the Live API's own transcription romanises, so they had not
+# been seen before there was a second one.
+_CEILING_WORDS = (
+    r"kulla|kkulla|under|below|within|ulla|குள்ள|கீழ|keezha|ku keezha"
+    r"|வரைக்கும்|வரை|varaikkum|varai"
+)
 _CEILING_AFTER = re.compile(
     rf"(\d[\d,]*)\s*{_UNIT}\s*(?:rupees?|ரூபாய்|rs\.?)?\s*[-\s]*(?:{_CEILING_WORDS})",
     re.IGNORECASE,
@@ -158,7 +166,14 @@ def read_budget(text: str) -> tuple[int | None, int] | None:
 
     A ceiling is required and a floor is not: "25k kulla" is a budget and
     "20k mela" is not one we can search on.
+
+    Tamil number words are rewritten to digits first. The cascade's ear
+    transcribes into Tamil script - "இருபதாயிரம் குள்ள" where the Live API
+    writes "20000 kulla" - and every pattern below reads digit runs, so
+    without that pass this returns None on every Tamil-script transcript
+    there is. One rewrite in front keeps one set of rules behind it.
     """
+    text = digitise(text)
     if match := _RANGE.search(text):
         low = _rupees(match.group(1), match.group(2) or match.group(4))
         high = _rupees(match.group(3), match.group(4))

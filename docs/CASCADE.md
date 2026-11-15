@@ -179,12 +179,21 @@ Tanglish through the mouth and transcribing it back:
 `language=en`, `format=true` and no language at all all returned the same
 thing. The hearing is excellent; `இருபதாயிரம்` simply has no digit in it.
 
-**The brain does not care and the prefetch does.** Handed that exact
-sentence the brain called `search_products({"category": "phone",
-"max_price": 25000})` and answered in Tanglish. `prefetch.py` reads a budget
-with a regular expression over digit runs and finds nothing - so on this
-path the prefetch is off until Tamil numerals are parsed. A lost
-optimisation, not a wrong answer, and the next thing to build.
+**The brain did not care and the prefetch did.** Handed that exact sentence
+the brain called `search_products({"category": "phone", "max_price": 25000})`
+and answered in Tanglish, while `prefetch.py` - which reads a budget with a
+regular expression over digit runs - found nothing at all.
+
+`src/agent/tamil_numbers.py` closes that: the words are rewritten to digits
+before the patterns run, so `இருபதாயிரம் குள்ள` becomes `20000 குள்ள` and
+every rule about floors, ceilings and ranges stays in one place. The
+prefetch now fires on this path.
+
+It refuses fractions rather than approximating them. `ஒன்றரை லட்சம்` is a
+hundred and fifty thousand; reading the half-word as nothing would leave a
+bare `லட்சம்` and a budget wrong by fifty thousand, which is worse than a
+budget the prefetch does not fire on - the model's own reading of the
+sentence is still behind that one.
 
 **The brain is flash-lite and nothing heavier** because the hard part of this
 job is not reasoning, it is having the right catalogue row. Measured: 1,127 ms
