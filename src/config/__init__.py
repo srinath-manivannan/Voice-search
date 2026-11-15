@@ -119,6 +119,17 @@ class Config:
     grok_summary_every_turns: int
     grok_timeout_seconds: float
 
+    # Whisper on GROQ - a different company from xAI's Grok above, one letter
+    # apart, and neither key is a fallback for the other. On, it transcribes
+    # the same frames the Live API hears and writes both transcripts to the
+    # trace; it answers nobody and holds up nothing. It is the measurement
+    # docs/CASCADE.md step 3 has to be decided on, and it is off by default
+    # because it spends money to learn something rather than to serve a call.
+    whisper_compare_enabled: bool
+    groq_api_key: str
+    whisper_model: str
+    whisper_timeout_seconds: float
+
     log_level: str
     env: str
 
@@ -249,6 +260,10 @@ def load(env: str | None = None) -> Config:
         grok_model=os.environ.get("GROK_MODEL", "grok-4.3"),
         grok_summary_every_turns=int(os.environ.get("GROK_SUMMARY_EVERY_TURNS", "4")),
         grok_timeout_seconds=float(os.environ.get("GROK_TIMEOUT_SECONDS", "4")),
+        whisper_compare_enabled=_flag("WHISPER_COMPARE"),
+        groq_api_key=os.environ.get("GROQ_API_KEY", ""),
+        whisper_model=os.environ.get("WHISPER_MODEL", "whisper-large-v3-turbo"),
+        whisper_timeout_seconds=float(os.environ.get("WHISPER_TIMEOUT_SECONDS", "8")),
         log_level=os.environ.get("LOG_LEVEL", defaults.LOG_LEVEL),
         env=env,
     )

@@ -37,6 +37,7 @@ from src.voice.events import (
     Transcript,
     TurnInterrupted,
 )
+from src.voice.shadow import ShadowEar
 from src.voice.trace import CallTrace
 from src.voice.transport import AudioSink, AudioSource
 from src.voice.vad import EnergyVad, VadFrame
@@ -99,11 +100,16 @@ class Conversation:
         vad: EnergyVad | None = None,
         on_update: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
         agent_opens: bool = False,
+        shadow: ShadowEar | None = None,
+        trace: CallTrace | None = None,
     ) -> None:
         self._model = model
         self._source = source
         self._sink = sink
         self._vad = vad or EnergyVad()
+        # A second transcriber on the same frames, measuring the first. None
+        # unless WHISPER_COMPARE is on, and nothing in the call awaits it.
+        self._shadow = shadow
         # Optional, because the CLI does not need it and the telephony
         # transport will not have a screen to update.
         self._on_update = on_update
@@ -146,7 +152,10 @@ class Conversation:
         self._abandoned: set[int] = set()
         # Every decision this call makes, timestamped. Not the words - the
         # choices, which is what is missing when something goes wrong.
-        self.trace = CallTrace()
+        # Taken rather than made when the caller already holds one - the
+        # shadow ear writes to the same trace and has to be built before the
+        # conversation it listens to.
+        self.trace = trace if trace is not None else CallTrace()
         self.trace.record("call_open", agent_opens=agent_opens)
         self.result = ConversationResult()
 
@@ -286,8 +295,18 @@ class Conversation:
                     self._awaiting_reply = True
                     self._reply_belongs_to_caller = True
                     self.trace.record("end_of_speech", turn=self._model.turn_id + 1)
+                    if self._shadow is not None:
+                        # Closes the utterance and starts a transcription of
+                        # it. Returns immediately; the next frame is behind
+                        # this call, exactly as with end_of_speech itself.
+                        self._shadow.caller_stopped()
                     await self._model.end_of_speech()
 
+            if self._shadow is not None:
+                # The same bytes the model is about to be sent, and only
+                # those: the silence substituted while the agent speaks is
+                # not what either ear is being compared on.
+                self._shadow.hears(frame)
             await self._model.send_audio(frame)
 
     async def _interrupt(self) -> None:
@@ -327,6 +346,11 @@ class Conversation:
                     await self._notify(
                         type="caller_transcript", text=text, turn_id=turn_id
                     )
+                    if self._shadow is not None:
+                        # This is the half the second ear is compared
+                        # against. Pairing happens at the end of the turn,
+                        # not here, so a slow Groq cannot delay the reply.
+                        self._shadow.live_said(text)
 
                 case TurnInterrupted(turn_id=turn_id):
                     # Distinct from our own barge-in: this is the model saying
@@ -357,6 +381,12 @@ class Conversation:
                     # Echo gathered while the agent spoke is not the caller.
                     self._held.clear()
                     self._barge_frames = 0
+                    if self._shadow is not None:
+                        # After the reply, never during one. Only utterances
+                        # whose transcription has already come back are
+                        # paired, so this awaits nothing that is still in
+                        # flight and the next turn does not wait for Groq.
+                        await self._shadow.settle()
                     record = TurnRecord(
                         turn_id=turn_id,
                         first_audio_ms=first_audio_ms,

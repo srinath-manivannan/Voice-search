@@ -45,7 +45,10 @@ from src.voice.gemini_live import GeminiLiveSession
 from src.voice.handover import note, with_memory
 from src.voice.rotating import RotatingLiveSession
 from src.voice.session import Conversation
+from src.voice.shadow import ShadowEar
+from src.voice.trace import CallTrace
 from src.voice.usage import SessionUsage
+from src.voice.whisper import GroqWhisper
 from src.agent.tools.runner import ToolSession
 from src.voice.web_transport import BrowserSink, BrowserSource
 from src.web.services import dependencies
@@ -107,6 +110,11 @@ class VoiceCall:
         self._summaries: set[asyncio.Task[None]] = set()
         # Built in `_model`, once there is a ToolSession to search with.
         self._prefetch: Prefetcher | None = None
+        # One trace for the call, made here rather than by `Conversation`,
+        # because the shadow ear writes to it and exists before the
+        # conversation does.
+        self._trace = CallTrace()
+        self._shadow = self._open_shadow()
 
     # -- helpers ------------------------------------------------------------
 
@@ -244,6 +252,33 @@ class VoiceCall:
             on_usage=self._charge_grok,
         )
 
+    def _open_shadow(self) -> ShadowEar | None:
+        """Whisper on Groq, or nothing when the flag or the key is absent.
+
+        Same rule as the summariser: a missing key logs and stays off rather
+        than refusing the call. This one answers nobody, so a deploy that
+        forgot the key loses a measurement, not a customer.
+        """
+        settings = self._settings
+        if not settings.whisper_compare_enabled:
+            return None
+        if not settings.groq_api_key:
+            log.warning(
+                "WHISPER_COMPARE is on but GROQ_API_KEY is empty; "
+                "the second ear stays off"
+            )
+            return None
+        return ShadowEar(
+            GroqWhisper(
+                settings.groq_api_key,
+                settings.whisper_model,
+                timeout_s=settings.whisper_timeout_seconds,
+            ),
+            self._trace,
+            rate=settings.capture_sample_rate,
+            timeout_s=settings.whisper_timeout_seconds,
+        )
+
     def _charge_grok(
         self, prompt: int, cached: int, completion: int, model: str
     ) -> None:
@@ -344,6 +379,8 @@ class VoiceCall:
                     self._sink,
                     on_update=self._push,
                     agent_opens=True,
+                    shadow=self._shadow,
+                    trace=self._trace,
                 )
                 await self._pump_until_either_ends()
                 await self._drain_summaries()
@@ -422,6 +459,14 @@ class VoiceCall:
             task.cancel()
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)
+        if self._shadow is not None:
+            # Before the trace is written, so the tally is in the file, and
+            # bounded as a whole rather than per utterance: teardown is not
+            # allowed to sit on Groq once the caller has gone.
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(
+                    self._shadow.close(), self._settings.whisper_timeout_seconds
+                )
         announce()
         if self._talking is not None:
             saved = self._talking.trace.save(TRACES)
