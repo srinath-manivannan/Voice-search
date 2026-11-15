@@ -12,25 +12,26 @@ GEMINI_TEXT_MODEL = "gemini-3.5-flash-lite"
 # Product List API. Staging for now - production needs its own URL
 # and token, and neither has been confirmed.
 CATALOGUE_URL = "https://stage-proxy.poorvika.in/mMBVOUVdxJWP"
-# Raised from 15 to 25 on 2026-11-15, so a reply can carry two products,
-# a reason for each and one question - the shape docs/CASCADE.md asks for,
-# and about 18 words at its shortest.
+# 18, chosen 2026-11-15 after 25 was tried and measured.
 #
-# IT IS THE DEAREST SETTING IN THIS FILE. Output audio is charged once and
-# nothing discounts it, and the model writes to the cap rather than under it:
-# measured replies sat at 5.1 s with the cap at 15. Modelled at 25 they are
-# 8.5 s, which is +Rs 0.79 a connected minute - a third of the cascade's
-# whole bill, and it takes the prediction from Rs 2.58 to Rs 3.37, over the
-# Rs 2.50 target. Phase 0 found the same thing from the other end: "a
-# 15-word cap roughly halves reply tokens against 25".
+# The reply docs/CASCADE.md asks for - two products, a reason each, one
+# question - is about 18 words at its shortest, and the persona's own worked
+# example had been over the old cap of 15 since long before it was noticed.
 #
-# A fuller answer does avoid follow-up turns, and an avoided turn pays for
-# 5.6 s of extra speech. But this adds 25 s a minute, so it would have to
-# avoid 4.5 turns out of 7.4 to pay for itself, which it will not.
+# 25 was the first answer and it cost too much. Output audio is charged once
+# and nothing discounts it, and the model writes TO the cap rather than under
+# it: replies measured 5.1 s at 15, modelled 8.5 s at 25.
 #
-# 18 is +Rs 0.24 and still fits the two-product reply, if the bill matters
-# more than the room.
-REPLY_WORD_CAP = 25
+#     cap   s/reply   Rs/min   vs Rs 2.50
+#      15       5.1     2.58        +0.08
+#      18       6.1     2.82        +0.32   <- here
+#      25       8.5     3.37        +0.87
+#
+# A fuller answer does avoid follow-up turns and an avoided turn pays for
+# 5.6 s of extra speech, but 25 added 25 s a minute - it would have had to
+# avoid 4.5 turns out of 7.4 to pay for itself. 18 buys the room the reply
+# actually needs and leaves the rest.
+REPLY_WORD_CAP = 18
 CHAT_WORD_CAP = 45
 THINKING_BUDGET = 0
 LOG_LEVEL = "DEBUG"

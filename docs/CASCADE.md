@@ -423,9 +423,9 @@ question.** No turn offers more than two products. No turn asks two things.
    care with the transcript attached. An agent that guesses at stock is worse
    than one that transfers.
 
-### The word cap, raised on purpose and at a price
+### The word cap, raised to fit the reply and no further
 
-`REPLY_WORD_CAP` is **25** as of 2026-11-15, up from 15. The reply this
+`REPLY_WORD_CAP` is **18** as of 2026-11-15, up from 15. The reply this
 section asks for - two products, a reason each, one question - is about 18
 words at its shortest, and the persona's own worked example had been over the
 old cap since long before any of this:
@@ -440,9 +440,9 @@ rate instead of asking the cost module:
 | cap | seconds a reply | Rs/min | vs Rs 2.50 |
 |---|---|---|---|
 | 15 | 5.1 | 2.58 | +0.08 |
-| 18 | 6.1 | 2.82 | +0.32 |
+| **18** | **6.1** | **2.82** | **+0.32** |
 | 20 | 6.8 | 2.98 | +0.48 |
-| **25** | **8.5** | **3.37** | **+0.87** |
+| 25 | 8.5 | 3.37 | +0.87 |
 
 The model writes **to** the cap rather than under it - replies measured 5.1
 seconds with it at 15 - so this is a real doubling of the one line nothing
@@ -453,10 +453,14 @@ A fuller answer does avoid follow-up turns, and an avoided turn pays for 5.6
 seconds of extra speech. But 25 words adds 25 seconds a minute, so it would
 have to avoid 4.5 turns out of 7.4 to pay for itself, and it will not.
 
-So the cascade now predicts **Rs 3.37 a minute**, above the Rs 2.50 ceiling
-and close to the Rs 3.07 the Live path costs today. The room was chosen over
-the rupee, deliberately, and 18 is the setting that keeps the two-product
-reply for Rs 0.24 if that trade is ever reversed.
+25 was tried first and reverted the same day. It predicted **Rs 3.37 a
+minute** - above the ceiling, and close to the Rs 3.07 the Live path costs
+today, which would have spent the whole architecture on nothing.
+
+**18 is the floor of the reply rather than headroom above it.** It buys the
+second product and the question, and stops. The cascade predicts **Rs 2.82**,
+still over Rs 2.50 by 32 paise, and that gap is now the honest distance to
+the target rather than a rounding error hidden in a cap nobody had measured.
 
 ### One cap in three places, which is how it hid
 

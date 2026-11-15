@@ -57,10 +57,12 @@ def test_the_voice_cap_fits_the_reply_the_persona_asks_for():
 
     Measured 2026-11-15: at 15 the model wrote 5.1-second replies, at 25 it
     is modelled at 8.5 - the cap is a target in practice, not a ceiling, and
-    audio out is the one line nothing discounts. 25 costs Rs 0.79 a minute
-    more than 15; this pins the choice rather than the cost.
+    audio out is the one line nothing discounts. So this is a floor, not a
+    range: below 18 the second product has to go, and above it the bill
+    climbs with nothing asking it to.
     """
     assert prodconfig.REPLY_WORD_CAP >= 18
+    assert prodconfig.REPLY_WORD_CAP <= 20
 
 
 def test_the_cap_reaches_the_instruction():
