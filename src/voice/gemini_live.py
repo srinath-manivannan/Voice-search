@@ -184,8 +184,16 @@ class GeminiLiveSession:
         on_tool_call: Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]]
         | None = None,
         on_caller_speech: Callable[[str], None] | None = None,
+        instruction: str | None = None,
     ) -> None:
         self._config = config
+        # Normally the agent's own standing prompt. The cascade's mouth
+        # overrides it with one that only says "speak this", because a
+        # loudspeaker that still holds the persona would answer the text it
+        # was handed instead of reading it.
+        self._instruction = (
+            instruction if instruction is not None else config.system_instruction
+        )
         # Declared to the model at setup; executed by the injected callback.
         # The adapter stays ignorant of what the tools actually do, which is
         # what lets the product logic outlive a change of provider.
@@ -233,7 +241,7 @@ class GeminiLiveSession:
         setup: dict[str, Any] = {
             "model": f"models/{self._config.gemini_live_model}",
             "generationConfig": generation,
-            "systemInstruction": {"parts": [{"text": self._config.system_instruction}]},
+            "systemInstruction": {"parts": [{"text": self._instruction}]},
             # Both empty objects are the Live setup fields, not the SDK's
             # snake_case names. Output was already on. Input is what lets a
             # side summariser hear the caller. Every socket builds this

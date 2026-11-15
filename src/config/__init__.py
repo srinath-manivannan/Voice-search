@@ -130,6 +130,14 @@ class Config:
     whisper_model: str
     whisper_timeout_seconds: float
 
+    # The whole conversation off native audio: Whisper for the ear, the chat
+    # tab's own text session for the brain, and the Live socket demoted to a
+    # mouth that is only ever handed the finished reply. Worth about Rs 1.27
+    # a connected minute and costs about 1.3 seconds on every turn, which is
+    # why it is a flag and not a change. Needs GROQ_API_KEY; without one it
+    # logs and stays on the Live path. See docs/CASCADE.md.
+    cascade_enabled: bool
+
     log_level: str
     env: str
 
@@ -264,6 +272,7 @@ def load(env: str | None = None) -> Config:
         groq_api_key=os.environ.get("GROQ_API_KEY", ""),
         whisper_model=os.environ.get("WHISPER_MODEL", "whisper-large-v3-turbo"),
         whisper_timeout_seconds=float(os.environ.get("WHISPER_TIMEOUT_SECONDS", "8")),
+        cascade_enabled=_flag("CASCADE"),
         log_level=os.environ.get("LOG_LEVEL", defaults.LOG_LEVEL),
         env=env,
     )

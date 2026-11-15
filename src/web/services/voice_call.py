@@ -44,6 +44,9 @@ from src.memory.summariser import CallMemory
 from src.voice.gemini_live import GeminiLiveSession
 from src.voice.handover import note, with_memory
 from src.voice.rotating import RotatingLiveSession
+from src.chat.gemini_text import GeminiTextModel
+from src.chat.session import ChatSession
+from src.voice.cascade import SPEAK_ONLY, CascadeSession
 from src.voice.session import Conversation
 from src.voice.shadow import ShadowEar
 from src.voice.trace import CallTrace
@@ -53,6 +56,11 @@ from src.agent.tools.runner import ToolSession
 from src.voice.web_transport import BrowserSink, BrowserSource
 from src.web.services import dependencies
 from src.web.services.cost_report import report, spent_inr
+
+# The two shapes a call can take. Not a protocol: there are exactly two, they
+# are both named here, and a union says which they are where a protocol would
+# only say what they have in common.
+CallModel = RotatingLiveSession | CascadeSession
 
 log = logging.getLogger(__name__)
 
@@ -103,7 +111,7 @@ class VoiceCall:
         # message, so it has to tolerate None.
         self._usage: SessionUsage | None = None
         # Kept so a failure can report how far the call got.
-        self._live: RotatingLiveSession | None = None
+        self._live: CallModel | None = None
         # None when memory is off. The summary tasks are the Grok calls
         # kicked after a reply; they are cancelled with the call.
         self._memory = self._open_memory()
@@ -252,6 +260,47 @@ class VoiceCall:
             on_usage=self._charge_grok,
         )
 
+    def _open_cascade(
+        self, tools: ToolSession, listener: Callable[[str], None] | None
+    ) -> CascadeSession | None:
+        """The whole conversation off native audio, or None to stay as we are.
+
+        Same rule as the other two side models: the flag alone is not enough,
+        a missing key logs and falls back rather than refusing the call. The
+        fallback here is the entire Live path, which is the one that works.
+        """
+        settings = self._settings
+        if not settings.cascade_enabled:
+            return None
+        if not settings.groq_api_key:
+            log.warning("CASCADE is on but GROQ_API_KEY is empty; staying on Live")
+            return None
+
+        return CascadeSession(
+            GroqWhisper(
+                settings.groq_api_key,
+                settings.whisper_model,
+                timeout_s=settings.whisper_timeout_seconds,
+            ),
+            # The chat tab's own session, unchanged, with the VOICE
+            # instruction rather than the chat one: the reply is going to be
+            # spoken, so it is capped and worded for speech.
+            ChatSession(
+                GeminiTextModel(
+                    api_key=settings.gemini_api_key,
+                    model=settings.gemini_text_model,
+                    system_instruction=settings.system_instruction,
+                    tools=dependencies.declarations_for(settings),
+                ),
+                tools=tools,
+            ),
+            # No tools and no persona. It reads what it is given.
+            GeminiLiveSession(settings, instruction=SPEAK_ONLY),
+            rate=settings.capture_sample_rate,
+            ear_timeout_s=settings.whisper_timeout_seconds,
+            on_caller_speech=listener,
+        )
+
     def _open_shadow(self) -> ShadowEar | None:
         """Whisper on Groq, or nothing when the flag or the key is absent.
 
@@ -317,7 +366,7 @@ class VoiceCall:
             timeout=self._settings.grok_timeout_seconds + 0.5,
         )
 
-    def _model(self, tools: ToolSession) -> RotatingLiveSession:
+    def _model(self, tools: ToolSession) -> CallModel:
         """One conversation, however many sockets it takes.
 
         The rotation threshold lives in config and zero turns it off, in
@@ -348,6 +397,9 @@ class VoiceCall:
             if memory is None:
                 return note(tools)
             return with_memory(tools, memory.handover)
+
+        if (cascade := self._open_cascade(tools, listener)) is not None:
+            return cascade
 
         return RotatingLiveSession(
             lambda: GeminiLiveSession(

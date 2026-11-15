@@ -77,6 +77,24 @@ class ChatSession:
     def history(self) -> list[dict[str, Any]]:
         return list(self._history)
 
+    def remember(self, context: str) -> None:
+        """Put something in the history without asking for an answer.
+
+        What `GeminiLiveSession.prime` does with `turnComplete: false`, done
+        by the side that owns the history instead of by the wire protocol.
+        The acknowledgement is ours, not the model's: a pair is appended so
+        `_trim` still sees whole exchanges, and so the next real question is
+        not read as a second message from the customer in a row.
+
+        Used by the prefetch, which hands over a shortlist the customer has
+        not asked for yet. Priming must never make the agent say anything.
+        """
+        if not context.strip():
+            return
+        self._history.append({"role": "user", "parts": [{"text": context}]})
+        self._history.append({"role": "model", "parts": [{"text": "Sari."}]})
+        self._trim()
+
     def _trim(self) -> None:
         """Drop the oldest exchanges, keeping whole pairs.
 

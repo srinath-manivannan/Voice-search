@@ -112,6 +112,12 @@ class SessionUsage:
     grok_prompt_tokens: int = 0
     grok_completion_tokens: int = 0
     _grok_usd: float = 0.0
+    # The cascade's text brain, priced on flash-lite's card by its own
+    # SessionUsage. Same reasoning as Grok above and the same necessity: a
+    # call answered by two models at two rate cards has no single `rates`
+    # that is true of it, and reporting only the half this object holds
+    # would make the cheaper architecture look cheaper than it is.
+    _side_usd: float = 0.0
 
     def record(self, usage_metadata: dict[str, Any]) -> TurnUsage:
         turn = TurnUsage.parse(usage_metadata)
@@ -160,7 +166,19 @@ class SessionUsage:
 
     @property
     def total_usd(self) -> float:
-        return self.input_usd + self.output_usd + self._grok_usd
+        return self.input_usd + self.output_usd + self._grok_usd + self._side_usd
+
+    @property
+    def side_usd(self) -> float:
+        return self._side_usd
+
+    def add_side(self, usd: float) -> None:
+        """Another model's spend on this call, already priced on its own card.
+
+        Dollars rather than tokens, because the point is that the tokens were
+        charged at rates this object does not hold.
+        """
+        self._side_usd += max(usd, 0.0)
 
     @property
     def grok_usd(self) -> float:
