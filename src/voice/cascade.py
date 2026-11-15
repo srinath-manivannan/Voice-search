@@ -195,6 +195,10 @@ class CascadeSession:
         # reads incoming audio as the caller interrupting, and the turn ends
         # as TurnInterrupted instead of TurnComplete.
         self._mouth_busy = False
+        # Utterances the ear could not read. Counted because the customer
+        # hears nothing at all when this happens, which is indistinguishable
+        # from the agent being slow.
+        self._unheard = 0
         self.usage = SessionUsage()
         # How much of the brain's own running total has already been added
         # to `usage`, so each turn adds the difference and not the pile.
@@ -225,8 +229,20 @@ class CascadeSession:
         This is the line the whole cost argument rests on: no caller audio
         reaches any model's context window, so none of it is re-billed on
         the turn after.
+
+        DIGITAL SILENCE IS NOT CALLER AUDIO and is dropped. While the agent
+        speaks, the microphone gate holds the caller's frames back and sends
+        a run of zeroes in their place, to keep the Live socket from being
+        closed as idle - `session.py` explains why. The Live model ignores
+        it, having asked for it. The cascade was buffering it, so by the time
+        the caller finished a sentence the ear was handed ten seconds of
+        silence with two of speech inside it, and xAI answered 200 OK with an
+        empty transcript, seven times in a row, on the first real call.
+
+        A microphone never produces an exactly-zero frame; a substitution
+        always does. That is the whole test.
         """
-        if len(self._buffer) < self._cap:
+        if any(pcm) and len(self._buffer) < self._cap:
             self._buffer += pcm
 
     async def end_of_speech(self) -> None:
@@ -318,6 +334,7 @@ class CascadeSession:
     async def _turn(self, pcm: bytes, turn_id: int) -> None:
         heard = await self._transcribe(pcm)
         if heard is None:
+            self._unheard += 1
             # Nothing was understood. Saying so is the agent's job and it
             # cannot be done without words, so the turn ends silently and the
             # caller repeats themselves - which is what happens today when

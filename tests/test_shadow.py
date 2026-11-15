@@ -19,7 +19,17 @@ RATE = 16000
 
 
 def speech(seconds: float) -> bytes:
-    return bytes(int(seconds * RATE * 2))
+    """Frames with something in them.
+
+    NOT `bytes(n)`. That is digital silence, which is what the microphone
+    gate substitutes while the agent speaks and which the cascade now drops
+    - so a helper that returned zeroes was feeding the ear exactly the thing
+    that made the first real call deaf, and passing.
+    """
+    samples = int(seconds * RATE)
+    return b"".join(
+        ((i % 2000) - 1000).to_bytes(2, "little", signed=True) for i in range(samples)
+    )
 
 
 class FakeTrace:
