@@ -74,6 +74,9 @@ profile:                 ## what one call costs in CPU - no network, no money
 prompt:                  ## size of the standing prompt, section by section - free
 	$(PY) -m src.tools.count_prompt
 
+estate:                  ## which per-item services are reachable (ARGS=--live to call them)
+	$(PY) -m src.tools.check_estate $(ARGS)
+
 alerts:                  ## regenerate deploy/alerts.yml from the rule definitions
 	# The thresholds live in src/observability/alerts.py, beside the reason
 	# each one exists. Generated rather than written so the rule that fires

@@ -213,14 +213,27 @@ beats semantic for a number.
 **The budget filter belongs here, in code, not in the prompt.** That is the
 one thing EXA got wrong, and a rule cannot be talked out of it.
 
-### What is still missing from the catalogue
+### Live store stock, which now works
 
-`CI_HOST` and `CI_AUTH_TOKEN` - the production Central Inventory host and
-token - have been outstanding since this project started. The scorecard names
-the cost of not having them: the five residual stock mismatches are
-*"catalogue to Central-Inventory sync lag, which needs `CI_HOST`, not proxy
-code."* Live store stock is the one thing EXA cannot do, and it is gated on
-a credential Poorvika has to supply.
+`CI_HOST` and `CI_AUTH_TOKEN` were outstanding since this project started,
+and on 2026-11-15 they stopped being. The API collection's Production folder
+now carries a CI - Stock Check API of its own, at
+`ci-gateway.poorvika.com/central-inv/v1`, with a token signed for production
+rather than the staging one every earlier attempt was refused with.
+
+Measured the same day: item 54486 came back `in stock, 34 across 24 branches`
+in 491 ms, and item 48849 came back a genuine `out of stock`. All four
+sections - price, stock, offers, EMI - answer on production.
+
+So the one thing EXA cannot do, we can. Asked about store stock it sends the
+customer to the product page to look for themselves; we have the number and
+the branch count, in half a second.
+
+Two things that cost an hour and are written down so they cost nobody else
+one: **`CI_HOST` is a base URL**, scheme and path included - a bare hostname
+reports `ready` and then fails every call - and **`ready` is not `answers`**,
+because a refused token arrives with HTTP 200. `make estate ARGS=--live`
+tells those apart and is the thing to run after touching either variable.
 
 ---
 
@@ -447,7 +460,7 @@ cost is realised in step three rather than at the end.
 | | step | worth | risk |
 |---|---|---|---|
 | 1 | **Whisper leg behind a flag.** Transcribe with Groq in parallel with the Live session, and compare the two transcripts on real calls. Change nothing else. | nothing yet - it buys the measurement | none, it is read-only |
-| 2 | **Wire `CI_HOST`.** Live store stock is the one thing the incumbent cannot do. | the feature the demo is won on | needs Poorvika |
+| 2 | ~~**Wire `CI_HOST`.**~~ **Done 2026-11-15.** Production stock answers in ~500 ms; `make estate ARGS=--live` proves it. | the feature the demo is won on | the token is published, so it is also disclosed - rotate before launch |
 | 3 | **Split the brain out.** flash-lite on text, history held by us, the Live session demoted to a mouth that is only ever handed text. | **Rs 3.07 -> ~1.80** | the latency, all of it |
 | 4 | **Thinking off, temperature routed** by which tool was called. | Rs 0.32/min | none measured |
 | 5 | **The conversation rules** - two products, one binary question, hard budget filter, `end_call`. | the demo | prompt work, needs traces |
