@@ -174,6 +174,18 @@ class Conversation:
     # nothing. The grace period is the fix: for this long after the agent
     # starts speaking, it does not listen for interruptions at all.
     BARGE_IN_GRACE_SECONDS = 0.4
+
+    # Longest the agent may hold the microphone shut without finishing a
+    # turn. Found on a real call: the greeting's socket died after five
+    # chunks of audio, TurnComplete never arrived, `_agent_speaking` stayed
+    # True, and the gate was held for all 30 seconds the caller sat there
+    # talking. The trace is 1,530 gate_held events and 5 audio_out, with no
+    # turn_complete at all. The page said "listening" the whole time.
+    #
+    # Nothing recovered it and nothing reported it, because every path out
+    # of the held gate runs through a TurnComplete that was never coming. A
+    # reply is seven seconds; anything past this is a turn that will not end.
+    FLOOR_HELD_TOO_LONG_SECONDS = 20.0
     # A real interrupter speaks over the agent for a moment, and does it loudly
     # relative to the room. Echo surviving the browser's cancellation is neither
     # sustained nor loud, so demanding both is what separates them. 12 frames is
@@ -195,6 +207,16 @@ class Conversation:
     # of the agent's own sentence leaking through the speaker does not
     # qualify.
     SPEECH_FRAMES_FOR_A_TURN = 8
+
+    def _floor_held_for(self) -> float:
+        return time.monotonic() - self._agent_started_at
+
+    def _floor_is_stuck(self) -> bool:
+        """The agent claimed the floor and never gave it back."""
+        return (
+            self._agent_started_at > 0
+            and self._floor_held_for() >= self.FLOOR_HELD_TOO_LONG_SECONDS
+        )
 
     def _past_grace(self) -> bool:
         return (
@@ -227,6 +249,18 @@ class Conversation:
         """
         async for frame in self._source.frames():
             verdict = self._vad.accept(frame)
+
+            if self._agent_speaking and self._floor_is_stuck():
+                # Let go rather than hold a dead line. The caller is talking
+                # into a gate that has no one behind it.
+                log.warning("agent held the floor for too long; releasing")
+                self.trace.record(
+                    "floor_released", held_s=round(self._floor_held_for(), 1)
+                )
+                await self._notify(type="state", agent_speaking=False)
+                self._agent_speaking = False
+                self._held.clear()
+                self._barge_frames = 0
 
             if self._agent_speaking:
                 # Hold the microphone back rather than streaming the agent's

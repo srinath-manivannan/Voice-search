@@ -128,3 +128,32 @@ class TestTheDrain:
 
         seconds = pcm_bytes / (rate * 2)
         assert min(seconds, Conversation.MAX_CLOSING_WAIT_SECONDS) == expected
+
+
+class TestAFloorNobodyGivesBack:
+    """Found on a real call, from the trace rather than from the code.
+
+    The greeting's socket died after five chunks of audio. TurnComplete never
+    arrived, so `_agent_speaking` stayed True, so the microphone gate stayed
+    shut - 1,530 gate_held events and 5 audio_out across thirty seconds, with
+    the page showing "listening" and the caller talking into nothing.
+
+    Every path out of a held gate ran through a TurnComplete that was never
+    coming.
+    """
+
+    def test_a_fresh_floor_is_not_stuck(self):
+        from src.voice.session import Conversation
+
+        assert Conversation.FLOOR_HELD_TOO_LONG_SECONDS > 7.0, (
+            "a real reply is about seven seconds; releasing sooner would cut "
+            "the agent off mid-sentence"
+        )
+
+    def test_it_lets_go_well_inside_a_caller_s_patience(self):
+        from src.voice.session import Conversation
+
+        assert Conversation.FLOOR_HELD_TOO_LONG_SECONDS <= 30.0, (
+            "the measured dead call ran thirty seconds before the caller "
+            "gave up; the gate has to open before they do"
+        )
