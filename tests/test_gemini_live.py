@@ -123,7 +123,7 @@ async def test_setup_carries_the_measured_word_cap(config):
     async with GeminiLiveSession(config, connect=connector(sock)):
         pass
     instruction = sock.sent[0]["setup"]["systemInstruction"]["parts"][0]["text"]
-    assert "under 15 words" in instruction
+    assert "under 25 words" in instruction
     assert "Never invent" in instruction
 
 

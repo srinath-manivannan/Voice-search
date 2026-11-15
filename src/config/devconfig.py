@@ -12,7 +12,25 @@ GEMINI_TEXT_MODEL = "gemini-3.5-flash-lite"
 # Product List API. Staging for now - production needs its own URL
 # and token, and neither has been confirmed.
 CATALOGUE_URL = "https://stage-proxy.poorvika.in/mMBVOUVdxJWP"
-REPLY_WORD_CAP = 15
+# Raised from 15 to 25 on 2026-11-15, so a reply can carry two products,
+# a reason for each and one question - the shape docs/CASCADE.md asks for,
+# and about 18 words at its shortest.
+#
+# IT IS THE DEAREST SETTING IN THIS FILE. Output audio is charged once and
+# nothing discounts it, and the model writes to the cap rather than under it:
+# measured replies sat at 5.1 s with the cap at 15. Modelled at 25 they are
+# 8.5 s, which is +Rs 0.79 a connected minute - a third of the cascade's
+# whole bill, and it takes the prediction from Rs 2.58 to Rs 3.37, over the
+# Rs 2.50 target. Phase 0 found the same thing from the other end: "a
+# 15-word cap roughly halves reply tokens against 25".
+#
+# A fuller answer does avoid follow-up turns, and an avoided turn pays for
+# 5.6 s of extra speech. But this adds 25 s a minute, so it would have to
+# avoid 4.5 turns out of 7.4 to pay for itself, which it will not.
+#
+# 18 is +Rs 0.24 and still fits the two-product reply, if the bill matters
+# more than the room.
+REPLY_WORD_CAP = 25
 CHAT_WORD_CAP = 45
 THINKING_BUDGET = 0
 LOG_LEVEL = "DEBUG"

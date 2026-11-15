@@ -423,21 +423,48 @@ question.** No turn offers more than two products. No turn asks two things.
    care with the transcript attached. An agent that guesses at stock is worse
    than one that transfers.
 
-### The one thing step 5 did not settle
+### The word cap, raised on purpose and at a price
 
-`REPLY_WORD_CAP` is **15**, and it is the shipped default in both configs.
-The reply this section asks for - two products, a reason each, one binary
-question - is about 25 words, and the persona's own worked example has been
-over the cap since before any of this:
+`REPLY_WORD_CAP` is **25** as of 2026-11-15, up from 15. The reply this
+section asks for - two products, a reason each, one question - is about 18
+words at its shortest, and the persona's own worked example had been over the
+old cap since long before any of this:
 
 > "Poco M8 5G, 19,999 rupees - 45MP camera. Realme P4 Lite 5G, 20,999 -
 > 5500mAh battery. Edhu paakkalaam?"
 
-So either the cap rises or the second product goes. Raising it buys more
-audio out, which is the one line nothing discounts, so it is a cost change
-and belongs to Poorvika rather than to a commit: **about 10 extra words a
-reply is roughly Rs 0.12 a minute** at 5.73 replies a minute. Left as it is,
-and named here, rather than changed quietly in either direction.
+**An earlier version of this file guessed Rs 0.12 a minute for that. The real
+figure is Rs 0.79**, and the guess was wrong because it multiplied words by a
+rate instead of asking the cost module:
+
+| cap | seconds a reply | Rs/min | vs Rs 2.50 |
+|---|---|---|---|
+| 15 | 5.1 | 2.58 | +0.08 |
+| 18 | 6.1 | 2.82 | +0.32 |
+| 20 | 6.8 | 2.98 | +0.48 |
+| **25** | **8.5** | **3.37** | **+0.87** |
+
+The model writes **to** the cap rather than under it - replies measured 5.1
+seconds with it at 15 - so this is a real doubling of the one line nothing
+discounts. Phase 0 found the same from the other end: *"a 15-word cap roughly
+halves reply tokens against 25"*.
+
+A fuller answer does avoid follow-up turns, and an avoided turn pays for 5.6
+seconds of extra speech. But 25 words adds 25 seconds a minute, so it would
+have to avoid 4.5 turns out of 7.4 to pay for itself, and it will not.
+
+So the cascade now predicts **Rs 3.37 a minute**, above the Rs 2.50 ceiling
+and close to the Rs 3.07 the Live path costs today. The room was chosen over
+the rupee, deliberately, and 18 is the setting that keeps the two-product
+reply for Rs 0.24 if that trade is ever reversed.
+
+### One cap in three places, which is how it hid
+
+`.env.example` said **100** while both configs said 15, and an env var wins
+over a shipped default. Anyone who copied the example ran at nearly seven
+times the modelled reply length, and every cost figure in this project
+described a configuration nobody was running. All four now agree, and
+`tests/test_word_cap.py` fails if they stop.
 
 ### Opening and closing
 

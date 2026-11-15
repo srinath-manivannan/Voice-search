@@ -37,13 +37,17 @@ def test_phase0_defaults_carry_into_both_environments(env):
         cfg = load(name)
         # Measured: 0 disables thinking, worth about Rs 0.14/min net.
         assert cfg.thinking_budget == 0
-        # Measured: 15 words roughly halves reply tokens against 25.
-        assert cfg.reply_word_cap == 15
+        # Phase 0 measured that 15 words roughly halves reply tokens
+        # against 25, and 15 was the default until 2026-11-15. Raised to 25
+        # deliberately, for the two-product reply CASCADE.md asks for, at a
+        # measured +Rs 0.79 a connected minute. The number is pinned here
+        # because it is a cost decision, not a default.
+        assert cfg.reply_word_cap == 25
 
 
 def test_system_instruction_carries_the_word_cap_and_the_no_inventing_rule(env):
     cfg = load("development")
-    assert "under 15 words" in cfg.system_instruction
+    assert "under 25 words" in cfg.system_instruction
     assert "Never invent" in cfg.system_instruction
 
 
