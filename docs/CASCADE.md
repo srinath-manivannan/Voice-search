@@ -158,15 +158,33 @@ the others cannot:
 
 ### Why each leg is that thing and not another
 
-**The ear is Whisper on Groq** because it is the cheapest accurate thing that
-exists: $0.04 an audio hour, against $3.00 per million tokens for sending the
-same audio into the Live API. It also removes the reason audio ever enters a
-context window, which is the entire cost problem this project has had.
+**The ear is xAI's STT**, on the `XAI_API_KEY` the summariser already uses.
+This file first said Whisper on Groq, on the belief that xAI had no
+transcription endpoint. That was wrong - xAI launched standalone STT and TTS
+in April 2026 - so the cascade needs no second vendor and no second account.
+$0.10 an audio hour against Groq's $0.04, and cheaper in practice anyway
+because Groq bills a **ten-second minimum per request** against utterances
+that average 4.4 seconds. Groq's Whisper is still here and still works,
+behind the same `Ear` protocol.
 
-One gotcha, and it is most of the bill: **Groq bills a minimum of ten seconds
-per request.** The measured caller's utterances average 4.4 seconds, so we
-pay for 57 seconds a minute and use 25. Even so the leg is 7 paise. Batching
-utterances would halve it and is not worth the latency.
+Either way the point is the same: audio stops entering a context window,
+which is the entire cost problem this project has had.
+
+**It writes Tamil script, and numbers as words.** Measured by speaking
+Tanglish through the mouth and transcribing it back:
+
+    sent   Enakku 20000 kulla oru nalla camera phone venum, 25000 varaikkum okay.
+    heard  எனக்கு இருபதாயிரம் குள்ள ஒரு நல்ல கேமரா போன் வேணும், இருபத்தி ஐந்தாயிரம் வரைக்கும் ஓகே.
+
+`language=en`, `format=true` and no language at all all returned the same
+thing. The hearing is excellent; `இருபதாயிரம்` simply has no digit in it.
+
+**The brain does not care and the prefetch does.** Handed that exact
+sentence the brain called `search_products({"category": "phone",
+"max_price": 25000})` and answered in Tanglish. `prefetch.py` reads a budget
+with a regular expression over digit runs and finds nothing - so on this
+path the prefetch is off until Tamil numerals are parsed. A lost
+optimisation, not a wrong answer, and the next thing to build.
 
 **The brain is flash-lite and nothing heavier** because the hard part of this
 job is not reasoning, it is having the right catalogue row. Measured: 1,127 ms

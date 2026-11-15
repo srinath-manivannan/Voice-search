@@ -46,7 +46,8 @@ from src.voice.handover import note, with_memory
 from src.voice.rotating import RotatingLiveSession
 from src.chat.gemini_text import GeminiTextModel
 from src.chat.session import ChatSession
-from src.voice.cascade import SPEAK_ONLY, CascadeSession
+from src.voice.cascade import SPEAK_ONLY, CascadeSession, Ear
+from src.voice.grok_stt import GrokEar
 from src.voice.session import Conversation
 from src.voice.shadow import ShadowEar
 from src.voice.trace import CallTrace
@@ -61,6 +62,26 @@ from src.web.services.cost_report import report, spent_inr
 # are both named here, and a union says which they are where a protocol would
 # only say what they have in common.
 CallModel = RotatingLiveSession | CascadeSession
+
+# Brand names the catalogue carries, handed to the ear as bias. These are the
+# words a mis-hearing costs most on: a phone nobody stocks cannot be searched
+# for, and "Poorvika" itself is the first word of every call.
+CATALOGUE_TERMS = (
+    "Poorvika",
+    "Redmi",
+    "Xiaomi",
+    "Poco",
+    "OPPO",
+    "Realme",
+    "OnePlus",
+    "Samsung",
+    "Vivo",
+    "iPhone",
+    "Apple",
+    "Motorola",
+    "Nothing",
+    "EMI",
+)
 
 log = logging.getLogger(__name__)
 
@@ -260,6 +281,32 @@ class VoiceCall:
             on_usage=self._charge_grok,
         )
 
+    def _ear(self) -> Ear | None:
+        """Whoever can transcribe, preferring the key this project already has.
+
+        xAI first, because `XAI_API_KEY` is already set for the summariser,
+        so the cascade needs no second vendor and no second account. Groq's
+        Whisper is the alternative and the two are interchangeable behind
+        `cascade.Ear` - one letter apart in the name, and neither key is a
+        fallback for the other.
+        """
+        settings = self._settings
+        if settings.xai_api_key:
+            return GrokEar(
+                settings.xai_api_key,
+                settings.stt_model,
+                language=settings.stt_language,
+                keyterms=CATALOGUE_TERMS,
+                timeout_s=settings.whisper_timeout_seconds,
+            )
+        if settings.groq_api_key:
+            return GroqWhisper(
+                settings.groq_api_key,
+                settings.whisper_model,
+                timeout_s=settings.whisper_timeout_seconds,
+            )
+        return None
+
     def _open_cascade(
         self, tools: ToolSession, listener: Callable[[str], None] | None
     ) -> CascadeSession | None:
@@ -272,16 +319,13 @@ class VoiceCall:
         settings = self._settings
         if not settings.cascade_enabled:
             return None
-        if not settings.groq_api_key:
-            log.warning("CASCADE is on but GROQ_API_KEY is empty; staying on Live")
+        ear = self._ear()
+        if ear is None:
+            log.warning("CASCADE is on but no ear is configured; staying on Live")
             return None
 
         return CascadeSession(
-            GroqWhisper(
-                settings.groq_api_key,
-                settings.whisper_model,
-                timeout_s=settings.whisper_timeout_seconds,
-            ),
+            ear,
             # The chat tab's own session, unchanged, with the VOICE
             # instruction rather than the chat one: the reply is going to be
             # spoken, so it is capped and worded for speech.
