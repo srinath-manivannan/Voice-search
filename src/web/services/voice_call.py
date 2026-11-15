@@ -473,6 +473,15 @@ class VoiceCall:
                 await model.greet(GREETING)
                 # agent_opens: the greeting is already on its way, so the
                 # agent holds the floor before its first chunk arrives.
+                # Which architecture answered this call. Without it a trace
+                # cannot be read without knowing what the .env said at the
+                # time, and a call that quietly fell back to the Live path
+                # because a key was missing looks exactly like one that was
+                # meant to.
+                self._trace.record(
+                    "model",
+                    path="cascade" if isinstance(model, CascadeSession) else "live",
+                )
                 self._talking = Conversation(
                     model,
                     self._source,
