@@ -76,6 +76,7 @@ from src.voice.events import (
     Event,
     Transcript,
     TurnComplete,
+    TurnInterrupted,
 )
 from src.voice.usage import SessionUsage, TurnUsage
 from src.voice.whisper import Heard
@@ -189,6 +190,11 @@ class CascadeSession:
         self._pump: asyncio.Task[None] | None = None
         self._thinking: asyncio.Task[None] | None = None
         self._keepalive: asyncio.Task[None] | None = None
+        # Set while the mouth has a turn in flight. The keepalive must not
+        # send audio into a reply that is still being spoken: the Live API
+        # reads incoming audio as the caller interrupting, and the turn ends
+        # as TurnInterrupted instead of TurnComplete.
+        self._mouth_busy = False
         self.usage = SessionUsage()
         # How much of the brain's own running total has already been added
         # to `usage`, so each turn adds the difference and not the pile.
@@ -291,6 +297,10 @@ class CascadeSession:
         """
         while True:
             await asyncio.sleep(self._keepalive_s)
+            if self._mouth_busy:
+                # It is speaking, so the socket is not idle and silence
+                # would only interrupt it.
+                continue
             try:
                 await self._mouth.send_audio(KEEPALIVE_FRAME)
             except asyncio.CancelledError:
@@ -358,6 +368,7 @@ class CascadeSession:
         return "".join(parts).strip()
 
     async def _speak(self, text: str, turn_id: int) -> None:
+        self._mouth_busy = True
         try:
             await self._mouth.say(text)
         except asyncio.CancelledError:
@@ -367,6 +378,7 @@ class CascadeSession:
             # it: `Conversation` waits for TurnComplete to release the latch
             # that lets the caller's next sentence be heard at all.
             log.warning("cascade mouth failed: %s", type(failed).__name__)
+            self._mouth_busy = False
             await self._out.put(
                 TurnComplete(
                     turn_id=turn_id, usage=self._turn_usage(), first_audio_ms=None
@@ -389,10 +401,32 @@ class CascadeSession:
                             self._first_audio_at = self._clock()
                         await self._out.put(AudioOut(turn_id=self._turn_id, pcm=pcm))
                     case TurnComplete(usage=usage):
+                        self._mouth_busy = False
                         await self._out.put(
                             TurnComplete(
                                 turn_id=self._turn_id,
                                 usage=self._turn_usage(usage),
+                                first_audio_ms=self._first_audio_ms(),
+                            )
+                        )
+                    case TurnInterrupted():
+                        # The mouth's turn ended without completing. Measured
+                        # on a real call: the greeting spoke and then nothing
+                        # happened, because `case _` swallowed this and
+                        # `Conversation` waits for a TurnComplete to release
+                        # the microphone. 448 events, not one turn_complete,
+                        # and a caller talking into a shut gate.
+                        #
+                        # An interruption of the mouth is not an interruption
+                        # of the conversation - there is no caller on this
+                        # socket to interrupt it - so it is reported as the
+                        # turn ending, which is what it is.
+                        log.info("mouth turn was interrupted; ending the turn")
+                        self._mouth_busy = False
+                        await self._out.put(
+                            TurnComplete(
+                                turn_id=self._turn_id,
+                                usage=self._turn_usage(),
                                 first_audio_ms=self._first_audio_ms(),
                             )
                         )

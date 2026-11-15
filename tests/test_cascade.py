@@ -14,7 +14,13 @@ from typing import Any
 import pytest
 
 from src.voice.cascade import SPEAK_ONLY, CascadeSession
-from src.voice.events import AudioOut, CallerTranscript, Transcript, TurnComplete
+from src.voice.events import (
+    AudioOut,
+    CallerTranscript,
+    Transcript,
+    TurnComplete,
+    TurnInterrupted,
+)
 from src.voice.usage import FLASH_LITE, SessionUsage, TurnUsage
 from src.voice.whisper import Heard, WhisperError
 
@@ -87,6 +93,9 @@ class FakeMouth:
 
     async def send_audio(self, pcm: bytes) -> None:
         self.kept_alive += 1
+
+    def interrupt(self, turn_id: int = 7) -> None:
+        self._queue.put_nowait(TurnInterrupted(turn_id=turn_id))
 
     def speak_back(self, pcm: bytes, turn_id: int = 7) -> None:
         """What the real mouth would emit: audio, then a completed turn."""
@@ -317,6 +326,46 @@ class TestTheRest:
         await session.greet("Poorvika, sollunga.")
         assert mouth.said == ["Poorvika, sollunga."]
         assert session.turn_id == 1
+
+    async def test_an_interrupted_mouth_still_ends_the_turn(self):
+        """Measured on a real call, and the reason it went nowhere.
+
+        The greeting spoke and then nothing happened. `case _` swallowed
+        TurnInterrupted, and `Conversation` holds the microphone shut until a
+        TurnComplete arrives - 448 events, not one turn_complete, and a
+        caller talking into a gate with nobody behind it.
+        """
+        session = build(FakeEar("venum"), FakeBrain("sari"), mouth := FakeMouth())
+        await session.send_audio(speech(2.0))
+        await session.end_of_speech()
+        await collect(session, 2)
+
+        mouth.interrupt()
+        events = await collect(session, 1)
+        assert isinstance(events[0], TurnComplete)
+
+    async def test_the_keepalive_holds_off_while_the_mouth_is_speaking(self):
+        """Audio into a reply in flight reads as the caller interrupting.
+
+        Which is how the turn above came to be interrupted in the first
+        place: the keepalive was the only thing on that socket.
+        """
+        mouth = FakeMouth()
+        session = CascadeSession(
+            FakeEar("venum"), FakeBrain("sari"), mouth, rate=RATE, keepalive_s=0.01
+        )
+        async with session:
+            await session.send_audio(speech(2.0))
+            await session.end_of_speech()
+            await collect(session, 2)
+            sent = mouth.kept_alive
+            await asyncio.sleep(0.05)
+            # Still speaking - the mouth has not reported its turn done.
+            assert mouth.kept_alive == sent
+            mouth.speak_back(b"\x01")
+            await collect(session, 2)
+            await asyncio.sleep(0.05)
+            assert mouth.kept_alive > sent
 
     async def test_the_mouth_is_kept_open_while_it_has_nothing_to_say(self):
         """Found by running a whole conversation through this class.
