@@ -118,6 +118,7 @@ OUT_TEXT = "out_text"
 THINKING = "thinking"
 GROK = "grok"
 GROK_TTS = "grok_tts"
+BRAIN = "brain"
 
 LABELS = {
     IN_AUDIO: "Caller voice + audio history",
@@ -127,6 +128,7 @@ LABELS = {
     THINKING: "Thinking",
     GROK: "Grok memory",
     GROK_TTS: "Agent voice, spoken by Grok",
+    BRAIN: "Working it out on the text model",
 }
 
 
@@ -285,6 +287,7 @@ def price(
     grok_usd: float = 0.0,
     include_grok: bool = False,
     grok_tts_chars: int = 0,
+    brain_usd: float = 0.0,
 ) -> Breakdown:
     """Price already-counted tokens. Token counts are BILLED counts.
 
@@ -315,6 +318,15 @@ def price(
         raw[GROK] = (grok_tokens, 0.0)
         priced[GROK] = grok_usd
         order.append(GROK)
+    if brain_usd:
+        # The cascade's brain prices itself on flash-lite's card, so what
+        # crosses is dollars rather than tokens. It was reaching
+        # `total_usd` and no line, which put it in the headline and nowhere
+        # a reader could find it - and left "Google - Gemini" reading zero
+        # on a call Gemini had done all the thinking for.
+        raw[BRAIN] = (0, 0.0)
+        priced[BRAIN] = brain_usd
+        order.append(BRAIN)
     if grok_tts_chars:
         # Characters, in a field the rest of the table fills with tokens.
         # They are not the same unit and the label says which one this is.

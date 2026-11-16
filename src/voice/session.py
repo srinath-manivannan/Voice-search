@@ -450,8 +450,20 @@ class Conversation:
                     # A spoken reply closes the caller turn. A tool generation
                     # that came back with no audio does not: the answer is
                     # still coming, and the summary waits for it.
+                    # Bytes, not tokens. The Grok mouth is billed per
+                    # CHARACTER and reports no tokens at all, so a token
+                    # test called every one of its turns silent: on the
+                    # cascade call of 2026-11-16 the agent answered twice
+                    # and "oru nimisham, paarkiren" played eight times,
+                    # once for every turn, because nothing it said counted
+                    # as having been said.
+                    #
+                    # What the question actually means is whether the
+                    # caller heard anything, and that is this.
                     caller_reply = self._reply_belongs_to_caller and (
-                        usage.response_audio > 0 or usage.response_text > 0
+                        self._spoken_bytes > 0
+                        or usage.response_audio > 0
+                        or usage.response_text > 0
                     )
                     if caller_reply:
                         self._reply_belongs_to_caller = False

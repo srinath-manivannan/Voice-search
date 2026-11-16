@@ -650,3 +650,50 @@ async def test_without_a_recording_the_call_runs_exactly_as_before():
     sink = await ask_and_wait([silent_turn(2), spoken_turn(2)], holding=None)
 
     assert heard(sink) == []
+
+
+async def test_a_mouth_that_reports_no_tokens_still_counts_as_having_spoken():
+    """The bug that made "oru nimisham" play eight times in one call.
+
+    The Grok mouth is billed per CHARACTER and reports no tokens at all, so
+    a usage-based test called every one of its turns silent: the holding
+    line fired on every turn, and the caller - who had just been answered -
+    was told the agent was still checking. On the cascade call of
+    2026-11-16 the agent answered twice and said it was checking eight
+    times.
+
+    What the question means is whether the caller heard anything.
+    """
+    sink = FakeSink()
+    source = FakeSource([SILENCE] * 5 + [SPEECH] * 12 + [SILENCE] * 40)
+    spoke_without_tokens = [
+        AudioOut(turn_id=2, pcm=b"\x01\x02" * 200),
+        TurnComplete(turn_id=2, usage=TurnUsage(), first_audio_ms=300.0),
+    ]
+    await Conversation(
+        AnswersWhenAsked(spoke_without_tokens),
+        source,
+        sink,
+        vad=EnergyVad(),
+        holding=HOLDING,
+    ).run()
+
+    assert HOLDING not in heard(sink), (
+        "it answered the caller and then told them it was still checking"
+    )
+
+
+async def test_a_turn_that_really_said_nothing_still_holds_the_line():
+    """The other half: a tool round trip emits no audio at all, and that
+    is the case the holding line exists for."""
+    sink = FakeSink()
+    source = FakeSource([SILENCE] * 5 + [SPEECH] * 12 + [SILENCE] * 40)
+    await Conversation(
+        AnswersWhenAsked([silent_turn(2), spoken_turn(2)]),
+        source,
+        sink,
+        vad=EnergyVad(),
+        holding=HOLDING,
+    ).run()
+
+    assert HOLDING in heard(sink)

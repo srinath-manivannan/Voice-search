@@ -227,6 +227,7 @@ class SessionUsage:
             usd_inr=usd_inr,
             gst_rate=gst_rate,
             grok_tts_chars=grok_tts_chars,
+            brain_usd=self.side_usd,
             grok_tokens=self.grok_tokens,
             grok_usd=self._grok_usd,
             include_grok=include_grok,

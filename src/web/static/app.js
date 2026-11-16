@@ -368,6 +368,7 @@ const PLAIN = {
   out_text:  'Putting it on screen',
   grok:      'Writing itself notes',
   grok_tts:  'Speaking back',
+  brain:     'Working out the answer',
 };
 // Which side of the meter each line sits on. Said as "taking in" and
 // "giving back" rather than input and output, which mean nothing to anyone
@@ -379,7 +380,10 @@ const TAKES_IN = ['in_audio', 'in_text'];
 // memory note is the Gemini socket - it hears, decides, speaks and thinks on
 // one connection, so one vendor carries almost all of it.
 const VENDORS = [
-  { who: 'Google · Gemini', keys: ['in_audio', 'in_text', 'out_audio', 'out_text', 'thinking'] },
+  // `brain` is the cascade's text model, which is also Gemini. It prices
+  // itself on flash-lite's card and crosses as dollars rather than tokens,
+  // so it has its own key - but the money still goes to the same company.
+  { who: 'Google · Gemini', keys: ['in_audio', 'in_text', 'out_audio', 'out_text', 'thinking', 'brain'] },
   { who: 'xAI · Grok', keys: ['grok', 'grok_tts'] },
 ];
 
