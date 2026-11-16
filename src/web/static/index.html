@@ -273,6 +273,12 @@
                border-top: 1px solid var(--line); margin-top: 12px; padding-top: 10px; }
   #spend .io div { flex: 1; }
   #spend .io b { display: block; font-size: 15px; color: var(--ink); font-weight: 600; }
+  #spend .split { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 9px; }
+  #spend .split h4 { font-size: 11px; font-weight: 600; color: var(--dim);
+                     text-transform: uppercase; letter-spacing: .04em; margin: 0 0 5px; }
+  #spend .split .row { margin: 4px 0; font-size: 12.5px; }
+  #spend .split .row.sum { border-top: 1px solid var(--line); margin-top: 6px;
+                           padding-top: 6px; font-weight: 600; }
 
   /* cost panel --------------------------------------------------------- */
   #cost { display: block; min-width: 340px; }
@@ -339,6 +345,19 @@
       <div class="io">
         <div>Taking in<b id="spend-in">₹0.00</b>what it heard and remembered</div>
         <div>Giving back<b id="spend-out">₹0.00</b>what it worked out and said</div>
+      </div>
+      <div class="split">
+        <h4>Who gets paid</h4>
+        <div id="spend-vendors"></div>
+      </div>
+      <div class="split">
+        <h4>Tax</h4>
+        <div class="row"><span class="what">What the models charge</span>
+          <span class="amt" id="spend-net">₹0.00</span></div>
+        <div class="row"><span class="what" id="spend-gst-label">GST</span>
+          <span class="amt" id="spend-gst">₹0.00</span></div>
+        <div class="row sum"><span class="what">Total</span>
+          <span class="amt" id="spend-gross">₹0.00</span></div>
       </div>
     </div>
 

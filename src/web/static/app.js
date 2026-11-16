@@ -370,6 +370,15 @@ const PLAIN = {
 // "giving back" rather than input and output, which mean nothing to anyone
 // who has not read a pricing page.
 const TAKES_IN = ['in_audio', 'in_text'];
+// Who the money actually goes to. Two companies one letter apart, so they
+// are named by company and not by model: "Grok" and "Groq" in the same list
+// would be a bill nobody could check. Every charge line that is not the
+// memory note is the Gemini socket - it hears, decides, speaks and thinks on
+// one connection, so one vendor carries almost all of it.
+const VENDORS = [
+  { who: 'Google · Gemini', keys: ['in_audio', 'in_text', 'out_audio', 'out_text', 'thinking'] },
+  { who: 'xAI · Grok', keys: ['grok'] },
+];
 
 function showSpend(cost) {
   el('spend').hidden = false;
@@ -419,6 +428,27 @@ function showSpend(cost) {
   el('spend-out').textContent = rupees(rows
     .filter((row) => !TAKES_IN.includes(row.key))
     .reduce((sum, row) => sum + row.inr, 0));
+
+  // A vendor with nothing on the clock is still shown. "Grok: 0.00" answers
+  // the question; a missing row leaves someone wondering whether it was
+  // billed somewhere they could not see.
+  el('spend-vendors').innerHTML = VENDORS.map((vendor) => {
+    const paid = rows
+      .filter((row) => vendor.keys.includes(row.key))
+      .reduce((sum, row) => sum + row.inr, 0);
+    return '<div class="row"><span class="what">' + vendor.who + '</span>' +
+      '<span class="amt">' + rupees(paid) + '</span></div>';
+  }).join('');
+
+  // Every figure above includes GST, because that is the number the shop is
+  // held to and the target is set in. Split out here because the tax may be
+  // reclaimable as input credit, and if it is, the real cost of this call is
+  // the first of these three lines and not the last.
+  const net = cost.total_inr / (1 + cost.gst_rate);
+  el('spend-net').textContent = rupees(net);
+  el('spend-gst-label').textContent = 'GST ' + Math.round(cost.gst_rate * 100) + '%';
+  el('spend-gst').textContent = rupees(cost.total_inr - net);
+  el('spend-gross').textContent = rupees(cost.total_inr);
 }
 
 // The cost panel. One row per charge line, because "the call costs ₹2.40" is
