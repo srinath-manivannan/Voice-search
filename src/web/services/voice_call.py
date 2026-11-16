@@ -369,6 +369,25 @@ class VoiceCall:
         if not settings.xai_api_key:
             log.warning("GROK_MOUTH is on but XAI_API_KEY is empty; using Gemini")
             return False
+        if not settings.cascade_enabled:
+            # Only on the cascade, and not by choice.
+            #
+            # Having Live hear and think and Grok speak was the right shape:
+            # it kept the ear that makes this fast and swapped only the
+            # expensive half. The model refuses:
+            #
+            #   1007 The requested combination of response modalities (TEXT)
+            #        is not supported by the model
+            #
+            # gemini-3.8-live is native-audio. It has no text output to take.
+            # The socket closed on setup and the call died before the
+            # greeting, so this is a refusal here rather than a dead call.
+            log.warning(
+                "GROK_MOUTH needs CASCADE: %s is native-audio and cannot "
+                "answer in text. Using the Gemini voice.",
+                settings.gemini_live_model,
+            )
+            return False
         return True
 
     def _spoken_chars(self) -> int:

@@ -513,3 +513,36 @@ async def test_a_named_voice_is_pinned_in_the_client_setup(config):
 
     speech = sock.sent[0]["setup"]["generationConfig"]["speechConfig"]
     assert speech["voiceConfig"]["prebuiltVoiceConfig"]["voiceName"] == "Kore"
+
+
+async def test_text_output_is_not_asked_for_by_default(config):
+    """gemini-3.8-live is a native-audio model and refuses TEXT outright.
+
+    Asking anyway closed the socket on setup and killed the call before the
+    greeting, with the server's own words:
+
+        1007 The requested combination of response modalities (TEXT) is not
+             supported by the model
+
+    So the default must stay AUDIO. The flag exists for the cascade's mouth,
+    where the model being spoken to is a different one.
+    """
+    sock = FakeSocket([{"setupComplete": {}}])
+    async with GeminiLiveSession(config, connect=connector(sock)):
+        pass
+
+    setup = sock.sent[0]["setup"]
+    assert setup["generationConfig"]["responseModalities"] == ["AUDIO"]
+    assert "outputAudioTranscription" in setup
+
+
+async def test_a_session_that_does_not_speak_asks_for_no_transcript(config):
+    """A transcript of text output is the server billing us for a copy of
+    what it just sent."""
+    sock = FakeSocket([{"setupComplete": {}}])
+    async with GeminiLiveSession(config, connect=connector(sock), speaks=False):
+        pass
+
+    setup = sock.sent[0]["setup"]
+    assert setup["generationConfig"]["responseModalities"] == ["TEXT"]
+    assert "outputAudioTranscription" not in setup
