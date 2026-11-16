@@ -7,7 +7,20 @@
 VENV := .venv/bin
 PY   := $(VENV)/python
 
-.PHONY: help install lock ui talk test audio live check fmt mic image alerts profile
+.PHONY: help install hooks lock ui talk test audio live check audit fmt mic image alerts profile
+
+# The exception list for the dev lockfile scan, turned into flags. Comments
+# and blank lines dropped; see .pip-audit-ignore for what is in it and why.
+#
+# Expanded here and only here. Both pipelines call `make audit` rather than
+# repeating these commands, because an ignore list written out in three
+# places is an ignore list that is correct in one of them.
+AUDIT_IGNORE := $(shell awk '!/^#/ && NF {printf "--ignore-vuln %s ", $$1}' .pip-audit-ignore)
+
+# Where the audit tools live. Local runs use the venv; CI installs into the
+# system python and overrides this with an empty `make audit AUDIT_BIN=`,
+# which is what lets one target serve both without a second copy of it.
+AUDIT_BIN ?= $(VENV)/
 
 help:                    ## show this list
 	@grep -E '^[a-z-]+:.*?##' $(MAKEFILE_LIST) | sed 's/:.*##/|/' | column -t -s'|'
@@ -20,6 +33,14 @@ install:                 ## create the venv and install the locked versions
 	# lockfile is constrained against the runtime one.
 	$(VENV)/pip install -q --require-hashes -r requirements.txt -r requirements-dev.txt
 	@echo "done. copy .env.example to .env and add your key."
+	@echo "then run: make hooks"
+
+hooks:                   ## install the pre-commit hooks into .git/hooks
+	# Run once per clone. Without it .pre-commit-config.yaml is a file that
+	# does nothing, which is the usual way a repo ends up with hooks it
+	# believes are running. `pre-commit run -a` checks everything by hand.
+	$(VENV)/pre-commit install --install-hooks
+	$(VENV)/pre-commit install --hook-type pre-push
 
 lock:                    ## recompile the lockfiles after editing a .in file
 	# requirements.in is the intent; requirements.txt is what installs. Edit
@@ -53,6 +74,22 @@ check:                   ## everything CI runs, in the same order
 	$(VENV)/mypy src          # strict; see mypy.ini
 	$(PY) -m pytest
 	$(VENV)/detect-secrets scan --baseline .secrets.baseline
+	$(MAKE) audit             # needs the network; see below
+
+audit:                   ## known holes: CVEs in what we install, bugs in what we wrote
+	# The only step here that reaches the network - pip-audit asks the PyPI
+	# advisory database. Offline it fails, which is correct: an audit that
+	# silently passes because it could not ask is worse than no audit.
+	#
+	# requirements.txt is what the image installs and what ships. Strict,
+	# with no ignore list at all: a finding here blocks the release.
+	$(AUDIT_BIN)pip-audit --strict --requirement requirements.txt
+	# The dev lockfile is tooling and never enters the image, so the
+	# documented exceptions in .pip-audit-ignore apply here - and nowhere
+	# else, and nothing beyond what that file lists by id.
+	$(AUDIT_BIN)pip-audit --strict --requirement requirements-dev.txt $(AUDIT_IGNORE)
+	# The other half of the question: holes we wrote, rather than installed.
+	$(AUDIT_BIN)bandit -c bandit.yaml -q -r src
 
 fmt:                     ## reformat in place
 	$(VENV)/ruff format src tests

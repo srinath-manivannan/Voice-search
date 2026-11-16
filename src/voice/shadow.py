@@ -246,7 +246,12 @@ class ShadowEar:
         for pending in list(self._pending):
             try:
                 await asyncio.wait_for(asyncio.shield(pending.task), self._timeout)
-            except Exception:  # noqa: BLE001 - a late transcript is not an error
+            # try/except/pass, and deliberately. This ear is measurement; it
+            # answers nobody. A transcript that arrives late, or not at all,
+            # must not raise out of close() and take the end of a real call
+            # with it. Hence the nosec on the line below, named rather than
+            # bare so it stops suppressing if the block ever does more.
+            except Exception:  # noqa: BLE001  # nosec B110
                 pass
         while self._pending:
             await self._compare(self._pending.popleft())

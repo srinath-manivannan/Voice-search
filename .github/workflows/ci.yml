@@ -69,6 +69,15 @@ jobs:
       - name: Secrets
         run: detect-secrets scan --baseline .secrets.baseline
 
+      # Two questions in one target: does anything we INSTALL have a known
+      # advisory (pip-audit, against both lockfiles), and did WE write a
+      # hole (bandit, against src). AUDIT_BIN= because this job installs
+      # into the system python rather than a venv - the commands and the
+      # ignore list live in the Makefile so this file cannot drift from
+      # GitLab's copy of the same job.
+      - name: Known CVEs and code scan
+        run: make audit AUDIT_BIN=
+
   image:
     runs-on: ubuntu-latest
     needs: check

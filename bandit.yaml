@@ -1,0 +1,28 @@
+# What bandit reads src/ for, and the one check that is deliberately off.
+#
+# bandit is the "did WE write a hole?" half of the CVE gate; pip-audit is the
+# other half and asks about what we INSTALL. Neither replaces the other and
+# both run in `make check` and in both pipelines.
+
+# tests/ is not scanned. Test code asserts for a living, builds deliberately
+# malformed input, and carries synthetic credentials shaped like the real
+# ones - every one of which bandit is right to flag in a service and wrong to
+# flag here. src/ is what ships.
+exclude_dirs:
+  - tests
+
+skips:
+  # B101, assert_used. Every assert in src/ is type narrowing for mypy
+  # strict - `assert self._talking is not None` before a block that would
+  # otherwise be Optional - and not one of them is a security check.
+  #
+  # bandit's concern is real but is about a different use: an assert that
+  # enforces a permission disappears under `python -O`, and the check is
+  # then silently gone. Two things make that not our case. The asserts here
+  # guard types, not access; and nothing runs this with -O - the Dockerfile
+  # CMD is plain uvicorn and PYTHONOPTIMIZE is unset, which `make image`
+  # starts and CI starts again on every change.
+  #
+  # If an assert is ever added that decides whether a caller MAY do
+  # something, this skip is wrong and the assert is wrong. Raise instead.
+  - B101

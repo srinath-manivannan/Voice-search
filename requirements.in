@@ -20,7 +20,13 @@ websockets==15.0.1
 # which meant a pin we did not control decided our HTTP behaviour.
 httpx==0.28.1
 
-python-dotenv==1.1.1
+# 1.1.1 was held by PYSEC-2026-2270: set_key()/unset_key() followed a symlink
+# when rewriting a .env across a filesystem boundary, so a pre-placed symlink
+# made a privileged process overwrite whatever it pointed at. We only ever
+# call load_dotenv(), which the advisory does not touch - but a lockfile with
+# a known advisory in it is a scanner nobody reads a month later, so it is
+# pinned forward rather than excepted.
+python-dotenv==1.2.4
 
 # The browser UI. Pinned to the same versions search-proxy uses, so a developer
 # moving between the two repos meets one FastAPI, not two.

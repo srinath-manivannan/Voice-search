@@ -10,6 +10,7 @@ Phase 1 of six. See `../PHASE0-REPORT.md` for the architecture decision and
 
 ```bash
 make install            # venv + dependencies
+make hooks              # the checks, wired into git (once per clone)
 cp .env.example .env    # then put the real GEMINI_API_KEY in it
 make test
 ```
@@ -24,6 +25,8 @@ make test
 | `make audio` | device tests — needs a microphone and speaker |
 | `make live` | real Gemini Live calls — spends a few cents |
 | `make check` | everything CI runs, in the same order |
+| `make audit` | known CVEs in what we install, holes in what we wrote — needs the network |
+| `make hooks` | install the pre-commit hooks (run once per clone) |
 | `make lock` | recompile the lockfiles after editing a `.in` |
 | `make alerts` | regenerate `deploy/alerts.yml` from the rule definitions |
 | `make profile` | what one call costs in CPU — no network, no money |
@@ -83,9 +86,12 @@ true, the thing in the wrong place is the one to move.
 | `.env.example` | every setting there is, with no value |
 | `requirements.in` / `.txt` | intent, and the hashed lockfile compiled from it |
 | `Dockerfile` / `.dockerignore` | multistage, non-root, no secret in any layer |
-| `.github/workflows/ci.yml` | format, types, tests, secrets, and a container that must answer its own health check |
+| `.github/workflows/ci.yml` | format, types, tests, secrets, CVE + code scan, and a container that must answer its own health check |
 | `.gitlab-ci.yml` | the same checks, plus the deploy stage |
 | `mypy.ini` | `strict = True` |
+| `bandit.yaml` | what the code scan reads, and the one check deliberately off |
+| `.pip-audit-ignore` | every advisory passed over, with the reason and the way out |
+| `.pre-commit-config.yaml` | the same checks, before the commit exists |
 | `pytest.ini` | paid and device tests excluded by default |
 | `Makefile` | the things we actually run |
 
@@ -132,7 +138,10 @@ At grok-4.3, every fourth caller turn, about 750 input tokens and 120 output tok
 |---|---|
 | Config, per-environment split | ✅ |
 | Cost meter, priced per charge line | ✅ validated against a real metered bill |
-| CI: format, strict types, tests, secret scan | ✅ GitHub and GitLab, same four |
+| CI: format, strict types, tests, secret scan | ✅ GitHub and GitLab, same checks |
+| CVE gate on what ships | ✅ `pip-audit --strict` on the runtime lockfile, no exceptions, blocks |
+| Static security scan of our own code | ✅ `bandit` on `src/`, 0 findings |
+| Checks run before the commit, not after the push | ✅ `.pre-commit-config.yaml`, all hooks local |
 | Routes / services split, versioned API | ✅ `/api/v1`, no rules in a route file |
 | Health, readiness, request ids, rate limits | ✅ 15 tests |
 | Container image | ✅ multistage, non-root; built and probed in CI |

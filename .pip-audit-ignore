@@ -1,0 +1,55 @@
+# Advisories pip-audit may pass over, with the reason and the way out.
+#
+# This file is the whole exception list. It applies ONLY to the dev lockfile
+# scan - requirements.txt, which is what the image installs and what ships,
+# is audited with no exceptions at all and blocks the release when it finds
+# anything. That is the gate; this is the tooling.
+#
+# An entry here is a thing somebody decided, in a diff somebody reviewed. An
+# entry with no reason, or whose reason has expired, is a bug. Review this
+# file whenever `make lock` moves a pin.
+#
+# Format: one advisory id per line. `#` starts a comment.
+
+
+# --- filelock 4.1.0, reviewed 2026-11-16 ----------------------------------
+#
+# Seventeen advisories, all the same shape: local symlink and TOCTOU attacks
+# on the lock files that filelock itself creates - a planted symlink at the
+# lock path, a stale-marker break that re-links a name it did not re-check,
+# SQLite side files derived from an attacker-chosen directory.
+#
+# Three reasons they are passed over rather than fixed:
+#
+# 1. There is no fix to take. Every one of them names 4.2.1 as the fix
+#    version and 4.2.1 is not published - 4.1.0 is still the newest release
+#    on PyPI. Pinning forward is not an option that exists yet.
+# 2. It does not ship. filelock arrives through pytest, through cachecontrol
+#    under pip-audit, and through virtualenv under pre-commit. The Dockerfile
+#    installs requirements.txt only, so none of it enters the image.
+# 3. The preconditions are not met where it does run. Every advisory needs an
+#    attacker who can already write to the directory holding the lock - a
+#    developer's own cache directory, or a CI runner's workspace that is
+#    created fresh for the job and destroyed with it.
+#
+# Out: when 4.2.1 reaches PyPI, `make lock` and delete this whole block. The
+# scan fails the moment a filelock advisory appears that is not listed here,
+# which is the point of listing them one by one rather than skipping the
+# package.
+CVE-2026-112906
+CVE-2026-112907
+CVE-2026-112908
+CVE-2026-112909
+CVE-2026-112910
+CVE-2026-112911
+CVE-2026-112912
+CVE-2026-112913
+CVE-2026-112914
+CVE-2026-112915
+CVE-2026-112934
+CVE-2026-112935
+CVE-2026-112937
+CVE-2026-112938
+CVE-2026-112939
+CVE-2026-112940
+CVE-2026-112941

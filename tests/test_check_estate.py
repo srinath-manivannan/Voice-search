@@ -18,9 +18,16 @@ from src.tools.check_estate import _emi, _price, _stock, _wrap, live, readiness,
 # Shaped like the real ones and deliberately not them. A test that proves a
 # redactor works by pasting a live credential into the repository has proved
 # the opposite of what it set out to.
-FAKE_ACCESS_TOKEN = "AaBbCcDdEeFfGgHhIiJjKkLlMmNnOoPpQq"  # noqa: S105
-FAKE_JWT_HEAD = "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0"
-FAKE_JWT_BODY = "eyJ1c2VybmFtZSI6Im5vdC1hLXJlYWwtdG9rZW4ifQ"
+#
+# The pragmas are for detect-secrets, which is right to stop at all three -
+# they are high-entropy strings in a committed file, which is exactly what a
+# leaked token looks like. Marked inline rather than parked in
+# .secrets.baseline so the judgement sits next to the value: the head
+# decodes to {"alg":"none","typ":"JWT"} and the body to
+# {"username":"not-a-real-token"}, which anyone reviewing this can check.
+FAKE_ACCESS_TOKEN = "AaBbCcDdEeFfGgHhIiJjKkLlMmNnOoPpQq"  # noqa: S105  # pragma: allowlist secret
+FAKE_JWT_HEAD = "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0"  # pragma: allowlist secret
+FAKE_JWT_BODY = "eyJ1c2VybmFtZSI6Im5vdC1hLXJlYWwtdG9rZW4ifQ"  # pragma: allowlist secret
 
 
 class TestRedaction:
