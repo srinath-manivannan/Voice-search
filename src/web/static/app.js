@@ -347,12 +347,87 @@ function showTrace(trace, file) {
   el('t-file').textContent = file || '—';
 }
 
+// What the call cost, for someone who has never heard of a token.
+//
+// The developer table below says "Prompt + tools + text history". That is
+// accurate and it is unreadable, and the person who has to decide whether
+// this agent is affordable is not the person who wrote it. So the same
+// numbers, in words about the CALL rather than about the API - and in
+// rupees, because rupees is what the shop is billed in.
+//
+// Nothing here is a second calculation. Every figure comes off the same
+// payload the table uses; a cost panel that disagreed with the cost panel
+// would be worse than no panel.
+const PLAIN = {
+  in_audio:  'Listening to you',
+  in_text:   'Remembering the chat',
+  thinking:  'Working out the answer',
+  out_audio: 'Speaking back',
+  out_text:  'Putting it on screen',
+  grok:      'Writing itself notes',
+};
+// Which side of the meter each line sits on. Said as "taking in" and
+// "giving back" rather than input and output, which mean nothing to anyone
+// who has not read a pricing page.
+const TAKES_IN = ['in_audio', 'in_text'];
+
+function showSpend(cost) {
+  el('spend').hidden = false;
+  const minutes = cost.minutes > 0 ? cost.minutes : 1 / 60;
+  const rupees = (n) => '₹' + n.toFixed(2);
+
+  el('spend-total').textContent = rupees(cost.total_inr);
+  el('spend-rate').textContent = rupees(cost.total_inr_per_min);
+  el('spend-rate').className = rateClass(cost.total_inr_per_min, cost.target_inr_per_min);
+
+  const over = cost.total_inr_per_min - cost.target_inr_per_min;
+  el('spend-cap').textContent = over > 0.005
+    ? rupees(over) + ' a minute over the ' + rupees(cost.target_inr_per_min) + ' target'
+    : 'inside the ' + rupees(cost.target_inr_per_min) + ' a minute target';
+
+  // Rupees for the WHOLE call, not per minute: the headline is what this
+  // call cost, and rows that did not add up to it would invite the one
+  // question the panel exists to answer.
+  //
+  // Split as a share of the headline rather than rate x minutes. Each
+  // inr_per_min arrives rounded to three places, so multiplying them out
+  // left the rows a paisa above the total - true to the arithmetic and
+  // unanswerable to anyone reading it.
+  const perMin = cost.lines.reduce((sum, line) => sum + line.inr_per_min, 0) || 1;
+  const rows = cost.lines
+    .map((line) => ({
+      key: line.key,
+      what: PLAIN[line.key] || line.label,
+      inr: cost.total_inr * (line.inr_per_min / perMin),
+      share: line.share,
+    }))
+    .filter((row) => row.inr >= 0.005)
+    .sort((a, b) => b.inr - a.inr);
+
+  const widest = Math.max(...rows.map((r) => r.share), 0.001);
+  el('spend-rows').innerHTML = rows.map((row) =>
+    '<div class="row"><span class="what">' + row.what + '</span>' +
+    '<span class="bar"><i style="width:' +
+      Math.round((row.share / widest) * 100) + '%"></i></span>' +
+    '<span class="amt">' + rupees(row.inr) + '</span></div>'
+  ).join('');
+
+  const side = (keys) => rupees(rows
+    .filter((row) => keys.includes(row.key) === true)
+    .reduce((sum, row) => sum + row.inr, 0));
+  el('spend-in').textContent = side(TAKES_IN);
+  el('spend-out').textContent = rupees(rows
+    .filter((row) => !TAKES_IN.includes(row.key))
+    .reduce((sum, row) => sum + row.inr, 0));
+}
+
 // The cost panel. One row per charge line, because "the call costs ₹2.40" is
 // not actionable and "₹1.19 of it is the agent's voice and ₹0.56 is the
 // standing prompt being re-processed" is: the first number is physics, the
 // second is a setting. The bar widths are each line's share of the total, so
 // the thing to go and fix is the widest one.
 function showCost(cost) {
+  showSpend(cost);
   el('cost').hidden = false;
   const target = cost.target_inr_per_min;
 
