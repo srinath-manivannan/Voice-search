@@ -277,8 +277,29 @@ def load(env: str | None = None) -> Config:
         metrics_token=os.environ.get("METRICS_TOKEN", ""),
         grok_memory_enabled=_flag("GROK_MEMORY"),
         xai_api_key=os.environ.get("XAI_API_KEY", ""),
-        grok_model=os.environ.get("GROK_MODEL", "grok-4.3"),
-        grok_summary_every_turns=int(os.environ.get("GROK_SUMMARY_EVERY_TURNS", "4")),
+        # NOT grok-4.3. It is a reasoning model: measured at 8,924 ms on a
+        # four-line transcript against a 4-second timeout, so every summary
+        # this service ever asked for timed out, the handover stayed empty,
+        # and the cost panel showed xAI at zero on every call because nothing
+        # was ever charged. The feature had never once worked.
+        #
+        # The non-reasoning model answers the same prompt in 1,058 ms, on the
+        # same price card, and writes a tidier note - summarising a transcript
+        # is not a task that needs reasoning. See tests/test_grok_live.py.
+        grok_model=os.environ.get("GROK_MODEL", "grok-4.20-0309-non-reasoning"),
+        # Every second caller reply, not every fourth.
+        #
+        # The handover only earns anything at a rotation, and rotation fires
+        # above 400 audio tokens - about sixteen seconds of speech, so every
+        # turn or two on a real call. At four, the first rotations happened
+        # before any summary existed and fell back to the tool note, which is
+        # the fail-safe rather than the point. At two there is a real note by
+        # the second reply.
+        #
+        # One summary is 411 prompt, 128 cached and 72 completion tokens on
+        # the cheap card: about six paise. It is bought to stop the whole
+        # audio context being re-billed on every turn after it.
+        grok_summary_every_turns=int(os.environ.get("GROK_SUMMARY_EVERY_TURNS", "2")),
         grok_timeout_seconds=float(os.environ.get("GROK_TIMEOUT_SECONDS", "4")),
         whisper_compare_enabled=_flag("WHISPER_COMPARE"),
         groq_api_key=os.environ.get("GROQ_API_KEY", ""),

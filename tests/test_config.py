@@ -53,9 +53,29 @@ def test_system_instruction_carries_the_word_cap_and_the_no_inventing_rule(env):
 def test_grok_memory_is_off_until_asked_for(env):
     cfg = load("development")
     assert cfg.grok_memory_enabled is False
-    assert cfg.grok_model == "grok-4.3"
-    assert cfg.grok_summary_every_turns == 4
     assert cfg.xai_api_key == ""
+
+
+def test_the_summariser_does_not_default_to_a_reasoning_model(env):
+    """grok-4.3 took 8,924 ms on a four-line transcript.
+
+    GROK_TIMEOUT_SECONDS is 4.0, so every summary timed out, the handover
+    stayed empty, and the cost panel showed xAI at zero on every call - which
+    reads as "Grok is cheap" rather than "Grok has never run". The default
+    must stay a model that answers inside the timeout; tests/test_grok_live.py
+    is what checks that it still does.
+    """
+    cfg = load("development")
+    assert cfg.grok_model == "grok-4.20-0309-non-reasoning"
+    assert "reasoning" not in cfg.grok_model or "non-reasoning" in cfg.grok_model
+
+
+def test_a_summary_lands_before_the_first_rotations_do(env):
+    """Rotation fires above 400 audio tokens - sixteen seconds of speech, so
+    every turn or two. At four replies the early rotations had no handover to
+    carry and fell back to the tool note."""
+    cfg = load("development")
+    assert cfg.grok_summary_every_turns == 2
 
 
 def test_grok_memory_reads_the_flag_and_the_model(env):
