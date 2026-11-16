@@ -88,6 +88,8 @@ class GrokMouth:
         # Characters asked for, over the whole call. The bill is per
         # character and this is the only number that produces it.
         self.characters = 0
+        # Whether anything has been fed since the last `done`.
+        self._fed = False
 
     @property
     def url(self) -> str:
@@ -137,21 +139,43 @@ class GrokMouth:
         """
         return None
 
-    async def say(self, text: str) -> None:
-        """Speak this. Returns as soon as it is sent, not when it is said."""
+    async def feed(self, text: str) -> None:
+        """Another piece of what is being said. Synthesis starts on it.
+
+        The whole point of taking the reply in pieces: a model streaming
+        text has usually produced its first clause long before its last,
+        and the mouth can be speaking that clause while the rest arrives.
+        Waiting for the full reply would add its generation time to the
+        450 ms this already costs.
+        """
         if self._socket is None:
             raise GrokMouthError("mouth is not connected")
-        spoken = text.strip()
-        if not spoken:
-            # Nothing to say, but the turn still has to end or the gate
-            # stays shut. Report it as a completed turn with no audio.
+        if not text:
+            return
+        self._fed = True
+        self.characters += len(text)
+        await self._socket.send(json.dumps({"type": "text.delta", "delta": text}))
+
+    async def done(self) -> None:
+        """No more text this turn. The mouth finishes and completes."""
+        if self._socket is None:
+            raise GrokMouthError("mouth is not connected")
+        if not self._fed:
+            # Nothing was ever fed, so no audio.done is coming. The turn
+            # still has to end or `Conversation` leaves the gate shut.
             await self._out.put(
                 TurnComplete(turn_id=0, usage=TurnUsage(), first_audio_ms=None)
             )
             return
-        self.characters += len(spoken)
-        await self._socket.send(json.dumps({"type": "text.delta", "delta": spoken}))
+        self._fed = False
         await self._socket.send(json.dumps({"type": "text.done"}))
+
+    async def say(self, text: str) -> None:
+        """A whole reply at once. Returns when sent, not when spoken."""
+        spoken = text.strip()
+        if spoken:
+            await self.feed(spoken)
+        await self.done()
 
     def events(self) -> AsyncIterator[Event]:
         return self._events()

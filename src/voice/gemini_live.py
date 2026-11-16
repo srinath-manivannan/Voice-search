@@ -186,6 +186,7 @@ class GeminiLiveSession:
         on_caller_speech: Callable[[str], None] | None = None,
         instruction: str | None = None,
         temperature: float = 0.7,
+        speaks: bool = True,
     ) -> None:
         self._config = config
         # 0.7 for the agent, which is choosing what to say. The cascade's
@@ -193,6 +194,14 @@ class GeminiLiveSession:
         # loudspeaker with room to vary is a loudspeaker that can paraphrase
         # a price, and nothing downstream would catch it.
         self._temperature = temperature
+        # Audio out, or text out for somebody else to speak. Text is $4.50
+        # per million against $12.00 for audio, and - the larger half - the
+        # agent's own replies then stop entering the context as audio at 25
+        # tokens a second, so they are not re-billed on every turn after.
+        # The ear and the brain are unchanged either way: this model still
+        # hears the caller's audio while they are speaking, which is the
+        # whole reason the cascade could not match it.
+        self._speaks = speaks
         # Normally the agent's own standing prompt. The cascade's mouth
         # overrides it with one that only says "speak this", because a
         # loudspeaker that still holds the persona would answer the text it
@@ -231,7 +240,7 @@ class GeminiLiveSession:
 
     def _setup_message(self, thinking: str) -> dict[str, Any]:
         generation: dict[str, Any] = {
-            "responseModalities": ["AUDIO"],
+            "responseModalities": ["AUDIO"] if self._speaks else ["TEXT"],
             "temperature": self._temperature,
         }
         # Who the customer hears. Omitted when unset, which leaves the API's
@@ -269,8 +278,12 @@ class GeminiLiveSession:
             # Transcript text is billed at the text output rate, on top of
             # the audio. See docs/COST.md.
             "inputAudioTranscription": {},
-            "outputAudioTranscription": {},
         }
+        # Only when there is audio to transcribe. Asking for a transcript of
+        # text output is asking the server to bill us for a copy of what it
+        # just sent.
+        if self._speaks:
+            setup["outputAudioTranscription"] = {}
         # Keep the session's context from growing for the whole call.
         #
         # Audio is billed at 25 tokens a second, and the prompt the server
@@ -591,6 +604,12 @@ class GeminiLiveSession:
                     if self._first_audio_at is None:
                         self._first_audio_at = self._clock()
                     yield AudioOut(turn_id=turn_id, pcm=base64.b64decode(data))
+                elif text := part.get("text"):
+                    # Speaking in text. This IS the reply, not a transcript
+                    # of one, and whoever is listening turns it into sound.
+                    if self._first_audio_at is None:
+                        self._first_audio_at = self._clock()
+                    yield Transcript(turn_id=turn_id, text=text)
 
             if (
                 transcription := server_content.get("outputTranscription")

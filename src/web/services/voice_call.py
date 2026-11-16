@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from contextlib import AsyncExitStack
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -40,6 +41,7 @@ from src.observability.reporting import Reporter
 from src.voice.budget import BudgetExceeded, SessionBudget
 from src.agent.prefetch import Prefetcher
 from src.voice.grok_tts import GrokMouth
+from src.voice.spoken_by_grok import SpokenByGrok
 from src.voice.opening import HOLDING_RECORDING, SpeaksTheOpening, load_recording
 from src.memory.grok import GrokClient
 from src.memory.summariser import CallMemory
@@ -353,6 +355,22 @@ class VoiceCall:
             on_caller_speech=listener,
         )
 
+    def _grok_is_the_voice(self) -> bool:
+        """Whether Grok says the agent's words, on whichever path.
+
+        One flag, one meaning. On the cascade it replaces the second Gemini
+        Live socket; on the Live path it takes the model's text and speaks
+        it. Both need the key, and a missing key logs and falls back rather
+        than refusing the call.
+        """
+        settings = self._settings
+        if not settings.grok_mouth_enabled:
+            return False
+        if not settings.xai_api_key:
+            log.warning("GROK_MOUTH is on but XAI_API_KEY is empty; using Gemini")
+            return False
+        return True
+
     def _spoken_chars(self) -> int:
         """Characters the Grok mouth has been asked to say, for the bill.
 
@@ -374,18 +392,20 @@ class VoiceCall:
         what a Live session does.
         """
         settings = self._settings
-        if settings.grok_mouth_enabled and settings.xai_api_key:
-            self._grok_mouth = GrokMouth(
-                settings.xai_api_key,
-                rate=settings.playback_sample_rate,
-                language=settings.stt_language or "ta",
-            )
-            return self._grok_mouth
-        if settings.grok_mouth_enabled:
-            log.warning("GROK_MOUTH is on but XAI_API_KEY is empty; using Live")
+        if self._grok_is_the_voice():
+            return self._new_grok_mouth()
         return GeminiLiveSession(
             settings, instruction=SPEAK_ONLY, temperature=MOUTH_TEMPERATURE
         )
+
+    def _new_grok_mouth(self) -> GrokMouth:
+        settings = self._settings
+        self._grok_mouth = GrokMouth(
+            settings.xai_api_key,
+            rate=settings.playback_sample_rate,
+            language=settings.stt_language or "ta",
+        )
+        return self._grok_mouth
 
     def _open_shadow(self) -> ShadowEar | None:
         """Whisper on Groq, or nothing when the flag or the key is absent.
@@ -498,6 +518,11 @@ class VoiceCall:
                 tools=declarations,
                 on_tool_call=runner,
                 on_caller_speech=listener,
+                # Text out when Grok is the voice. The ear and the brain are
+                # untouched - this model still hears the caller's audio while
+                # they are speaking, which is the whole reason the cascade
+                # could not match it.
+                speaks=not self._grok_is_the_voice(),
             ),
             carry,
             rotate_above_audio_tokens=self._settings.rotate_above_audio_tokens,
@@ -507,9 +532,28 @@ class VoiceCall:
         METRICS.count("voice_calls_total", "Voice calls accepted")
         try:
             tools = dependencies.tool_session(self._settings)
-            async with self._model(tools) as model:
+            async with AsyncExitStack() as open_for_the_call:
+                # Annotated because AsyncExitStack widens a union to
+                # `object`, and everything below asks the model for things
+                # only a model has.
+                model: CallModel = await open_for_the_call.enter_async_context(
+                    self._model(tools)
+                )
                 self._live = model
                 self._usage = model.usage
+
+                # Grok says the words on the Live path too, where the model
+                # was asked for text rather than audio. Not on the cascade,
+                # which already has it as its mouth. The socket is opened
+                # here so its ~944 ms handshake happens behind the recorded
+                # greeting and never in front of a reply.
+                voice: VoiceModel = model
+                if self._grok_is_the_voice() and not isinstance(model, CascadeSession):
+                    mouth = await open_for_the_call.enter_async_context(
+                        self._new_grok_mouth()
+                    )
+                    voice = SpokenByGrok(model, mouth)
+
                 await self._push({"type": "ready"})
                 # Speak first. A call that answers and then says nothing
                 # until the caller speaks sounds like a dead line.
@@ -521,10 +565,10 @@ class VoiceCall:
                 # `make greeting` writes the recording; deleting it comes
                 # back here.
                 recording = load_recording()
-                speaking: VoiceModel = model
+                speaking: VoiceModel = voice
                 if recording is not None:
                     opening = SpeaksTheOpening(
-                        model, recording, self._settings.playback_sample_rate
+                        voice, recording, self._settings.playback_sample_rate
                     )
                     speaking = opening
                     # It did not generate the line, so it does not know it
