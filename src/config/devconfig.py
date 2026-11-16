@@ -7,6 +7,14 @@ shows up locally rather than on a customer call.
 """
 
 GEMINI_LIVE_MODEL = "gemini-3.8-live"
+
+# Which prebuilt voice the agent speaks in. Empty means the API's own
+# default, which is where this started and is a liability: src/agent/
+# greeting.pcm is a recording of this voice, and a default that moves makes
+# the opening line sound like a different person from the rest of the call.
+# Name it here and the two cannot drift. Re-run `make greeting` after
+# changing it - the recording is of the OLD voice until you do.
+VOICE_NAME = ""
 GEMINI_TEXT_MODEL = "gemini-3.5-flash-lite"
 
 # Product List API. Staging for now - production needs its own URL

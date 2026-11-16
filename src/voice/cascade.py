@@ -292,6 +292,19 @@ class CascadeSession:
         self._first_audio_at = None
         await self._speak(text, self._turn_id)
 
+    async def opened_with(self, text: str) -> None:
+        """The greeting was played off disk; tell the brain it said it.
+
+        The mouth is not involved - the recording has already gone to the
+        caller through `SpeaksTheOpening`, and sending the line to the mouth
+        as well would say it twice. What is missing is only that the brain,
+        which holds this conversation's history, does not know the call has
+        opened. See `src/voice/opening.py`.
+        """
+        if not text.strip():
+            return
+        self._brain.remember(text)
+
     async def prime(self, context: str) -> None:
         """Context for the brain, as a turn it is not asked to answer.
 

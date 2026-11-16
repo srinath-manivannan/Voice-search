@@ -19,6 +19,13 @@ from dataclasses import dataclass
 class Config:
     gemini_api_key: str
     gemini_live_model: str
+    # Which prebuilt voice speaks. Empty means "whatever the API defaults
+    # to", which is what this ran on until the greeting was recorded - and
+    # is exactly the problem: the recording in src/agent/greeting.pcm has to
+    # be in the SAME voice as everything said after it, and an unpinned
+    # default can move under us without a line of this repo changing. Pin
+    # it, and the two cannot drift. Re-record after changing it.
+    voice_name: str
     # Chat deliberately runs on a cheaper text model. See ../CHAT-PLAN.md.
     gemini_text_model: str
 
@@ -200,6 +207,7 @@ def load(env: str | None = None) -> Config:
         gemini_live_model=os.environ.get(
             "GEMINI_LIVE_MODEL", defaults.GEMINI_LIVE_MODEL
         ),
+        voice_name=os.environ.get("VOICE_NAME", defaults.VOICE_NAME),
         gemini_text_model=os.environ.get(
             "GEMINI_TEXT_MODEL", defaults.GEMINI_TEXT_MODEL
         ),

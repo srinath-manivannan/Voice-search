@@ -438,3 +438,78 @@ async def test_compression_can_be_switched_off(config):
         pass
 
     assert "contextWindowCompression" not in sock.sent[0]["setup"]
+
+
+async def test_a_recorded_greeting_is_told_to_the_model_as_its_own_turn(config):
+    """The model did not say it, so it has to be told that it did.
+
+    `opened_with` is what replaces `greet` when the opening line comes off
+    disk. The role is the whole test: `prime` wraps what it is given in a
+    USER turn, and priming the greeting that way would tell the model the
+    customer introduced herself as Poorvika.
+    """
+    from src.agent.persona import GREETING
+
+    sock = FakeSocket([{"setupComplete": {}}])
+    async with GeminiLiveSession(config, connect=connector(sock)) as session:
+        await session.opened_with(GREETING)
+
+    sent = sock.sent[-1]["clientContent"]
+    # False, or the model answers the greeting - and that answer is the
+    # generation this whole change exists to not pay for.
+    assert sent["turnComplete"] is False
+    assert len(sent["turns"]) == 1
+    assert sent["turns"][0]["role"] == "model"
+    assert sent["turns"][0]["parts"][0]["text"] == GREETING
+
+
+async def test_a_recorded_greeting_does_not_take_a_turn_id(config):
+    """It is context, not a turn. The recording carries its own id, and the
+    model's counter must still be at zero so its first reply is turn 1."""
+    sock = FakeSocket([{"setupComplete": {}}])
+    async with GeminiLiveSession(config, connect=connector(sock)) as session:
+        before = session.turn_id
+        await session.opened_with("Vanakkam")
+        assert session.turn_id == before == 0
+
+
+async def test_an_empty_opening_is_not_sent_at_all(config):
+    sock = FakeSocket([{"setupComplete": {}}])
+    async with GeminiLiveSession(config, connect=connector(sock)) as session:
+        before = len(sock.sent)
+        await session.opened_with("   ")
+        assert len(sock.sent) == before
+
+
+async def test_no_voice_is_pinned_unless_one_is_named(config):
+    """Empty means the API's default, and the key must be absent entirely.
+
+    Sending an empty voiceName is not the same request as sending none.
+    """
+    sock = FakeSocket([{"setupComplete": {}}])
+    async with GeminiLiveSession(config, connect=connector(sock)):
+        pass
+
+    assert "speechConfig" not in sock.sent[0]["setup"]["generationConfig"]
+
+
+async def test_a_named_voice_is_pinned_in_the_client_setup(config):
+    """Who the customer hears, stated rather than left to a default.
+
+    It matters because src/agent/greeting.pcm is a RECORDING of this voice.
+    An unpinned default that moves makes the opening line a different person
+    from the rest of the call, and nothing in the service could detect it.
+
+    In the client's own setup message on purpose: a voice set on an
+    ephemeral token is reported not to be honoured at runtime.
+    """
+    from dataclasses import replace
+
+    sock = FakeSocket([{"setupComplete": {}}])
+    async with GeminiLiveSession(
+        replace(config, voice_name="Kore"), connect=connector(sock)
+    ):
+        pass
+
+    speech = sock.sent[0]["setup"]["generationConfig"]["speechConfig"]
+    assert speech["voiceConfig"]["prebuiltVoiceConfig"]["voiceName"] == "Kore"

@@ -132,6 +132,18 @@ class RotatingLiveSession:
             if self._current is not None:
                 await self._current.greet(text)
 
+    async def opened_with(self, text: str) -> None:
+        """The recorded-greeting counterpart of `greet`, and first socket only.
+
+        A rotation does not repeat it: the fresh socket is handed the
+        handover note, which already says what the conversation is. Telling
+        it a second time that it opened with a greeting would put the line
+        back into a context that has moved well past it.
+        """
+        async with self._swapping:
+            if self._current is not None:
+                await self._current.opened_with(text)
+
     async def prime(self, context: str) -> None:
         """Add context without asking for an answer.
 

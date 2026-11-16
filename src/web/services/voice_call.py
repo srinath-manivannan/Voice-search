@@ -39,6 +39,7 @@ from src.observability.metrics import (
 from src.observability.reporting import Reporter
 from src.voice.budget import BudgetExceeded, SessionBudget
 from src.agent.prefetch import Prefetcher
+from src.voice.opening import SpeaksTheOpening, load_recording
 from src.memory.grok import GrokClient
 from src.memory.summariser import CallMemory
 from src.voice.gemini_live import GeminiLiveSession
@@ -48,7 +49,7 @@ from src.chat.gemini_text import GeminiTextModel
 from src.chat.session import ChatSession
 from src.voice.cascade import MOUTH_TEMPERATURE, SPEAK_ONLY, CascadeSession, Ear
 from src.voice.grok_stt import GrokEar
-from src.voice.session import Conversation
+from src.voice.session import Conversation, VoiceModel
 from src.voice.shadow import ShadowEar
 from src.voice.trace import CallTrace
 from src.voice.usage import SessionUsage
@@ -470,7 +471,29 @@ class VoiceCall:
                 await self._push({"type": "ready"})
                 # Speak first. A call that answers and then says nothing
                 # until the caller speaks sounds like a dead line.
-                await model.greet(GREETING)
+                #
+                # Off disk where there is a recording, out of the model where
+                # there is not. The greeting is fixed text, so generating it
+                # bought nothing and cost Rs 0.45 and half a second of
+                # silence on the traced call - see src/voice/opening.py.
+                # `make greeting` writes the recording; deleting it comes
+                # back here.
+                recording = load_recording()
+                speaking: VoiceModel = model
+                if recording is not None:
+                    opening = SpeaksTheOpening(
+                        model, recording, self._settings.playback_sample_rate
+                    )
+                    speaking = opening
+                    # It did not generate the line, so it does not know it
+                    # said it. Context, not a turn: no generation, no charge.
+                    await model.opened_with(GREETING)
+                    self._trace.record(
+                        "opening", recorded=True, seconds=round(opening.seconds, 2)
+                    )
+                else:
+                    await model.greet(GREETING)
+                    self._trace.record("opening", recorded=False)
                 # agent_opens: the greeting is already on its way, so the
                 # agent holds the floor before its first chunk arrives.
                 # Which architecture answered this call. Without it a trace
@@ -483,7 +506,7 @@ class VoiceCall:
                     path="cascade" if isinstance(model, CascadeSession) else "live",
                 )
                 self._talking = Conversation(
-                    model,
+                    speaking,
                     self._source,
                     self._sink,
                     on_update=self._push,

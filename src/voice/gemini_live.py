@@ -234,6 +234,19 @@ class GeminiLiveSession:
             "responseModalities": ["AUDIO"],
             "temperature": self._temperature,
         }
+        # Who the customer hears. Omitted when unset, which leaves the API's
+        # own default - the state this ran in before the greeting was
+        # recorded, and the reason pinning it matters now: the recording in
+        # src/agent/greeting.pcm is of one voice, and if the default moves,
+        # the opening line and the rest of the call stop being the same
+        # person. Named here, in the client's own setup message: a voice set
+        # on an ephemeral token is reported not to be honoured at runtime.
+        if self._config.voice_name:
+            generation["speechConfig"] = {
+                "voiceConfig": {
+                    "prebuiltVoiceConfig": {"voiceName": self._config.voice_name}
+                }
+            }
         # The shape is chosen in thinking_plan. Omitting the key is the
         # correct setup for gemini-3.8-live, not an accident: the server
         # closes the socket if the field is present.
@@ -426,6 +439,37 @@ class GeminiLiveSession:
                             {"role": "user", "parts": [{"text": context}]},
                             {"role": "model", "parts": [{"text": "Sari."}]},
                         ],
+                        "turnComplete": False,
+                    }
+                }
+            )
+        )
+
+    async def opened_with(self, text: str) -> None:
+        """Tell the model it has already opened with this line.
+
+        Used when the greeting came off disk instead of out of the model -
+        see `src/voice/opening.py`. The model did not produce the sentence,
+        so without this it does not know it was said, and the first thing it
+        does on the caller's first turn is introduce itself again.
+
+        A model-role turn with `turnComplete` false: context, not a request.
+        It produces no generation and so costs nothing now; the thirty-odd
+        tokens are re-billed with the rest of the context on later turns,
+        against the Rs 0.45 generation it replaces.
+
+        Deliberately NOT `prime()`, which wraps what it is given in a USER
+        turn. Priming the greeting that way would tell the model the customer
+        said "Vanakkam, naan Poorvika pesuren" - which is both wrong and the
+        sort of wrong that reads as plausible for several turns.
+        """
+        if not text.strip():
+            return
+        await self._require_socket().send(
+            json.dumps(
+                {
+                    "clientContent": {
+                        "turns": [{"role": "model", "parts": [{"text": text}]}],
                         "turnComplete": False,
                     }
                 }

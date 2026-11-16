@@ -7,7 +7,7 @@
 VENV := .venv/bin
 PY   := $(VENV)/python
 
-.PHONY: help install hooks lock ui talk test audio live check audit fmt mic image alerts profile
+.PHONY: help install hooks lock ui talk test audio live check audit fmt mic image alerts greeting profile
 
 # The exception list for the dev lockfile scan, turned into flags. Comments
 # and blank lines dropped; see .pip-audit-ignore for what is in it and why.
@@ -104,6 +104,13 @@ image:                   ## build the container and check it answers /healthz
 	  curl -fs http://127.0.0.1:8081/healthz && break || sleep 1; \
 	done; echo
 	docker rm -f poorvika-voice-check
+
+greeting:                ## record the opening line once - costs a few paise
+	# Run after changing GREETING in persona.py, the Live model, or the
+	# playback sample rate. Every call then plays this instead of paying a
+	# generation to read out a sentence that cannot vary. Deleting
+	# src/agent/greeting.pcm goes back to a generated greeting.
+	$(PY) -m src.tools.record_greeting
 
 profile:                 ## what one call costs in CPU - no network, no money
 	$(PY) -m src.tools.profile_call --seconds 180 --profile
