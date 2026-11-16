@@ -194,21 +194,66 @@ async def test_a_fragment_that_says_only_half_starts_nothing():
     assert tools.calls == []
 
 
-async def test_it_never_rebuilds_a_shortlist_the_customer_has_been_told():
-    """The one outcome worse than not prefetching.
+async def test_it_does_not_rebuild_a_shortlist_for_the_same_request():
+    """Moving the refs has to buy something.
 
-    Once "the second one" means something to the customer, a second search
-    repoints those refs at other phones and the agent starts answering about
-    a product nobody mentioned.
+    Once "the second one" means something to the customer, a search repoints
+    those refs at other products. Doing that for a request already answered
+    buys nothing at all, so the intent has to have CHANGED.
+    """
+    tools = FakeTools(FOUND)
+    said, prime = primer()
+    pre = Prefetcher(tools, prime)
+
+    pre.heard("20-25k kulla phone venum")
+    first = pre.task
+    assert first is not None
+    await first
+    pre.heard("enakku 20-25k kulla phone venum, sollunga")
+
+    assert pre.task is first
+    assert len(tools.calls) == 1
+
+
+async def test_a_customer_who_changes_their_mind_is_prefetched_again():
+    """The measured case, and the reason the once-a-call cap went.
+
+    On the call of 2026-11-16 the customer moved from 30-40k to 40k-up to
+    20-30k. Three searches, six of the call's seven generations, and the
+    prefetch fired for none of them - it had already spent its one turn.
+
+    The refs move when the budget changes whether or not this fires, because
+    the model searches again itself and `_search` only reuses a shortlist for
+    a search with the same key. The cap only made them move a generation
+    later, and charged for the generation.
     """
     tools = FakeTools(FOUND, shortlist=("already", "searched"))
     said, prime = primer()
     pre = Prefetcher(tools, prime)
 
-    pre.heard("30k kulla laptop venum")
+    pre.heard("30-40k kulla phone venum")
+    assert pre.task is not None
+    await pre.task
+    pre.heard("illa, 20-30k kulla paarunga")
+    assert pre.task is not None
+    await pre.task
 
-    assert pre.task is None
-    assert tools.calls == []
+    assert len(tools.calls) == 2
+
+
+async def test_it_stops_after_a_few_however_much_the_caller_wanders():
+    """A transcript that keeps re-reading as a new intent must not sit in a
+    loop asking the catalogue."""
+    tools = FakeTools(FOUND)
+    said, prime = primer()
+    pre = Prefetcher(tools, prime)
+
+    for ceiling in (20, 25, 30, 35, 40, 45):
+        pre.heard(f"{ceiling}k kulla phone venum")
+        if pre.task is not None:
+            await pre.task
+
+    assert len(tools.calls) == Prefetcher.MAX_PER_CALL
 
 
 async def test_it_fires_once_however_many_fragments_match():
@@ -391,3 +436,40 @@ class TestTheEnumAndTheMapAgree:
 
         missing = [name for name in offered if name not in FACETS]
         assert not missing, f"no catalogue facet for {missing}"
+
+
+async def test_a_new_price_on_the_same_shelf_is_still_a_prefetch():
+    """The half of the browsing case the first version missed.
+
+    "illa, 20-30k kulla paarunga" names no product. `read_intent` returns
+    nothing for it, correctly - with no history a budget alone does not say
+    which shelf. But there IS history here, and the customer who has just
+    been read three phones does not say "phone" again.
+    """
+    tools = FakeTools(FOUND)
+    said, prime = primer()
+    pre = Prefetcher(tools, prime)
+
+    pre.heard("30-40k kulla phone venum")
+    assert pre.task is not None
+    await pre.task
+    pre.heard("illa, 20-30k kulla paarunga")
+    assert pre.task is not None
+    await pre.task
+
+    assert len(tools.calls) == 2
+    assert tools.calls[1][1]["category"] == "phone"
+    assert tools.calls[1][1]["max_price"] == 30000
+
+
+async def test_a_budget_with_no_history_is_still_not_a_search():
+    """Only the carry-forward is new. A budget on its own, before anything
+    has been searched, still says nothing about which shelf."""
+    tools = FakeTools(FOUND)
+    said, prime = primer()
+    pre = Prefetcher(tools, prime)
+
+    pre.heard("20-30k kulla paarunga")
+
+    assert pre.task is None
+    assert tools.calls == []

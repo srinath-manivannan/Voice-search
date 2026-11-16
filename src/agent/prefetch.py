@@ -326,7 +326,7 @@ def note(result: dict[str, Any], intent: Intent) -> str:
 
 
 class Prefetcher:
-    """One search, started early, at most once a call.
+    """Searches started early, while the caller is still talking.
 
     Everything here is written so that failing is free. A prefetch that
     errors, times out, or turns out to be about the wrong thing leaves the
@@ -344,13 +344,30 @@ class Prefetcher:
         self._tools = tools
         self._prime = prime
         self._timeout = timeout_s
-        # At most once per call. A second prefetch would rebuild the shortlist
-        # under refs the customer has already been told, which is the one
-        # outcome worse than not prefetching at all.
-        self._started = False
+        # The last thing we prefetched. A prefetch only fires for an intent
+        # that DIFFERS from this one.
+        #
+        # It used to be once a call, on the reasoning that "a second prefetch
+        # would rebuild the shortlist under refs the customer has already been
+        # told". The first half is true and the conclusion is not: when the
+        # customer changes their budget the model searches again itself, and
+        # `_search` only reuses a shortlist for a search with the SAME key, so
+        # the refs move either way. The only thing the cap bought was that
+        # they moved a generation later.
+        #
+        # Measured on the call of 2026-11-16: the customer moved from 30-40k
+        # to 40k-up to 20-30k, three searches, six of the seven generations
+        # in the call, and the prefetch fired for none of them.
+        self._last: Intent | None = None
+        self._done = 0
         self.task: asyncio.Task[None] | None = None
         self.fired = False
         self.used = False
+
+    # A browsing customer changes their mind; they do not change it fifteen
+    # times. The cap is here so that a transcript that keeps re-reading as a
+    # new intent cannot sit in a loop asking the catalogue.
+    MAX_PER_CALL = 3
 
     def heard(self, text: str) -> None:
         """A fragment of what the caller is saying. Returns immediately.
@@ -358,13 +375,38 @@ class Prefetcher:
         Called from the adapter's receive loop, so it must not await: the next
         audio frame is behind it.
         """
-        if self._started or self._tools.shortlist:
+        if self._done >= self.MAX_PER_CALL:
             return
-        intent = read_intent(text)
-        if intent is None:
+        # One at a time. Two in flight would race to prime, and the shortlist
+        # the model ends up holding would be whichever returned last.
+        if self.task is not None and not self.task.done():
             return
-        self._started = True
+        intent = read_intent(text) or self._same_shelf_new_price(text)
+        if intent is None or intent == self._last:
+            return
+        self._last = intent
+        self._done += 1
         self.task = asyncio.create_task(self._go(intent), name="prefetch")
+
+    def _same_shelf_new_price(self, text: str) -> Intent | None:
+        """A budget with no category, once a category is already on the table.
+
+        "illa, 20-30k kulla paarunga" names no shelf, and a customer who has
+        just been read three phones does not need to. `read_intent` requires
+        both and is right to - with no history, a budget alone does not say
+        which product. Here there IS history: the shelf is whatever we last
+        searched, and only the price has moved.
+
+        This is the half of the browsing case the measurement missed. The
+        customer who moved from 30-40k to 40k-up to 20-30k said "phone" once.
+        """
+        if self._last is None:
+            return None
+        budget = read_budget(text)
+        if budget is None:
+            return None
+        floor, ceiling = budget
+        return Intent(category=self._last.category, min_price=floor, max_price=ceiling)
 
     async def _go(self, intent: Intent) -> None:
         try:
