@@ -153,6 +153,28 @@ _CEILING_AFTER = re.compile(
     rf"\s*[-\s]*(?:{_CEILING_WORDS})",
     re.IGNORECASE,
 )
+# A floor on its own: "40k mela", "above 40000", "40,000-க்கு மேல".
+#
+# This used to return nothing, on the stated grounds that "20k mela is not
+# one we can search on". That was wrong, and a trace says so: asked for a
+# laptop above 40,000 the model called search_products with min_price and no
+# max, found three, and the prefetch - which had refused to read the same
+# sentence - sat out the turn. That silent generation was Rs 0.35 of a
+# Rs 2.05 call, seventeen per cent, heard by nobody.
+#
+# மேல and "over" are ordinary words, so the same rule as உள்ள applies: they
+# are only ever read with a number immediately in front of them.
+_FLOOR_WORDS = r"mela|mேla|மேல|மேலே|above|over|plus|\+|aboveku|ku mela|kku mela"
+_FLOOR_AFTER = re.compile(
+    rf"(\d[\d,]*)\s*{_UNIT}\s*(?:rupees?|ரூபாய்|rs\.?)?{_DATIVE}"
+    rf"\s*[-\s]*(?:{_FLOOR_WORDS})",
+    re.IGNORECASE,
+)
+_FLOOR_BEFORE = re.compile(
+    rf"(?:above|over|more than|minimum)\s*(\d[\d,]*)\s*{_UNIT}",
+    re.IGNORECASE,
+)
+
 _CEILING_BEFORE = re.compile(
     rf"(?:{_CEILING_WORDS})\s*(\d[\d,]*)\s*{_UNIT}",
     re.IGNORECASE,
@@ -165,7 +187,7 @@ class Intent:
 
     category: str
     min_price: int | None
-    max_price: int
+    max_price: int | None
 
     def as_args(self) -> dict[str, object]:
         """The same shape `search_products` would have been called with.
@@ -174,10 +196,9 @@ class Intent:
         key the model's own call would produce and a call that arrives anyway
         is answered from it rather than going upstream twice.
         """
-        args: dict[str, object] = {
-            "category": self.category,
-            "max_price": self.max_price,
-        }
+        args: dict[str, object] = {"category": self.category}
+        if self.max_price is not None:
+            args["max_price"] = self.max_price
         if self.min_price is not None:
             args["min_price"] = self.min_price
         return args
@@ -225,11 +246,13 @@ def read_category(text: str) -> str | None:
     return found.pop() if len(found) == 1 else None
 
 
-def read_budget(text: str) -> tuple[int | None, int] | None:
-    """A (floor, ceiling) the caller has said, or None.
+def read_budget(text: str) -> tuple[int | None, int | None] | None:
+    """A (floor, ceiling) the caller has said, or None if they said neither.
 
-    A ceiling is required and a floor is not: "25k kulla" is a budget and
-    "20k mela" is not one we can search on.
+    Either end will do. "25k kulla" is a ceiling, "40k mela" is a floor, and
+    `search_products` takes them one at a time - which is what the model
+    itself does, so refusing to read one half was only ever costing a
+    generation.
 
     Tamil number words are rewritten to digits first. The cascade's ear
     transcribes into Tamil script - "இருபதாயிரம் குள்ள" where the Live API
@@ -247,6 +270,12 @@ def read_budget(text: str) -> tuple[int | None, int] | None:
         if match := pattern.search(text):
             if (high := _rupees(match.group(1), match.group(2))) is not None:
                 return None, high
+    # Ceilings first: "20k to 40k mela" is a range somebody trailed off, and
+    # the range reading is the one they meant.
+    for pattern in (_FLOOR_AFTER, _FLOOR_BEFORE):
+        if match := pattern.search(text):
+            if (low := _rupees(match.group(1), match.group(2))) is not None:
+                return low, None
     return None
 
 

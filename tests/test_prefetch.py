@@ -79,8 +79,18 @@ class TestWhatDoesNotFire:
         # the point there is no ceiling word here at all.
         assert read_intent("5 phone kaattunga") is None
 
-    def test_a_floor_without_a_ceiling_is_not_searchable(self):
-        assert read_intent("20k mela phone venum") is None
+    def test_a_floor_without_a_ceiling_IS_searchable(self):
+        """This asserted the opposite, and the opposite was wrong.
+
+        `search_products` takes min_price on its own, and the model calls it
+        that way - on the traced call of 2026-11-16 it asked for a laptop
+        above 40,000, with no ceiling, and got three. The prefetch read the
+        same sentence as no budget and sat the turn out, which cost a silent
+        generation nobody heard.
+        """
+        intent = read_intent("20k mela phone venum")
+        assert intent is not None
+        assert (intent.min_price, intent.max_price) == (20000, None)
 
     def test_a_number_too_large_to_have_been_heard_right(self):
         assert read_budget("9000000 kulla") is None
@@ -473,3 +483,50 @@ async def test_a_budget_with_no_history_is_still_not_a_search():
 
     assert pre.task is None
     assert tools.calls == []
+
+
+class TestAFloorIsAlsoABudget:
+    """ "40k mela" used to read as no budget at all.
+
+    The reason written down was that "20k mela is not one we can search on",
+    and a trace disproved it: asked for a laptop above 40,000 the model
+    called search_products with min_price and no max, found three, and the
+    prefetch - which had refused to read the same sentence - sat out the
+    turn. That silent generation was Rs 0.35 of a Rs 2.05 call, seventeen
+    per cent of it, heard by nobody.
+    """
+
+    @pytest.mark.parametrize(
+        "said",
+        [
+            "40000 mela oru laptop venum",
+            "laptop 40k mela",
+            "above 40000 laptop",
+            "எனக்கு நாற்பதாயிரம் மேல ஒரு லேப்டாப் வேணும்",
+        ],
+    )
+    def test_it_reads_the_floor(self, said: str):
+        intent = read_intent(said)
+        assert intent is not None
+        assert intent.category == "laptop"
+        assert intent.min_price == 40000
+        assert intent.max_price is None
+
+    def test_the_search_is_asked_the_way_the_model_would_ask_it(self):
+        """The prefetched answer is cached under the key the model's own
+        call produces. A max_price of None in the args would miss it."""
+        intent = read_intent("laptop 40k mela")
+        assert intent is not None
+        assert intent.as_args() == {"category": "laptop", "min_price": 40000}
+
+    def test_a_range_still_reads_as_a_range(self):
+        """ "20k to 40k mela" is somebody trailing off, not a floor."""
+        intent = read_intent("20000 to 30000 kulla phone")
+        assert intent is not None
+        assert (intent.min_price, intent.max_price) == (20000, 30000)
+
+    def test_mela_on_its_own_is_not_a_budget(self):
+        """It is an ordinary word. Same rule as உள்ள: only ever read with a
+        number immediately in front of it."""
+        assert read_intent("mela poonga") is None
+        assert read_intent("mela irukkura phone") is None
