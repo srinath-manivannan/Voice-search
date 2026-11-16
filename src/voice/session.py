@@ -104,6 +104,7 @@ class Conversation:
         trace: CallTrace | None = None,
         should_end: Callable[[], bool] | None = None,
         holding: bytes | None = None,
+        before_reply: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         self._model = model
         self._source = source
@@ -155,6 +156,10 @@ class Conversation:
         # searches back to back is six seconds of silence down a phone line.
         self._holding = holding
         self._held_the_line = False
+        # Awaited between "the caller stopped" and telling the model so.
+        # Whatever it does must be capped by whoever supplied it: this sits
+        # directly in front of every reply on the call.
+        self._before_reply = before_reply
         # The opening greeting is protected from interruption. A trace caught
         # it being cut at 3.2 seconds by a frame at rms 949 - loud enough to
         # clear the threshold, and impossible to tell from a louder speaker.
@@ -376,6 +381,17 @@ class Conversation:
                         # it. Returns immediately; the next frame is behind
                         # this call, exactly as with end_of_speech itself.
                         self._shadow.caller_stopped()
+                    # Held, briefly, for a decision our own code is in the
+                    # middle of making. A prefetch that lands before the
+                    # model is told the caller finished saves a tool round
+                    # trip - two generations and about three seconds - and
+                    # one that lands after it is a search nobody used.
+                    #
+                    # This is the whole difference between racing and
+                    # deciding. It is capped, and a cap that passes means
+                    # the model searches exactly as it always did.
+                    if self._before_reply is not None:
+                        await self._before_reply()
                     await self._model.end_of_speech()
 
             if self._shadow is not None:

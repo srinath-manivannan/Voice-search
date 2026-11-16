@@ -390,6 +390,17 @@ class VoiceCall:
             return False
         return True
 
+    async def _let_the_prefetch_land(self) -> None:
+        """Hold the turn for a prefetch in flight, up to the configured cap.
+
+        Does nothing when there is no prefetch running, which is most turns:
+        `settle` returns at once unless a task is actually in flight.
+        """
+        wait = self._settings.prefetch_wait_seconds
+        if self._prefetch is None or wait <= 0:
+            return
+        await self._prefetch.settle(wait)
+
     def _spoken_chars(self) -> int:
         """Characters the Grok mouth has been asked to say, for the bill.
 
@@ -629,6 +640,9 @@ class VoiceCall:
                     # recording is missing, which leaves the line silent -
                     # the behaviour this is fixing, not a crash.
                     holding=load_recording(HOLDING_RECORDING),
+                    # Let our own search land before the model is told the
+                    # caller finished. See Prefetcher.settle.
+                    before_reply=self._let_the_prefetch_land,
                 )
                 await self._pump_until_either_ends()
                 await self._drain_summaries()

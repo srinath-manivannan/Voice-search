@@ -451,6 +451,36 @@ class Prefetcher:
         floor, ceiling = budget
         return Intent(category=self._last.category, min_price=floor, max_price=ceiling)
 
+    async def settle(self, timeout_s: float) -> bool:
+        """Wait for a prefetch in flight, briefly. True if it landed.
+
+        This is what turns the race into a decision. The prefetch was always
+        going to lose sometimes - it only starts when the caller has said
+        enough to read an intent from, and on the trace of 2026-11-16 that
+        was 740 ms before they stopped talking, against a search that needed
+        longer. No amount of making the search faster creates head start
+        that is not there.
+
+        So the caller's turn is held instead, for at most this long, and the
+        model is told they finished only once the shortlist is in its
+        context. The wait is spent on exactly the turns where it saves a
+        tool round trip, which is two generations and about three seconds -
+        so it buys latency as well as money, not at its expense.
+
+        Returns rather than raises on a timeout: a prefetch that is slow is
+        a prefetch we stop waiting for, and the model searches as it always
+        did.
+        """
+        task = self.task
+        if task is None or task.done():
+            return self.used
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout_s)
+        except (asyncio.TimeoutError, Exception):  # noqa: B014 - either is "no"
+            self._note("prefetch_waited_out", seconds=round(timeout_s, 2))
+            return False
+        return self.used
+
     def _note(self, kind: str, **detail: Any) -> None:
         if self._on_event is not None:
             self._on_event(kind, **detail)

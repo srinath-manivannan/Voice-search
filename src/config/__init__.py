@@ -145,6 +145,7 @@ class Config:
     # logs and stays on the Live path. See docs/CASCADE.md.
     cascade_enabled: bool
     grok_mouth_enabled: bool
+    prefetch_wait_seconds: float
     # The cascade's ear. xAI's STT is preferred because XAI_API_KEY is
     # already set for the summariser; Groq's Whisper is the alternative.
     stt_model: str
@@ -316,6 +317,15 @@ def load(env: str | None = None) -> Config:
         # and returns audio; whether that is good Tamil is the thing to
         # listen for. See src/voice/grok_tts.py.
         grok_mouth_enabled=_flag("GROK_MOUTH"),
+        # How long the caller's turn is held for a prefetch still in
+        # flight, before the model is told they finished.
+        #
+        # Spent only on turns where a prefetch is actually running, and it
+        # buys a tool round trip - two generations and about three seconds.
+        # Measured: a shallow search is 842 ms, so this clears it with room,
+        # and a prefetch slower than this is one we stop waiting for.
+        # Zero turns the wait off and leaves the race as it was.
+        prefetch_wait_seconds=float(os.environ.get("PREFETCH_WAIT_SECONDS", "1.5")),
         stt_model=os.environ.get("STT_MODEL", "grok-voice-transcribe-2.0"),
         stt_language=os.environ.get("STT_LANGUAGE", "ta"),
         log_level=os.environ.get("LOG_LEVEL", defaults.LOG_LEVEL),

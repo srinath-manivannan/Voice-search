@@ -11,6 +11,7 @@ answer is almost always "not yet".
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import pytest
@@ -573,3 +574,84 @@ async def test_a_prefetch_that_finds_nothing_says_so_by_staying_quiet():
     await pre.task
 
     assert [kind for kind, _ in noted] == ["prefetch_started"]
+
+
+class TestWaitingForItInsteadOfRacingIt:
+    """The change that turns a race into a decision.
+
+    The prefetch only starts once the caller has said enough to read an
+    intent from. On the trace of 2026-11-16 that was 740 ms before they
+    stopped talking, against a search that needed longer - so it lost, and
+    the search it paid for was thrown away while the model paid for the
+    round trip anyway. No amount of making the search faster creates head
+    start that is not there.
+
+    So the caller's turn is held instead, briefly, and the model is told
+    they finished once the shortlist is already in its context.
+    """
+
+    async def test_it_waits_for_a_search_still_in_flight(self):
+        tools = FakeTools(FOUND)
+        said, prime = primer()
+        pre = Prefetcher(tools, prime)
+
+        pre.heard("20-25k kulla phone venum")
+        assert pre.task is not None and not pre.task.done()
+        landed = await pre.settle(2.0)
+
+        assert landed is True
+        assert said, "the model was not primed before the turn was released"
+
+    async def test_a_turn_with_no_prefetch_is_not_held_at_all(self):
+        """Most turns. `settle` has to return at once or it sits in front of
+        every reply on the call."""
+        import time
+
+        pre = Prefetcher(FakeTools(FOUND), primer()[1])
+
+        started = time.monotonic()
+        landed = await pre.settle(5.0)
+
+        assert landed is False
+        assert time.monotonic() - started < 0.05
+
+    async def test_a_slow_prefetch_is_given_up_on(self):
+        """A cap that passes means the model searches as it always did. The
+        one thing this must never do is hold a caller on a dead line."""
+        import time
+
+        class Slow:
+            shortlist: tuple = ()
+
+            async def search_ahead(self, args):
+                await asyncio.sleep(30)
+                raise AssertionError("should not finish")  # pragma: no cover
+
+        pre = Prefetcher(Slow(), primer()[1])
+        pre.heard("20-25k kulla phone venum")
+
+        started = time.monotonic()
+        landed = await pre.settle(0.2)
+        waited = time.monotonic() - started
+
+        assert landed is False
+        assert waited < 1.0, "the cap did not hold"
+
+    async def test_giving_up_is_recorded(self):
+        """So a trace shows the wait was spent and bought nothing."""
+        noted: list[str] = []
+
+        class Slow:
+            shortlist: tuple = ()
+
+            async def search_ahead(self, args):
+                await asyncio.sleep(30)
+                raise AssertionError("should not finish")  # pragma: no cover
+
+        pre = Prefetcher(
+            Slow(), primer()[1], on_event=lambda kind, **d: noted.append(kind)
+        )
+        pre.heard("20-25k kulla phone venum")
+        await pre.settle(0.2)
+
+        assert "prefetch_waited_out" in noted
