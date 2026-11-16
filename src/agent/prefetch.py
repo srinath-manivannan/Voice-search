@@ -354,6 +354,12 @@ def note(result: dict[str, Any], intent: Intent) -> str:
     return "\n".join(lines)
 
 
+class Recorder(Protocol):
+    """`CallTrace.record`, named so this module does not import the trace."""
+
+    def __call__(self, kind: str, **detail: Any) -> Any: ...
+
+
 class Prefetcher:
     """Searches started early, while the caller is still talking.
 
@@ -369,10 +375,17 @@ class Prefetcher:
         prime: Primer,
         *,
         timeout_s: float = 6.0,
+        on_event: Recorder | None = None,
     ) -> None:
         self._tools = tools
         self._prime = prime
         self._timeout = timeout_s
+        # Recorded as it happens rather than totalled at the end. Whether
+        # this WON is the whole question - the model starts generating the
+        # moment its own VAD says the caller stopped, and a prefetch that
+        # primes a second later has paid for a search nobody used. "used:
+        # true" at the end of a call does not say which.
+        self._on_event = on_event
         # The last thing we prefetched. A prefetch only fires for an intent
         # that DIFFERS from this one.
         #
@@ -415,6 +428,7 @@ class Prefetcher:
             return
         self._last = intent
         self._done += 1
+        self._note("prefetch_started", **intent.as_args())
         self.task = asyncio.create_task(self._go(intent), name="prefetch")
 
     def _same_shelf_new_price(self, text: str) -> Intent | None:
@@ -436,6 +450,10 @@ class Prefetcher:
             return None
         floor, ceiling = budget
         return Intent(category=self._last.category, min_price=floor, max_price=ceiling)
+
+    def _note(self, kind: str, **detail: Any) -> None:
+        if self._on_event is not None:
+            self._on_event(kind, **detail)
 
     async def _go(self, intent: Intent) -> None:
         try:
@@ -459,6 +477,7 @@ class Prefetcher:
             log.warning("prefetch could not be primed: %s", type(failed).__name__)
             return
         self.used = True
+        self._note("prefetch_primed", products=len(result.get("products") or []))
         log.info(
             "prefetched %s %s before the model asked",
             intent.category,

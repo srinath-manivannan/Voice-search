@@ -517,7 +517,11 @@ class VoiceCall:
 
         # Only where there is a catalogue to search. Without one the search
         # tool is not even declared, so there is nothing to get ahead of.
-        self._prefetch = Prefetcher(tools, prime) if declarations else None
+        self._prefetch = (
+            Prefetcher(tools, prime, on_event=self._trace.record)
+            if declarations
+            else None
+        )
         listener = self._prefetch.heard if self._prefetch else None
 
         def carry() -> str:

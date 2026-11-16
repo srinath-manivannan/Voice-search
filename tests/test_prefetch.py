@@ -530,3 +530,46 @@ class TestAFloorIsAlsoABudget:
         number immediately in front of it."""
         assert read_intent("mela poonga") is None
         assert read_intent("mela irukkura phone") is None
+
+
+async def test_it_says_when_it_started_and_when_it_landed():
+    """ "used: true" at the end of a call does not say whether it WON.
+
+    The model starts generating the moment its own turn detection says the
+    caller stopped. A prefetch that primes a second after that has paid for
+    a search nobody used, and the call still shows `used: true` - which is
+    how a trace came back saying the prefetch fired on a turn the model had
+    already searched for itself. Two timestamps settle it.
+    """
+    noted: list[tuple[str, dict]] = []
+    tools = FakeTools(FOUND)
+    said, prime = primer()
+    pre = Prefetcher(
+        tools, prime, on_event=lambda kind, **detail: noted.append((kind, detail))
+    )
+
+    pre.heard("20-25k kulla phone venum")
+    assert pre.task is not None
+    await pre.task
+
+    kinds = [kind for kind, _ in noted]
+    assert kinds == ["prefetch_started", "prefetch_primed"]
+    assert noted[0][1]["category"] == "phone"
+    assert noted[1][1]["products"] > 0
+
+
+async def test_a_prefetch_that_finds_nothing_says_so_by_staying_quiet():
+    """Started and never primed is the shape of a search that came back
+    empty - and on the trace it reads as a gap, which is the point."""
+    noted: list[tuple[str, dict]] = []
+    tools = FakeTools({"products": []})
+    said, prime = primer()
+    pre = Prefetcher(
+        tools, prime, on_event=lambda kind, **detail: noted.append((kind, detail))
+    )
+
+    pre.heard("20-25k kulla phone venum")
+    assert pre.task is not None
+    await pre.task
+
+    assert [kind for kind, _ in noted] == ["prefetch_started"]
