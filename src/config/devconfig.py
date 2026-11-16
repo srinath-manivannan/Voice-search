@@ -109,8 +109,23 @@ ESTATE_SRC_PATH = "../../Search-proxy/products-search-engine"
 # In-spec compression is built for long sessions, not for making a short
 # call cheaper. If another 1007 ever appears, raise this to 5,000 first -
 # and expect the bill to go up, not down.
-CONTEXT_TRIGGER_TOKENS = 3000
-CONTEXT_TARGET_TOKENS = 2400
+# Raised from 3000/2400 when the prompt grew.
+#
+# The target has to leave room for a few exchanges AFTER the prompt is kept,
+# or compression hands the model a window with nothing in it but its own
+# instructions - the failure this guard was written for, where the agent
+# asked "Endha model pathi kekureenga?" four turns running because every
+# turn emptied the window of what it had just said.
+#
+# Opening the shelves up and teaching it to narrow cost about 240 prompt
+# tokens, and at 2,400 that left 931 for the conversation. The 400 here buys
+# the room back. It is not free: once the trigger fires, up to 400 more
+# tokens are carried and re-billed on each turn after it. Rotation at 400
+# audio tokens is what actually keeps this call small, and compression
+# almost never fires behind it - this is the floor under that, and a floor
+# that breaks the conversation is not one.
+CONTEXT_TRIGGER_TOKENS = 3400
+CONTEXT_TARGET_TOKENS = 2800
 
 # Browsers allowed to open a socket here. Development is the machine you are
 # sitting at; production names the real host and nothing else.

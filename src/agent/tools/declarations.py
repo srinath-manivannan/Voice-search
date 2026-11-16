@@ -66,6 +66,13 @@ SEARCH_PRODUCTS = {
             },
             "category": {
                 "type": "string",
+                # The big shelves only. Every one of these is a thing a
+                # customer names and then wants a BUDGET applied to, which is
+                # what a facet filter is for. Chargers, cases, geysers and
+                # the kitchen are still sold and still findable - the query
+                # reaches the whole catalogue - and listing them here would
+                # cost prompt tokens on every generation of every call to
+                # filter shelves nobody puts a price range on.
                 "enum": [
                     "phone",
                     "laptop",
@@ -78,12 +85,6 @@ SEARCH_PRODUCTS = {
                     "fan",
                     "headphones",
                     "speaker",
-                    "powerbank",
-                    "charger",
-                    "case",
-                    "geyser",
-                    "kitchen",
-                    "home appliance",
                 ],
                 "description": (
                     "Optional shelf filter. Poorvika sells far more than "

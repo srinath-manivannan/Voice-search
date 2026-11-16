@@ -157,3 +157,36 @@ class TestAFloorNobodyGivesBack:
             "the measured dead call ran thirty seconds before the caller "
             "gave up; the gate has to open before they do"
         )
+
+
+class TestNarrowingBeforeRecommending:
+    """Asking before picking, and only when there is something to pick from.
+
+    Measured on the live catalogue: the whole TV shelf is 21 in stock, and
+    "30-40k kulla TV" is exactly 1 of them. So a funnel is right for the
+    first and absurd for the second, and the rule has to turn on the count
+    rather than on the shelf. The model is already told `total_matching`.
+    """
+
+    def test_it_is_told_to_narrow_a_wide_shelf(self):
+        said = system_instruction("voice", 18)
+        assert "NARROW FIRST" in said
+        assert "total_matching" in said
+
+    def test_the_question_names_the_axis_that_separates_that_shelf(self):
+        """ "Enna venum?" is not a narrowing question. "43 inch-aa, 55
+        inch-aa?" is - and inches is what separates televisions."""
+        said = system_instruction("voice", 18)
+        assert "inches for a TV" in said
+        assert "43 inch-aa, 55 inch-aa?" in said
+
+    def test_it_is_told_to_stop_asking(self):
+        """A phone call is not a filter sidebar. Two questions, then answer."""
+        said = system_instruction("voice", 18)
+        assert "two such questions at most" in said.lower()
+
+    def test_a_short_shelf_is_answered_not_interrogated(self):
+        """The user's own example has one product in the band. Asking what
+        feature they want, then which brand, would be asking about nothing."""
+        said = system_instruction("voice", 18)
+        assert "6 or fewer matching: nothing to narrow, answer" in said
