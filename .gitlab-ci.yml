@@ -43,6 +43,23 @@ secrets:
     - pip install detect-secrets==1.5.0
     - detect-secrets scan --baseline .secrets.baseline
 
+# The release gate for rule 161. Two questions: does anything we INSTALL
+# carry a known advisory (pip-audit, both lockfiles), and did WE write a
+# hole (bandit, src only).
+#
+# `make audit AUDIT_BIN=` because this job installs into the system python
+# rather than a venv. The commands and the ignore list live in the Makefile,
+# so this job and the GitHub one cannot drift apart - and neither can the
+# thing a developer runs before pushing.
+#
+# Deliberately NOT allow_failure. A dependency with a published hole is a
+# release that does not go out, which is the whole point of having the job.
+audit:
+  extends: .python
+  stage: check
+  script:
+    - make audit AUDIT_BIN=
+
 deploy-code:
   stage: deploy
   image: python:3.10.12
