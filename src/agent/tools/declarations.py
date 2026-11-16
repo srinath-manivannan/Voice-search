@@ -58,14 +58,37 @@ SEARCH_PRODUCTS = {
             "query": {
                 "type": "string",
                 "description": (
-                    "Brand or model words, e.g. 'Samsung'. Empty for a budget "
-                    "and category alone."
+                    "Brand, model or product words - 'Samsung', 'mixer "
+                    "grinder', 'trimmer'. This searches the WHOLE catalogue, "
+                    "so use it for anything the category list does not name. "
+                    "Empty for a budget and category alone."
                 ),
             },
             "category": {
                 "type": "string",
-                "enum": ["phone", "laptop", "tablet", "watch", "tv"],
-                "description": "'phone' covers mobiles.",
+                "enum": [
+                    "phone",
+                    "laptop",
+                    "tablet",
+                    "watch",
+                    "tv",
+                    "ac",
+                    "fridge",
+                    "washing machine",
+                    "fan",
+                    "headphones",
+                    "speaker",
+                    "powerbank",
+                    "charger",
+                    "case",
+                    "geyser",
+                    "kitchen",
+                    "home appliance",
+                ],
+                "description": (
+                    "Optional shelf filter. Poorvika sells far more than "
+                    "this - leave it out and use query for anything else."
+                ),
             },
             "min_price": {
                 "type": "integer",

@@ -56,10 +56,60 @@ CATEGORIES: dict[str, tuple[str, ...]] = {
     "tablet": ("tablet", "tab", "ipad", "டேப்லெட்"),
     "watch": ("watch", "smartwatch", "கடிகாரம்", "வாட்ச்"),
     "tv": ("tv", "television", "டிவி", "தொலைக்காட்சி"),
+    # Poorvika is not a phone shop. These were added after a call where a
+    # customer asked for something off the phone shelf and the agent had no
+    # way to look for it: the tool's category was an enum of five.
+    #
+    # `case` and `kitchen` are deliberately NOT here, though the tool can
+    # still filter on them. A prefetch fires on a word plus a budget, and
+    # "in that case" is a sentence, not a shelf.
+    "ac": ("ac", "a/c", "aircon", "air conditioner", "ஏசி", "ஏ.சி.", "குளிரூட்டி"),
+    "fridge": (
+        "fridge",
+        "refrigerator",
+        "ஃப்ரிட்ஜ்",
+        "குளிர்சாதனப் பெட்டி",
+    ),
+    "washing machine": (
+        "washing machine",
+        "washingmachine",
+        "வாஷிங் மெஷின்",
+        "வாஷிங்மெஷின்",
+        "சலவையந்திரம்",
+    ),
+    "fan": ("fan", "ஃபேன்", "விசிறி"),
+    "headphones": (
+        "headphone",
+        "headphones",
+        "headset",
+        "earphone",
+        "earphones",
+        "earbuds",
+        "ஹெட்போன்",
+        "இயர்போன்",
+    ),
+    "speaker": ("speaker", "speakers", "ஸ்பீக்கர்"),
+    "powerbank": ("powerbank", "power bank", "பவர் பேங்க்", "பவர்பேங்க்"),
+    "charger": ("charger", "சார்ஜர்"),
+    "geyser": ("geyser", "water heater", "கீசர்", "வாட்டர் ஹீட்டர்"),
 }
 
 # A budget is only a budget above this. "5 phone paaren" is not five thousand
-# rupees, and a catalogue of phones has nothing under about this anyway.
+# rupees, and a bare digit or two is a count far more often than a price.
+#
+# Lowering it was tried, for the cheap shelves - a case is 300 rupees, a
+# charger 600 - and put back, because this number does two jobs. `_rupees`
+# reads a bare number BELOW the floor as thousands: "25 kulla" is 25,000,
+# which is how people say it. Drop the floor to 500 and "2000 kulla" stops
+# meaning twenty lakh (rejected by the ceiling, so no budget) and starts
+# meaning two thousand - right for a power bank, wrong for the phone the
+# same words usually mean, and the prefetch would hand the model a shortlist
+# from the wrong price band without anyone noticing.
+#
+# So the cheap shelves simply do not prefetch. That costs one generation and
+# nothing else: the model still searches and still answers correctly. A
+# missed optimisation is not a bug; a confident answer about the wrong price
+# band is.
 FLOOR = 3000
 # Above this it is being misheard. The estate's dearest phone is far below it.
 CEILING = 500_000

@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from src.agent.prefetch import (
     Intent,
     Prefetcher,
@@ -331,3 +333,61 @@ class TestTheBudgetSaidInWords:
         ever read when a number sits immediately in front of it.
         """
         assert read_intent("stock-ல உள்ள phone kaamunga") is None
+
+
+class TestTheWiderShelves:
+    """Poorvika is not a phone shop, and for a while this code thought it was.
+
+    The tool's category was an enum of five, so a customer asking for an AC
+    or a washing machine got nothing the model could look for. These are the
+    shelves the prefetch can now recognise; the live catalogue test checks
+    that each one still matches something on the shelf.
+    """
+
+    @pytest.mark.parametrize(
+        ("said", "shelf"),
+        [
+            ("enakku 30000 kulla oru AC venum", "ac"),
+            ("air conditioner 35000 kulla", "ac"),
+            ("washing machine 25000 kulla", "washing machine"),
+            ("fridge 30000 kulla", "fridge"),
+            ("headphone 5000 kulla", "headphones"),
+            ("water heater 8000 kulla", "geyser"),
+            ("எனக்கு இருபதாயிரம் வரை ஒரு ஃபேன்", "fan"),
+        ],
+    )
+    def test_it_reads_the_shelf(self, said: str, shelf: str):
+        intent = read_intent(said)
+        assert intent is not None and intent.category == shelf
+
+    def test_in_that_case_is_not_a_shelf(self):
+        """`case` is a shelf the tool can filter on and NOT one the prefetch
+        looks for, because "in that case" is a sentence."""
+        assert read_category("in that case 20000 kulla phone") == "phone"
+
+    def test_the_cheap_shelves_simply_do_not_prefetch(self):
+        """A power bank is 1,500 rupees, under the budget floor.
+
+        Deliberate, and the floor comment says why: below the floor a bare
+        number is read as thousands, so lowering it to catch "2000 kulla"
+        would change what that means for the phone it usually means. The
+        model still searches and still answers; only the optimisation is
+        skipped.
+        """
+        assert read_intent("power bank 2000 kulla") is None
+
+
+class TestTheEnumAndTheMapAgree:
+    def test_every_category_the_model_may_ask_for_can_be_filtered(self):
+        """An enum value with no mapping is a filter that silently does
+        nothing - the search runs unfiltered and the customer is read a
+        shortlist from the wrong shelf."""
+
+        from src.agent.tools.catalogue import CATEGORIES as FACETS
+        from src.agent.tools.declarations import SEARCH_PRODUCTS
+
+        params: Any = SEARCH_PRODUCTS["parameters"]
+        offered = params["properties"]["category"]["enum"]
+
+        missing = [name for name in offered if name not in FACETS]
+        assert not missing, f"no catalogue facet for {missing}"

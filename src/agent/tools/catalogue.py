@@ -42,13 +42,37 @@ QUERY_BY = "name,categories,item_code,sku,ram"
 QUERY_WEIGHTS = "4,3,2,1,1"
 
 # Spoken category words to the one value the schema filters on.
+#
+# Every value here was read off a live facet query and checked to return
+# something - `tv` used to map to "Televisions", which is not a value this
+# catalogue has, so the one category a customer asks for by name as often as
+# phones found nothing at all. The shelf is "Television", singular.
+#
+# These are the shelves that can be FILTERED. They are not the shelves
+# Poorvika sells: the catalogue carries over a hundred facet values and the
+# text query reaches all of them, which is why the tool's description tells
+# the model to search by words for anything not listed here. Checked against
+# the live catalogue on 2026-11-16; counts in the comments are from that day
+# and will drift.
 CATEGORIES = {
-    "phone": "Mobiles",
+    "phone": "Mobiles",  # 70
     "mobile": "Mobiles",
-    "laptop": "Laptops",
-    "tablet": "Tabs & IPad",
-    "watch": "Smart Watches",
-    "tv": "Televisions",
+    "laptop": "Laptops",  # 18
+    "tablet": "Tabs & IPad",  # 7
+    "watch": "Smart Watches",  # 10
+    "tv": "Television",  # 21
+    "ac": "Air Conditioners",  # 23
+    "fridge": "Refrigerators",  # 18
+    "washing machine": "Washing Machines",  # 14
+    "fan": "Fans",  # 30
+    "headphones": "Headphones & Headsets",  # 34
+    "speaker": "Speakers",  # 18
+    "powerbank": "Powerbanks",  # 12
+    "charger": "Chargers",  # 10
+    "case": "Cases & Covers",  # 27
+    "geyser": "Geysers",  # 5
+    "kitchen": "Kitchen Appliances",  # 53
+    "home appliance": "Home Appliances",  # 98
 }
 
 # Both stock fields must agree, and the variant must be one the shop lists.
