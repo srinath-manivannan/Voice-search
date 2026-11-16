@@ -255,6 +255,47 @@
 
 
   /* what the call cost, for someone who has never seen a token ---------- */
+  /* the meter ---------------------------------------------------------- */
+  /* On screen for the whole call, because "how long have I been talking and
+     what has that cost" are the two numbers you want DURING a call, not in a
+     panel you scroll to after it. The full breakdown below still exists; this
+     is the glance.
+
+     Tabular numerals on both figures: without them the digits are different
+     widths, the box twitches on every tick, and a number that moves while it
+     is being read is a number nobody trusts. */
+  #meter {
+    position: fixed; top: 58px; right: 20px; z-index: 20;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 12px;
+    padding: 10px 14px; min-width: 124px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, .06);
+  }
+  #meter .lbl {
+    font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--dim); margin-bottom: 5px;
+  }
+  #meter .clock {
+    font-size: 24px; font-weight: 600; line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  #meter .rs {
+    font-size: 16px; font-weight: 600; margin-top: 7px;
+    font-variant-numeric: tabular-nums;
+  }
+  #meter .per { font-size: 11px; color: var(--dim); margin-top: 2px; }
+  /* `#meter .per` is an id plus a class, so a bare `.good` further up the
+     sheet loses to it and the rate would stay grey however far over target
+     it ran. Stated at the same weight to win. */
+  #meter .per.good { color: var(--good); }
+  #meter .per.warn { color: var(--warn); }
+  #meter .per.bad { color: var(--bad); }
+  #meter .waiting { color: var(--dim); font-weight: 400; }
+  @media (max-width: 640px) {
+    #meter { top: 54px; right: 10px; padding: 8px 10px; min-width: 0; }
+    #meter .clock { font-size: 19px; }
+    #meter .rs { font-size: 14px; }
+  }
+
   #spend {
     margin: 18px auto 0; max-width: 360px; text-align: left;
     border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px;
@@ -313,6 +354,16 @@
   <div class="spacer"></div>
   <button class="icon-btn" id="share" title="Copy link" aria-label="Copy link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg></button>
 </header>
+
+<!-- aria-live is off on purpose. A clock that ticks every second, announced
+     every second, makes the page unusable with a screen reader. The figures
+     are readable on demand; they do not need to interrupt. -->
+<aside id="meter" hidden aria-live="off">
+  <div class="lbl">On call</div>
+  <div class="clock" id="meter-time">0:00</div>
+  <div class="rs waiting" id="meter-rs">&mdash;</div>
+  <div class="per" id="meter-rate">&nbsp;</div>
+</aside>
 
 <nav role="tablist" aria-label="Voice or chat">
   <button class="tab" id="tab-voice" role="tab" aria-selected="true"

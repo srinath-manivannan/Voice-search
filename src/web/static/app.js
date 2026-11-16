@@ -244,6 +244,7 @@ async function start() {
     };
     sourceNode.connect(worklet);
     state.running = true;
+    startMeter();
     el('toggle').disabled = false;
     setCtaLabel('End Call');
     el('toggle').classList.add('stop');
@@ -253,6 +254,7 @@ async function start() {
 
 function stop() {
   state.running = false;
+  stopMeter();
   stopLevelLoop();
   flushPlayback();
   if (state.socket) state.socket.close();
@@ -456,7 +458,58 @@ function showSpend(cost) {
 // standing prompt being re-processed" is: the first number is physics, the
 // second is a setting. The bar widths are each line's share of the total, so
 // the thing to go and fix is the widest one.
+// --- the meter ------------------------------------------------------------
+//
+// Two numbers, on screen for the whole call. They are kept by DIFFERENT
+// clocks on purpose.
+//
+// The time ticks locally, every second, because the browser knows exactly
+// how long the call has been up and nothing has to be asked for it.
+//
+// The rupees do NOT tick. They step, when the server sends a figure it has
+// actually counted. Smoothing them between updates - rate x elapsed, say -
+// would read better and would put a number on screen that nobody charged,
+// in the one panel whose entire job is to be checkable against a bill. So
+// between updates it holds the last real figure, and before the first one
+// it says nothing rather than zero: a call that has cost something and
+// reads "Rs 0.00" is worse than one that admits it does not know yet.
+
+const meter = { started: 0, timer: null };
+
+function meterClock() {
+  const seconds = Math.floor((Date.now() - meter.started) / 1000);
+  const mm = Math.floor(seconds / 60);
+  const ss = seconds % 60;
+  el('meter-time').textContent = mm + ':' + String(ss).padStart(2, '0');
+}
+
+function startMeter() {
+  meter.started = Date.now();
+  el('meter').hidden = false;
+  el('meter-time').textContent = '0:00';
+  el('meter-rs').textContent = '\u2014';
+  el('meter-rs').className = 'rs waiting';
+  el('meter-rate').innerHTML = '&nbsp;';
+  meterClock();
+  meter.timer = setInterval(meterClock, 1000);
+}
+
+function stopMeter() {
+  if (meter.timer) clearInterval(meter.timer);
+  meter.timer = null;
+  // Left on screen, not hidden. The last thing you want after hanging up is
+  // for the figure you were watching to vanish before you have read it.
+}
+
+function meterCost(cost) {
+  el('meter-rs').textContent = '\u20b9' + cost.total_inr.toFixed(2);
+  el('meter-rs').className = 'rs';
+  el('meter-rate').textContent = '\u20b9' + cost.total_inr_per_min.toFixed(2) + ' a minute';
+  el('meter-rate').className = 'per ' + rateClass(cost.total_inr_per_min, cost.target_inr_per_min);
+}
+
 function showCost(cost) {
+  meterCost(cost);
   showSpend(cost);
   el('cost').hidden = false;
   const target = cost.target_inr_per_min;
