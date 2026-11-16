@@ -117,6 +117,7 @@ OUT_AUDIO = "out_audio"
 OUT_TEXT = "out_text"
 THINKING = "thinking"
 GROK = "grok"
+GROK_TTS = "grok_tts"
 
 LABELS = {
     IN_AUDIO: "Caller voice + audio history",
@@ -125,6 +126,7 @@ LABELS = {
     OUT_TEXT: "Transcripts, caller and agent",
     THINKING: "Thinking",
     GROK: "Grok memory",
+    GROK_TTS: "Agent voice, spoken by Grok",
 }
 
 
@@ -146,6 +148,19 @@ class GrokRates:
 # docs.x.ai/developers/pricing, read 2026-11-13. 4.3 and the 4.20 snapshots
 # share a card. 4.5 and newer are the dearer one. An unknown id is priced
 # as 4.7 so a typo cannot make the meter look cheaper than the invoice.
+# Text-to-speech is billed per MILLION CHARACTERS, not per token, which is
+# why it cannot go through GrokRates with the rest. Reporting characters in
+# a token column would be wrong by roughly four times, in the one panel
+# whose job is to be checkable against a bill.
+# https://docs.x.ai/developers/model-capabilities/audio/voice (read 2026-11-16)
+USD_PER_MILLION_TTS_CHARS = 15.0
+
+
+def grok_tts_usd(characters: int) -> float:
+    """What speaking this many characters costs."""
+    return max(characters, 0) / 1e6 * USD_PER_MILLION_TTS_CHARS
+
+
 _GROK_CHEAP = GrokRates(input=1.25, cached=0.20, output=2.50)
 _GROK_DEAR = GrokRates(input=2.00, cached=0.50, output=6.00)
 
@@ -269,6 +284,7 @@ def price(
     grok_tokens: int = 0,
     grok_usd: float = 0.0,
     include_grok: bool = False,
+    grok_tts_chars: int = 0,
 ) -> Breakdown:
     """Price already-counted tokens. Token counts are BILLED counts.
 
@@ -299,6 +315,12 @@ def price(
         raw[GROK] = (grok_tokens, 0.0)
         priced[GROK] = grok_usd
         order.append(GROK)
+    if grok_tts_chars:
+        # Characters, in a field the rest of the table fills with tokens.
+        # They are not the same unit and the label says which one this is.
+        raw[GROK_TTS] = (grok_tts_chars, 0.0)
+        priced[GROK_TTS] = grok_tts_usd(grok_tts_chars)
+        order.append(GROK_TTS)
     total = sum(priced[key] for key in order)
 
     lines = tuple(

@@ -39,6 +39,7 @@ from src.observability.metrics import (
 from src.observability.reporting import Reporter
 from src.voice.budget import BudgetExceeded, SessionBudget
 from src.agent.prefetch import Prefetcher
+from src.voice.grok_tts import GrokMouth
 from src.voice.opening import HOLDING_RECORDING, SpeaksTheOpening, load_recording
 from src.memory.grok import GrokClient
 from src.memory.summariser import CallMemory
@@ -140,6 +141,8 @@ class VoiceCall:
         self._summaries: set[asyncio.Task[None]] = set()
         # Built in `_model`, once there is a ToolSession to search with.
         self._prefetch: Prefetcher | None = None
+        # Set when the cascade speaks through Grok; read for the bill.
+        self._grok_mouth: GrokMouth | None = None
         # One trace for the call, made here rather than by `Conversation`,
         # because the shadow ear writes to it and exists before the
         # conversation does.
@@ -177,7 +180,9 @@ class VoiceCall:
             # The whole bill, broken out per charge line, live - rather than
             # one number after the call has ended, which is too late to tell
             # you which line to go and fix.
-            payload["cost"] = report(self._usage, self._settings, self._minutes(True))
+            payload["cost"] = report(
+                self._usage, self._settings, self._minutes(True), self._spoken_chars()
+            )
 
         with contextlib.suppress(Exception):
             await self._socket.send_json(payload)
@@ -342,12 +347,44 @@ class VoiceCall:
             # No tools, no persona, and no room to vary. It reads what it
             # is given, and a loudspeaker that can paraphrase a price is
             # worse than one that cannot speak at all.
-            GeminiLiveSession(
-                settings, instruction=SPEAK_ONLY, temperature=MOUTH_TEMPERATURE
-            ),
+            self._mouth(),
             rate=settings.capture_sample_rate,
             ear_timeout_s=settings.whisper_timeout_seconds,
             on_caller_speech=listener,
+        )
+
+    def _spoken_chars(self) -> int:
+        """Characters the Grok mouth has been asked to say, for the bill.
+
+        Zero on the Live path, which is billed in audio tokens and already
+        counted in SessionUsage. Two units in one table is why the line is
+        labelled rather than folded into the Grok memory row.
+        """
+        return self._grok_mouth.characters if self._grok_mouth is not None else 0
+
+    def _mouth(self) -> GrokMouth | GeminiLiveSession:
+        """Who says the brain's reply out loud.
+
+        Grok where the flag and the key are both there, a second Gemini Live
+        socket otherwise. Same rule as every other side model: a missing key
+        logs and falls back rather than refusing the call.
+
+        The two are interchangeable because the cascade only ever asks a
+        mouth to `say` and to hand back events, which is the smaller half of
+        what a Live session does.
+        """
+        settings = self._settings
+        if settings.grok_mouth_enabled and settings.xai_api_key:
+            self._grok_mouth = GrokMouth(
+                settings.xai_api_key,
+                rate=settings.playback_sample_rate,
+                language=settings.stt_language or "ta",
+            )
+            return self._grok_mouth
+        if settings.grok_mouth_enabled:
+            log.warning("GROK_MOUTH is on but XAI_API_KEY is empty; using Live")
+        return GeminiLiveSession(
+            settings, instruction=SPEAK_ONLY, temperature=MOUTH_TEMPERATURE
         )
 
     def _open_shadow(self) -> ShadowEar | None:
@@ -398,7 +435,12 @@ class VoiceCall:
         await self._push(
             {
                 "type": "cost",
-                "cost": report(self._usage, self._settings, self._minutes(True)),
+                "cost": report(
+                    self._usage,
+                    self._settings,
+                    self._minutes(True),
+                    self._spoken_chars(),
+                ),
             }
         )
 
@@ -565,7 +607,9 @@ class VoiceCall:
         await self._push(
             {
                 "type": "summary",
-                "cost": report(usage, self._settings, self._minutes(True)),
+                "cost": report(
+                    usage, self._settings, self._minutes(True), self._spoken_chars()
+                ),
                 "trace": self._talking.trace.summary(),
             }
         )

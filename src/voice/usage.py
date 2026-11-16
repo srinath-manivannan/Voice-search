@@ -206,6 +206,7 @@ class SessionUsage:
         minutes: float,
         *,
         include_grok: bool = False,
+        grok_tts_chars: int = 0,
     ) -> Breakdown:
         """The charge lines, in rupees a connected minute, GST included.
 
@@ -225,6 +226,7 @@ class SessionUsage:
             rates=self.rates,
             usd_inr=usd_inr,
             gst_rate=gst_rate,
+            grok_tts_chars=grok_tts_chars,
             grok_tokens=self.grok_tokens,
             grok_usd=self._grok_usd,
             include_grok=include_grok,

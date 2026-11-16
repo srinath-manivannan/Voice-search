@@ -367,6 +367,7 @@ const PLAIN = {
   out_audio: 'Speaking back',
   out_text:  'Putting it on screen',
   grok:      'Writing itself notes',
+  grok_tts:  'Speaking back',
 };
 // Which side of the meter each line sits on. Said as "taking in" and
 // "giving back" rather than input and output, which mean nothing to anyone
@@ -379,7 +380,7 @@ const TAKES_IN = ['in_audio', 'in_text'];
 // one connection, so one vendor carries almost all of it.
 const VENDORS = [
   { who: 'Google · Gemini', keys: ['in_audio', 'in_text', 'out_audio', 'out_text', 'thinking'] },
-  { who: 'xAI · Grok', keys: ['grok'] },
+  { who: 'xAI · Grok', keys: ['grok', 'grok_tts'] },
 ];
 
 function showSpend(cost) {

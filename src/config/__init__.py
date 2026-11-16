@@ -144,6 +144,7 @@ class Config:
     # why it is a flag and not a change. Needs GROQ_API_KEY; without one it
     # logs and stays on the Live path. See docs/CASCADE.md.
     cascade_enabled: bool
+    grok_mouth_enabled: bool
     # The cascade's ear. xAI's STT is preferred because XAI_API_KEY is
     # already set for the summariser; Groq's Whisper is the alternative.
     stt_model: str
@@ -306,6 +307,15 @@ def load(env: str | None = None) -> Config:
         whisper_model=os.environ.get("WHISPER_MODEL", "whisper-large-v3-turbo"),
         whisper_timeout_seconds=float(os.environ.get("WHISPER_TIMEOUT_SECONDS", "8")),
         cascade_enabled=_flag("CASCADE"),
+        # The cascade's mouth: xAI's TTS instead of a second Gemini Live
+        # socket. Billed per character rather than per audio token, and it
+        # needs no keepalive because a TTS socket is not closed for sitting
+        # idle. Only meaningful with CASCADE on.
+        #
+        # Tamil is NOT in xAI's documented twenty languages. It is accepted
+        # and returns audio; whether that is good Tamil is the thing to
+        # listen for. See src/voice/grok_tts.py.
+        grok_mouth_enabled=_flag("GROK_MOUTH"),
         stt_model=os.environ.get("STT_MODEL", "grok-voice-transcribe-2.0"),
         stt_language=os.environ.get("STT_LANGUAGE", "ta"),
         log_level=os.environ.get("LOG_LEVEL", defaults.LOG_LEVEL),
