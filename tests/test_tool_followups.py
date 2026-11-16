@@ -161,16 +161,29 @@ async def test_the_model_cannot_ask_product_details_for_what_search_already_sent
     assert "error" not in answer
 
 
-async def test_a_prefetched_search_pays_for_emi_and_a_live_one_does_not():
-    """The latency objection, and why a prefetch is exempt from it.
+async def test_a_prefetch_is_shallow_because_it_is_racing_the_model():
+    """These two tests asserted the opposite, and the trace overruled them.
 
-    EMI was kept out of the search because it needs the product section for
-    the SKU and then the calculator - a longer chain for a question most
-    callers never ask, with the customer waiting through it.
+    The prefetch used to ask for the EMI chain, on the reasoning that it
+    runs "while the caller is still talking, so there is no wait to spend".
+    There is: it is racing the model's own tool call, and on 2026-11-16 it
+    lost by a second and a half -
 
-    A prefetch runs while the caller is still talking. There is no wait to
-    spend, so it asks for the chain, and the EMI arrives in the search result
-    instead of costing a whole product_details generation later.
+        24512  prefetch_started   phone, 20-30k
+        25252  end_of_speech      the caller stopped
+        26786  tool_call          the model searched for itself
+        28321  prefetch_primed    1,535 ms too late
+
+    3,809 ms to prime against the 1,534 ms the model needed. The EMI chain
+    spent the difference and bought a round trip the model then paid for
+    anyway, so the prefetch cost money instead of saving it.
+
+    The trade is now the other way round and it is the right way round: a
+    customer who asks about EMI pays for one product_details, sometimes; a
+    customer who asks for a search pays for an extra generation, always.
+
+    If traces start showing EMI round trips, the answer is to prime shallow
+    and deepen the cache behind it - not to make the prefetch slow again.
     """
     estate = FakeEstate({"53952": ANSWERED})
     tools = ToolSession(
@@ -178,42 +191,6 @@ async def test_a_prefetched_search_pays_for_emi_and_a_live_one_does_not():
     )
 
     ahead = await tools.search_ahead({"category": "phone", "max_price": 40000})
-    assert "emi" in estate.asked[0][1]
-    # And the agent can speak it without calling anything: provider, months
-    # and where the instalment starts, which is the sentence persona.py asks
-    # for. No more than that - every field is re-billed on every turn.
-    emi = ahead["products"][0]["emi"]
-    assert emi == {
-        "from_inr_per_month": 992,
-        "months": emi["months"],
-        "provider": emi["provider"],
-    }
 
-    # The model's own search stays shallow. There the customer is waiting.
-    estate.asked.clear()
-    plain = ToolSession(
-        catalogue_of(document("53952", "Vivo Y51 Pro 5G", 34999)), estate=estate
-    )
-    found = await plain.run("search_products", {"category": "phone"})
-    assert "emi" not in estate.asked[0][1]
-    assert "emi" not in found["products"][0]
-
-
-async def test_the_prefetched_emi_answers_product_details_without_asking_again():
-    """Belt and braces: if the model calls anyway, it costs no round trip.
-
-    The generation is already spent by then - that is what the prefetch was
-    for - but there is no reason to also make the customer wait for the
-    estate a second time.
-    """
-    estate = FakeEstate({"53952": ANSWERED})
-    tools = ToolSession(
-        catalogue_of(document("53952", "Vivo Y51 Pro 5G", 34999)), estate=estate
-    )
-    await tools.search_ahead({"category": "phone", "max_price": 40000})
-    upstream = len(estate.asked)
-
-    answer = await tools.run("product_details", {"ref": "1", "want": ["emi"]})
-
-    assert len(estate.asked) == upstream
-    assert answer["emi"]["from_inr_per_month"] == 992
+    assert "emi" not in estate.asked[0][1], "the EMI chain is what lost the race"
+    assert ahead["products"][0]["price_inr"] == 34999, "the price still arrives"

@@ -189,14 +189,35 @@ class ToolSession:
     # ── discovery ─────────────────────────────────────────────────────────
 
     async def search_ahead(self, args: dict[str, Any]) -> dict[str, Any]:
-        """The search the model was about to make, run early and asked deeper.
+        """The search the model is about to make, run first. SHALLOW.
 
-        Called by `agent/prefetch.py` off the critical path, so it can afford
-        the EMI chain that `_search` will not pay for when the customer is
-        waiting. The result is cached under exactly the key the model's own
-        call produces, so a call that arrives anyway is answered from it.
+        It used to be `deep=True`, on the reasoning that a prefetch is "off
+        the critical path, so it can afford the EMI chain". It is not off
+        the critical path. It is RACING the model, and the trace of
+        2026-11-16 shows it losing by a second and a half:
+
+            24512  prefetch_started   phone, 20-30k
+            25252  end_of_speech      the caller stopped
+            26786  tool_call          the model searched for itself
+            28321  prefetch_primed    1,535 ms too late
+
+        3,809 ms to prime, against the 1,534 ms the model needed to decide
+        to search.
+
+        The EMI chain is PART of what spent it, and only part. Measured over
+        six cold price bands, alternating so a warming trend could not be
+        read as a difference: shallow 842 ms, deep 1,407 ms. About 565 ms,
+        which is a third of the 1,535 ms the race was lost by.
+
+        It is taken anyway because it is free to take. A customer who goes
+        on to ask about EMI pays for one `product_details`, sometimes; a
+        customer who asks for a search pays for a whole extra generation,
+        always. But this does not on its own make the prefetch win - the
+        other half is WHEN it starts, and on that call it started 740 ms
+        before the caller stopped talking. A budget said at the end of a
+        sentence leaves no head start to spend.
         """
-        return await self._search(args, deep=True)
+        return await self._search(args)
 
     async def _search(self, args: dict[str, Any], deep: bool = False) -> dict[str, Any]:
         if self._catalogue is None:
