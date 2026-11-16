@@ -186,12 +186,90 @@ SMALLEST_WORTH_WRITING = 100
 _TAMIL_RUN = re.compile(r"[஀-௿]+")
 
 
+# The tens, in the form they take when a unit is fused onto them. Written
+# out rather than derived, because the one derivation that looks obvious -
+# strip the final vowel - is wrong for தொண்ணூறு.
+#
+# Each maps to a pair: the form before a unit that begins with a consonant
+# (இருபத்து + மூன்று) and the form before one that begins with a vowel, where
+# the doubled த has swallowed that vowel as a sign (இருபத்து + ஐந்து, written
+# இருபத்தைந்து - the ஐ is now the ை hanging on the த).
+TENS_BEFORE_UNIT: dict[str, tuple[str, str]] = {
+    "இருபத்து": ("இருபத்து", "இருபத்த"),
+    "முப்பத்து": ("முப்பத்து", "முப்பத்த"),
+    "நாற்பத்து": ("நாற்பத்து", "நாற்பத்த"),
+    "ஐம்பத்து": ("ஐம்பத்து", "ஐம்பத்த"),
+    "அறுபத்து": ("அறுபத்து", "அறுபத்த"),
+    "எழுபத்து": ("எழுபத்து", "எழுபத்த"),
+    "எண்பத்து": ("எண்பத்து", "எண்பத்த"),
+    "தொண்ணூற்று": ("தொண்ணூற்று", "தொண்ணூற்ற"),
+}
+
+TENS_VALUE: dict[str, int] = {
+    "இருபத்து": 20,
+    "முப்பத்து": 30,
+    "நாற்பத்து": 40,
+    "ஐம்பத்து": 50,
+    "அறுபத்து": 60,
+    "எழுபத்து": 70,
+    "எண்பத்து": 80,
+    "தொண்ணூற்று": 90,
+}
+
+# A vowel sign is the same vowel, written as a mark on the consonant before
+# it instead of as a letter. Undoing that is what turns the "ைந்த" left over
+# from இருபத்தைந்து back into the "ஐந்த" that FUSED knows.
+VOWEL_SIGNS: dict[str, str] = {
+    "ா": "ஆ",
+    "ி": "இ",
+    "ீ": "ஈ",
+    "ு": "உ",
+    "ூ": "ஊ",
+    "ெ": "எ",
+    "ே": "ஏ",
+    "ை": "ஐ",
+    "ொ": "ஒ",
+    "ோ": "ஓ",
+    "ௌ": "ஔ",
+}
+
+
+def _tens_and_unit(stem: str) -> int | None:
+    """21-99 written as one word, or None if this is not one.
+
+    FUSED holds the stems that stand alone - ஐந்த, பத்த, பதினைந்த. It cannot
+    hold the compounds as well: twenty-one through ninety-nine fused with a
+    scale is several hundred entries, and the one that matters most is the
+    one a customer says every day. "இருபத்தைந்தாயிரம்" is twenty-five
+    thousand, it is the commonest budget in this price band, and before this
+    it read as nothing at all - so the prefetch never fired on it and the
+    call paid for a tool round trip it did not need.
+    """
+    for tens, (before_consonant, before_vowel) in TENS_BEFORE_UNIT.items():
+        value = TENS_VALUE[tens]
+        # இருபத்து + மூன்று. The unit kept its own first letter.
+        if stem.startswith(before_consonant):
+            rest = stem[len(before_consonant) :]
+            if rest and (unit := FUSED.get(rest)) is not None and unit < 10:
+                return value + unit
+        # இருபத்து + ஐந்து -> இருபத்தைந்து. The unit's vowel is now a sign
+        # on the doubled த, so put the letter back before looking it up.
+        if stem.startswith(before_vowel):
+            rest = stem[len(before_vowel) :]
+            if rest and (letter := VOWEL_SIGNS.get(rest[0])) is not None:
+                if (unit := FUSED.get(letter + rest[1:])) is not None and unit < 10:
+                    return value + unit
+    return None
+
+
 def _fused(token: str) -> tuple[int, int] | None:
     """(units, scale) when this token is a number fused with a scale word."""
     for suffix, scale in FUSED_SCALES.items():
         if token.endswith(suffix):
             stem = token[: -len(suffix)]
             if (units := FUSED.get(stem)) is not None:
+                return units, scale
+            if (units := _tens_and_unit(stem)) is not None:
                 return units, scale
     return None
 

@@ -130,3 +130,48 @@ class TestTheAdding:
 
     def test_a_scale_with_nothing_in_front_is_one_of_it(self):
         assert value_of(["ஆயிரம்"]) == 1000
+
+
+class TestTheTensFusedToAUnit:
+    """இருபத்து + ஐந்து is written இருபத்தைந்து, and the ஐ becomes a sign.
+
+    This is the one that cost money. "இருபத்தைந்தாயிரம்" is the commonest
+    budget in this price band and the table of standalone stems cannot hold
+    it - twenty-one to ninety-nine fused with a scale is several hundred
+    entries. So it read as nothing, the prefetch never fired, and the call
+    paid for a tool round trip the model had to make itself.
+
+    The traced call of 2026-11-15 asked for exactly this range and produced
+    a silent generation at 15.5 seconds costing Rs 0.33.
+    """
+
+    @pytest.mark.parametrize(
+        ("said", "number"),
+        [
+            # The vowel branch: the unit's own vowel is now a sign on the
+            # doubled த, so it has to be put back before it can be looked up.
+            ("இருபத்தைந்தாயிரம்", 25000),
+            ("இருபத்தாறாயிரம்", 26000),
+            ("இருபத்தேழாயிரம்", 27000),
+            ("இருபத்தெட்டாயிரம்", 28000),
+            ("இருபத்தொன்பதாயிரம்", 29000),
+            ("முப்பத்தைந்தாயிரம்", 35000),
+            ("நாற்பத்தைந்தாயிரம்", 45000),
+            ("ஐம்பத்தைந்தாயிரம்", 55000),
+            # The consonant branch: the unit kept its own first letter.
+            ("இருபத்துமூன்றாயிரம்", 23000),
+        ],
+    )
+    def test_it_reads(self, said: str, number: int):
+        assert digitise(said) == str(number)
+
+    def test_the_forms_that_already_worked_still_do(self):
+        """The fix adds a branch; it must not move the ones in front of it."""
+        assert digitise("இருபதாயிரம்") == "20000"
+        assert digitise("ஐந்தாயிரம்") == "5000"
+        assert digitise("பதினைந்தாயிரம்") == "15000"
+        assert digitise("இருபத்தி ஐந்தாயிரம்") == "25000"
+
+    def test_a_tens_with_no_unit_behind_it_is_not_a_number(self):
+        """Half a compound must read as nothing, not as the tens alone."""
+        assert digitise("இருபத்தxயிரம்") == "இருபத்தxயிரம்"

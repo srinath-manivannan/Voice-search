@@ -284,3 +284,50 @@ async def test_the_note_carries_the_specs_or_the_model_invents_a_reason():
 
     assert "45MP" in said[0]
     assert "5500mAh" in said[0]
+
+
+class TestTheBudgetSaidInWords:
+    """A budget spoken as Tamil words, which is how a caller says it.
+
+    read_budget runs digitise first, so everything below arrives at the same
+    patterns as "25000". These are here because the prefetch is the whole
+    saving: when it fires the model is handed a shortlist and answers in one
+    generation, and when it does not the call pays for two.
+    """
+
+    def test_a_range_in_words(self):
+        assert read_intent(
+            "எனக்கு இருபதாயிரம் முதல் இருபத்தைந்தாயிரம் வரை ஒரு போன் வேணும்"
+        ) == Intent(category="phone", min_price=20000, max_price=25000)
+
+    def test_a_ceiling_in_words(self):
+        assert read_intent("இருபத்தைந்தாயிரம் kulla oru phone") == Intent(
+            category="phone", min_price=None, max_price=25000
+        )
+
+    def test_the_dative_between_the_number_and_the_ceiling(self):
+        """ "25000-க்கு உள்ள" - and the reason it did not work.
+
+        The dative was matched with a trailing `\\b`, and க்கு ends in the
+        vowel sign ு, which is a combining mark and not a word character. A
+        boundary between two non-word characters does not exist, so the
+        branch could never match. Latin `ku` still needs its `\\b` or it eats
+        the front of "kulla".
+        """
+        assert read_intent("இருபத்தைந்தாயிரம்-க்கு உள்ள போன்") == Intent(
+            category="phone", min_price=None, max_price=25000
+        )
+        assert read_intent("25k-ku keezha phone") == Intent(
+            category="phone", min_price=None, max_price=25000
+        )
+        assert read_intent("25000 kulla phone") == Intent(
+            category="phone", min_price=None, max_price=25000
+        )
+
+    def test_ulla_on_its_own_is_not_a_ceiling(self):
+        """உள்ள is also the ordinary word for "in".
+
+        It is in the ceiling list, so this is the test that says it is only
+        ever read when a number sits immediately in front of it.
+        """
+        assert read_intent("stock-ல உள்ள phone kaamunga") is None

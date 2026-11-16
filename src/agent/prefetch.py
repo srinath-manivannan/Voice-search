@@ -82,11 +82,25 @@ _RANGE = re.compile(
 # transcript - the Live API's own transcription romanises, so they had not
 # been seen before there was a second one.
 _CEILING_WORDS = (
-    r"kulla|kkulla|under|below|within|ulla|குள்ள|கீழ|keezha|ku keezha"
+    r"kulla|kkulla|under|below|within|ulla|குள்ள|உள்ள|கீழ|keezha|ku keezha"
     r"|வரைக்கும்|வரை|varaikkum|varai"
 )
+# உள்ள is in that list and is also the ordinary word for "in" - "stock-ல
+# உள்ள phone". It is safe only because it is never looked for on its own:
+# every pattern below anchors it to a number immediately before it.
+# The dative between the number and the ceiling: "25000-க்கு உள்ள", "25k-ku
+# keezha".
+#
+# The `\b` is on the Latin branches only, and both halves of that are
+# deliberate. It has to be there, or `ku` eats the start of "kulla" and then
+# finds no ceiling word behind it. It must NOT be on க்கு: that word ends in
+# the vowel sign ு, a combining mark, and a combining mark is not a `\w` - so
+# `\b` after it asks for a boundary between two non-word characters and never
+# matches. The same trap took a whole Tamil word apart in shadow.py.
+_DATIVE = r"(?:[-\s]*(?:க்கு|(?:kku|ku)\b))?"
 _CEILING_AFTER = re.compile(
-    rf"(\d[\d,]*)\s*{_UNIT}\s*(?:rupees?|ரூபாய்|rs\.?)?\s*[-\s]*(?:{_CEILING_WORDS})",
+    rf"(\d[\d,]*)\s*{_UNIT}\s*(?:rupees?|ரூபாய்|rs\.?)?{_DATIVE}"
+    rf"\s*[-\s]*(?:{_CEILING_WORDS})",
     re.IGNORECASE,
 )
 _CEILING_BEFORE = re.compile(
