@@ -111,6 +111,11 @@ greeting:                ## record the opening line once - costs a few paise
 	# generation to read out a sentence that cannot vary. Deleting
 	# src/agent/greeting.pcm goes back to a generated greeting.
 	$(PY) -m src.tools.record_greeting
+	# "Oru nimisham, paarkiren", played while a tool round trip is in flight.
+	# Two searches back to back is six seconds of dead line, and a caller who
+	# hears nothing speaks again - which reads as an interruption and flushes
+	# the answer they were waiting for. Measured on the calls of 2026-11-16.
+	$(PY) -m src.tools.record_greeting --holding
 
 profile:                 ## what one call costs in CPU - no network, no money
 	$(PY) -m src.tools.profile_call --seconds 180 --profile

@@ -50,6 +50,21 @@ GREETING = (
     "Sollunga, ungalukku enna help venum?"
 )
 
+# What the customer hears while a tool round trip is in flight.
+#
+# Measured, not guessed. Across six traced calls, every call where the gap
+# between the caller finishing and the agent speaking stayed under about two
+# seconds had zero barge-ins. Both calls where it ran past five seconds were
+# cut off: the customer, hearing nothing, quite reasonably spoke again, that
+# read as an interruption, and the agent's reply was flushed mid-sentence -
+# seventeen chunks of it on the call of 2026-11-16, which is what "voice cut
+# agi agi ketkuthu" was.
+#
+# Two searches back to back is six seconds of silence down a phone line. A
+# shop assistant does not go quiet while they check; they say they are
+# checking. Recorded like the greeting, so it is free and instant.
+HOLDING = "Oru nimisham, paarkiren."
+
 
 def system_instruction(surface: Surface, word_cap: int) -> str:
     """The standing instruction, identical but for how it is delivered."""

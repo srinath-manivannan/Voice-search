@@ -103,6 +103,7 @@ class Conversation:
         shadow: ShadowEar | None = None,
         trace: CallTrace | None = None,
         should_end: Callable[[], bool] | None = None,
+        holding: bytes | None = None,
     ) -> None:
         self._model = model
         self._source = source
@@ -143,6 +144,17 @@ class Conversation:
         # between keeps it set, so a summary counts caller replies rather
         # than every generation the model spends.
         self._reply_belongs_to_caller = False
+        # What to play while a tool round trip is in flight, and whether it
+        # has been played for the turn in progress. None leaves the line
+        # silent, which is what it used to do.
+        #
+        # Measured across six traced calls: every call that answered within
+        # about two seconds had zero barge-ins, and both calls that made the
+        # caller wait past five seconds were cut off mid-reply - the caller
+        # heard nothing, spoke again, and that read as an interruption. Two
+        # searches back to back is six seconds of silence down a phone line.
+        self._holding = holding
+        self._held_the_line = False
         # The opening greeting is protected from interruption. A trace caught
         # it being cut at 3.2 seconds by a frame at rms 949 - loud enough to
         # clear the threshold, and impossible to tell from a louder speaker.
@@ -235,6 +247,25 @@ class Conversation:
         else:
             self._barge_frames = 0
         return self._barge_frames >= self.BARGE_IN_SPEECH_FRAMES and self._past_grace()
+
+    async def _hold_the_line(self) -> None:
+        """Say we are checking, once, while a tool round trip is in flight.
+
+        Deliberately does NOT claim the floor. The greeting does, because it
+        opens the call and must not be cut; this is the opposite case - the
+        caller has asked something and is waiting, and if they talk over
+        "oru nimisham" that is a real interruption and must behave like one.
+        Claiming the floor here would also put a second thing in the gate's
+        way, in the file where every bug of this call has lived.
+
+        So it is one write to the sink and a flag. If a barge-in flushes it,
+        what is lost is a one-second holding line, not an answer.
+        """
+        if self._holding is None or self._held_the_line:
+            return
+        self._held_the_line = True
+        self.trace.record("holding", bytes=len(self._holding))
+        await self._sink.write(self._holding)
 
     async def _notify(self, **payload: Any) -> None:
         if self._on_update is not None:
@@ -338,6 +369,7 @@ class Conversation:
                     self._heard_speech_this_turn = False
                     self._awaiting_reply = True
                     self._reply_belongs_to_caller = True
+                    self._held_the_line = False
                     self.trace.record("end_of_speech", turn=self._model.turn_id + 1)
                     if self._shadow is not None:
                         # Closes the utterance and starts a transcription of
@@ -423,6 +455,12 @@ class Conversation:
                     )
                     if caller_reply:
                         self._reply_belongs_to_caller = False
+                    elif self._reply_belongs_to_caller:
+                        # A generation that said nothing, with the caller
+                        # still owed an answer: the model has called a tool
+                        # and is going round again. Tell them that, rather
+                        # than leaving the line dead - see `_holding`.
+                        await self._hold_the_line()
                     # Echo gathered while the agent spoke is not the caller.
                     self._held.clear()
                     self._barge_frames = 0

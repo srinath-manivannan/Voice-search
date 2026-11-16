@@ -39,7 +39,7 @@ from src.observability.metrics import (
 from src.observability.reporting import Reporter
 from src.voice.budget import BudgetExceeded, SessionBudget
 from src.agent.prefetch import Prefetcher
-from src.voice.opening import SpeaksTheOpening, load_recording
+from src.voice.opening import HOLDING_RECORDING, SpeaksTheOpening, load_recording
 from src.memory.grok import GrokClient
 from src.memory.summariser import CallMemory
 from src.voice.gemini_live import GeminiLiveSession
@@ -515,6 +515,11 @@ class VoiceCall:
                     trace=self._trace,
                     # The tool layer decides; this file only relays it.
                     should_end=lambda: tools.hang_up,
+                    # Played when a generation comes back with no speech and
+                    # the caller is still owed an answer. None where the
+                    # recording is missing, which leaves the line silent -
+                    # the behaviour this is fixing, not a crash.
+                    holding=load_recording(HOLDING_RECORDING),
                 )
                 await self._pump_until_either_ends()
                 await self._drain_summaries()

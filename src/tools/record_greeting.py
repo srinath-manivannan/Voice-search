@@ -37,11 +37,11 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from src.agent.persona import GREETING
+from src.agent.persona import GREETING, HOLDING
 from src.config import load
 from src.voice.events import AudioOut, TurnComplete
 from src.voice.gemini_live import GeminiLiveSession
-from src.voice.opening import RECORDING, bytes_to_seconds
+from src.voice.opening import HOLDING_RECORDING, RECORDING, bytes_to_seconds
 
 log = logging.getLogger(__name__)
 
@@ -75,7 +75,13 @@ def _wav(pcm: bytes, rate: int) -> bytes:
     return header + pcm
 
 
-async def record(destination: Path, voice: str = "", as_wav: bool = False) -> int:
+async def record(
+    destination: Path,
+    voice: str = "",
+    as_wav: bool = False,
+    text: str = GREETING,
+    shortest: float = SHORTEST_CREDIBLE_SECONDS,
+) -> int:
     load_dotenv()
     config = load()
     if voice:
@@ -83,7 +89,7 @@ async def record(destination: Path, voice: str = "", as_wav: bool = False) -> in
 
     print(f"model {config.gemini_live_model}")
     print(f"voice {config.voice_name or '(the API default)'}")
-    print(f"saying: {GREETING}\n")
+    print(f"saying: {text}\n")
 
     chunks: list[bytes] = []
     started = time.perf_counter()
@@ -92,7 +98,7 @@ async def record(destination: Path, voice: str = "", as_wav: bool = False) -> in
     # turn calls none, and declaring them would only add prompt tokens to a
     # request whose whole point is to be cheap.
     async with GeminiLiveSession(config) as model:
-        await model.greet(GREETING)
+        await model.greet(text)
         async for event in model.events():
             if isinstance(event, AudioOut):
                 chunks.append(event.pcm)
@@ -106,9 +112,9 @@ async def record(destination: Path, voice: str = "", as_wav: bool = False) -> in
 
     print(f"captured {len(pcm):,} bytes = {seconds:.2f}s at {rate} Hz in {took:.1f}s")
 
-    if seconds < SHORTEST_CREDIBLE_SECONDS:
+    if seconds < shortest:
         print(
-            f"\nREFUSED: {seconds:.2f}s is shorter than a greeting can be. "
+            f"\nREFUSED: {seconds:.2f}s is shorter than {shortest:.1f}s. "
             f"The socket probably closed early. Nothing was written."
         )
         return 1
@@ -148,13 +154,49 @@ async def main() -> int:
         help="a prebuilt voice name, overriding VOICE_NAME for this recording",
     )
     parser.add_argument(
+        "--holding",
+        action="store_true",
+        help=(
+            "record the holding line instead - what is played while a tool "
+            "round trip is in flight. Sets the text, the path and the length "
+            "floor together, because getting one of the three wrong writes a "
+            "file that every call then plays"
+        ),
+    )
+    parser.add_argument(
+        "--text",
+        default=GREETING,
+        help="what to say (default: the greeting in persona.py)",
+    )
+    parser.add_argument(
+        "--min-seconds",
+        type=float,
+        default=SHORTEST_CREDIBLE_SECONDS,
+        help="refuse anything shorter than this - a short clip needs a lower bar",
+    )
+    parser.add_argument(
         "--wav",
         action="store_true",
         help="write a playable WAV instead of raw PCM - for auditioning only",
     )
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
-    return await record(args.out, voice=args.voice, as_wav=args.wav)
+    if args.holding:
+        # One flag rather than three arguments a caller has to get right.
+        return await record(
+            HOLDING_RECORDING if args.out == RECORDING else args.out,
+            voice=args.voice,
+            as_wav=args.wav,
+            text=HOLDING,
+            shortest=0.8,
+        )
+    return await record(
+        args.out,
+        voice=args.voice,
+        as_wav=args.wav,
+        text=args.text,
+        shortest=args.min_seconds,
+    )
 
 
 if __name__ == "__main__":

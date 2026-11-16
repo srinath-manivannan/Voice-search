@@ -53,6 +53,11 @@ log = logging.getLogger(__name__)
 # re-recorded, and a reader who finds one should trip over the other.
 RECORDING = Path(__file__).resolve().parent.parent / "agent" / "greeting.pcm"
 
+# The line played while a tool round trip is in flight. Same machinery, same
+# voice, same reason it is a recording: it is fixed text, so paying a model
+# to produce it would be paying for silence to be filled.
+HOLDING_RECORDING = Path(__file__).resolve().parent.parent / "agent" / "holding.pcm"
+
 # Signed 16-bit mono, which is what the Live API returns and what the browser
 # is set up to play. Stored raw rather than as a WAV because there is exactly
 # one consumer and it already knows the rate from the config - a header would
