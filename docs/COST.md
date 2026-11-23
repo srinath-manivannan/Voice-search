@@ -3,6 +3,26 @@
 Model cost only. Telephony, hosting and our own compute are not in here.
 All rupee figures are inclusive of 18% GST at ₹89 to the dollar.
 
+## Browser voice call measurement, 23 November 2026
+
+A caller asked for a camera phone and then asked whether the first recommendation was in stock. The same two recordings went through the browser WebSocket on the original and updated builds, using Gemini Live and the configured catalogue. Each call produced two spoken answers and one tool generation. The meter uses provider token counts and the configured exchange rate and GST.
+
+| Paired shopping test | Original | Updated |
+|---|---:|---:|
+| Fixed instruction and all three tools, text-model token count | 1,528 | 909 |
+| Live text input across three paid generations | 5,639 | 3,807 |
+| Model spend through the second answer | ₹1.54 | ₹1.41 |
+| Connected time through the second answer | 34.8 s | 33.4 s |
+| Model spend per connected minute | ₹2.65 | ₹2.52 |
+
+The update shortens the shared sales instructions and tool descriptions. Gemini processes that text even on generations that only call a tool. If a model search overtakes a background lookup, the tool handler now joins the matching lookup or cancels the obsolete one. A cached shortlist restores the product references it originally returned. Both behaviours are covered by regression tests. The paired call above used one catalogue search in each build, so it measures no savings from cancelling lookups. [Gemini Live billing](https://ai.google.dev/gemini-api/docs/live-api/best-practices#pricing-billing)
+
+The 61-second trace behind the ₹2.57/min screenshot had five paid generations. The first generation in the paired test used 611 fewer live text tokens with the same search arguments. At the app’s $0.75 per million text-input tokens, that difference over five generations saves about ₹0.24. With the screenshot’s displayed metering interval and identical speech and tool activity, the projected rate is **about ₹2.32/min**. The single paired shopping test measured **₹2.52/min**. Reply length and thinking varied between runs. Both builds also interpreted the synthetic ₹25,000 ceiling as ₹20,000. [Gemini Live pricing](https://ai.google.dev/gemini-api/docs/pricing#gemini-3.8-live)
+
+A separate experiment reduced silent frames during the recorded opening. Gemini reported 281 audio-input tokens with continuous frames and 283 with periodic keepalives. The existing microphone behaviour was retained. Future comparisons should track spend per completed shopping task alongside the connected-minute rate and whether the tool received the caller’s intended budget.
+
+The estimates below describe earlier configurations.
+
 ## The billing rule
 
 One rule explains every number below, and it is Google's, in writing:

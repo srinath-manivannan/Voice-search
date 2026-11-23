@@ -248,6 +248,8 @@ class VoiceCall:
 
         async def call_tool(name: str, args: dict[str, Any]) -> dict[str, Any]:
             started = time.perf_counter()
+            if name == "search_products" and self._prefetch is not None:
+                await self._prefetch.before_search(args)
             result = await tools.run(name, args)
             if self._talking is not None:
                 self._talking.trace.record(
@@ -716,7 +718,7 @@ class VoiceCall:
         # Evaluated when a call ends, which is the only moment every number
         # it contributes is final. One ALERT line per breach, for a log
         # search to match - alerting that works before a host is chosen.
-        pending = list(self._summaries)
+        pending: list[asyncio.Task[None] | asyncio.Task[bool]] = list(self._summaries)
         if self._prefetch is not None and self._prefetch.task is not None:
             pending.append(self._prefetch.task)
         for task in pending:

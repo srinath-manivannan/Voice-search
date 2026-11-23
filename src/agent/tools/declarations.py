@@ -47,22 +47,13 @@ from typing import Any
 
 SEARCH_PRODUCTS = {
     "name": "search_products",
-    "description": (
-        "Poorvika's live catalogue. Each result carries `ref`, price, stock "
-        "and best card offer - do not call product_details for those. "
-        "Results stay valid all call: never search twice for one product."
-    ),
+    "description": "Search once per request. Reuse returned refs, prices, stock and offers.",
     "parameters": {
         "type": "object",
         "properties": {
             "query": {
                 "type": "string",
-                "description": (
-                    "Brand, model or product words - 'Samsung', 'mixer "
-                    "grinder', 'trimmer'. This searches the WHOLE catalogue, "
-                    "so use it for anything the category list does not name. "
-                    "Empty for a budget and category alone."
-                ),
+                "description": "Brand, model or item name across all shelves. Omit for category/budget alone.",
             },
             "category": {
                 "type": "string",
@@ -86,18 +77,15 @@ SEARCH_PRODUCTS = {
                     "headphones",
                     "speaker",
                 ],
-                "description": (
-                    "Optional shelf filter. Poorvika sells far more than "
-                    "this - leave it out and use query for anything else."
-                ),
+                "description": "Optional shelf. For unlisted shelves use query.",
             },
             "min_price": {
                 "type": "integer",
-                "description": "Rupees.",
+                "description": "Rupee floor. For a range set both min_price and max_price.",
             },
             "max_price": {
                 "type": "integer",
-                "description": ("Rupees. Set for under, below, within, kulla."),
+                "description": "Rupee ceiling: under, below, within, kulla.",
             },
         },
         "required": [],
@@ -107,28 +95,17 @@ SEARCH_PRODUCTS = {
 
 PRODUCT_DETAILS = {
     "name": "product_details",
-    "description": (
-        "EMI for ONE product already shown by search_products - the monthly "
-        "instalment, which search results do not carry. Price, stock and "
-        "offers are already there; asking here for those only costs a wait."
-    ),
+    "description": "Look up EMI for a search result.",
     "parameters": {
         "type": "object",
         "properties": {
             "ref": {
                 "type": "string",
-                "description": (
-                    "Which product from your last search: '1' is the first "
-                    "you named, '2' the second. 'the second one' means these."
-                ),
+                "description": "Shortlist ref: '1' for first, '2' for second.",
             },
             "want": {
                 "type": "array",
                 "items": {"type": "string", "enum": ["emi"]},
-                "description": (
-                    "Always ['emi']. Price, stock and offers came with the "
-                    "search result - asking for them here is a wasted turn."
-                ),
             },
         },
         "required": ["ref", "want"],
@@ -142,11 +119,8 @@ PRODUCT_DETAILS = {
 END_CALL = {
     "name": "end_call",
     "description": (
-        "Call this ONLY after the customer has signed off - 'thank you', "
-        "'nandri', 'sari podhum', 'vechidunga'. Say your closing line in the "
-        "same reply. Never call it while a question is open, never because "
-        "the conversation has gone quiet, and never to end a call the "
-        "customer has not ended."
+        "Only on customer sign-off (thank you, nandri, sari podhum, vechidunga). "
+        "Never on silence or an open question. Speak the closing line first."
     ),
     "parameters": {
         "type": "object",
@@ -154,7 +128,6 @@ END_CALL = {
             "reason": {
                 "type": "string",
                 "enum": ["customer_said_goodbye", "handing_to_customer_care"],
-                "description": "Which of the two endings this is.",
             },
         },
         "required": ["reason"],

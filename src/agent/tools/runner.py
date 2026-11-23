@@ -125,7 +125,7 @@ class ToolSession:
         self._shortlist: list[Candidate] = []
         # What this conversation has already asked for. Both exist to stop a
         # second round trip for an answer we are already holding.
-        self._searches: dict[str, dict[str, Any]] = {}
+        self._searches: dict[str, tuple[dict[str, Any], list[Candidate]]] = {}
         # Keyed by item code, and carrying which sections were actually
         # asked for. Without that, a Facts fetched for price alone reports
         # EMI as "unknown" - which the agent is told means "nobody could
@@ -223,17 +223,21 @@ class ToolSession:
         if self._catalogue is None:
             return {"error": "catalogue_not_configured"}
 
-        # The same search, asked again. Answer it from what we already have:
-        # the upstream call is skipped, and - more important than the latency
-        # - the shortlist is NOT rebuilt, so the refs the customer has been
-        # told about keep pointing at the same phones.
         key = search_key(args)
-        if (remembered := self._searches.get(key)) is not None:
-            log.info("search already answered this call: %s", key)
-            return remembered
-
         max_price = money(args.get("max_price"))
         min_price = money(args.get("min_price"))
+        if (remembered := self._searches.get(key)) is not None:
+            result, shortlist = remembered
+            # A -> B -> A reuses A's payload and must also restore the refs
+            # that product_details and the next socket handover will read.
+            if shortlist is not self._shortlist:
+                self._shortlist = shortlist
+                self._discussed = None
+                if min_price is not None or max_price is not None:
+                    self._budget = (min_price, max_price)
+            log.info("search already answered this call: %s", key)
+            return result
+
         asked = str(args.get("query") or "").strip()
         # Only a ceiling can drop a candidate, so only a ceiling earns the
         # extra ones.
@@ -309,7 +313,7 @@ class ToolSession:
             # is the answer a salesperson gives.
             out["nothing_inside_budget"] = True
             out["nearest_above_budget"] = over[0]
-        self._searches[key] = out
+        self._searches[key] = (out, shortlist)
         return out
 
     def _already_known(self, candidate: Candidate) -> dict[str, Any]:

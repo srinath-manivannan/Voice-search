@@ -194,3 +194,29 @@ async def test_a_prefetch_is_shallow_because_it_is_racing_the_model():
 
     assert "emi" not in estate.asked[0][1], "the EMI chain is what lost the race"
     assert ahead["products"][0]["price_inr"] == 34999, "the price still arrives"
+
+
+async def test_returning_to_a_cached_budget_restores_its_refs_and_needs_no_lookup():
+    estate = FakeEstate(
+        {"45902": priced("45902", 22999), "53952": priced("53952", 31999)}
+    )
+    tools = ToolSession(
+        catalogue_of(
+            document("53952", "Vivo Y51 Pro", 31999),
+            document("45902", "Vivo Y200 Pro", 22999),
+        ),
+        estate=estate,
+    )
+    narrower = {"category": "phone", "max_price": 25000}
+    first = await tools.run("search_products", narrower)
+    await tools.run("search_products", {"category": "phone", "max_price": 35000})
+    second = await tools.run("product_details", {"ref": "1", "want": ["price"]})
+    assert second["product"] == "Vivo Y51 Pro"
+    lookups = len(estate.asked)
+
+    assert await tools.run("search_products", narrower) == first
+    assert tools.discussed is None
+    restored = await tools.run("product_details", {"ref": "1", "want": ["price"]})
+    assert restored["product"] == first["products"][0]["name"]
+    assert tools.budget == (None, 25000)
+    assert len(estate.asked) == lookups

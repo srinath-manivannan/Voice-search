@@ -655,3 +655,65 @@ class TestWaitingForItInsteadOfRacingIt:
         await pre.settle(0.2)
 
         assert "prefetch_waited_out" in noted
+
+
+@pytest.mark.parametrize("same_search", [True, False])
+async def test_model_search_owns_the_shortlist_when_a_prefetch_is_still_running(
+    same_search, monkeypatch
+):
+    from src.agent.tools.runner import ToolSession
+    from src.config import load
+    from src.web.services.voice_call import VoiceCall
+    from tests.test_catalogue import PAYLOAD, FakeResponse, catalogue_with
+
+    catalogue, poster = catalogue_with(FakeResponse(PAYLOAD))
+    tools = ToolSession(catalogue)
+    started, release = asyncio.Event(), asyncio.Event()
+    lookup = tools.search_ahead
+
+    async def slow_search(args):
+        started.set()
+        await release.wait()
+        return await lookup(args)
+
+    monkeypatch.setattr(tools, "search_ahead", slow_search)
+    monkeypatch.setenv("GEMINI_API_KEY", "test")
+    call = VoiceCall(None, load(), None)
+    said, prime = primer()
+    pre = Prefetcher(tools, prime)
+    call._prefetch = pre
+    pre.heard("25k kulla phone")
+    await started.wait()
+    waiting_for_turn = asyncio.create_task(pre.settle(2))
+    args = {"category": "phone", "max_price": 25000}
+    if not same_search:
+        args["min_price"] = 20000
+    request = asyncio.create_task(call._tool_runner(tools)("search_products", args))
+    await asyncio.sleep(0)
+    release.set()
+
+    result = await request
+    assert result["products"]
+    assert len(poster.calls) == 1
+    assert tools.budget == (args.get("min_price"), 25000)
+    assert pre.task.cancelled() is (not same_search)
+    assert not await waiting_for_turn
+    assert not said, "the tool response already carries the authoritative shortlist"
+
+
+async def test_a_floor_only_prefetch_delivers_its_result():
+    said, prime = primer()
+    pre = Prefetcher(FakeTools(FOUND), prime)
+    pre.heard("20k mela phone")
+    assert await pre.settle(2)
+    assert "from 20,000" in said[0]
+    assert "total_matching=4" in said[0]
+
+
+async def test_prefetched_index_prices_keep_the_catalogue_qualification():
+    result = {**FOUND, "price_note": "approximate - confirm before quoting"}
+    said, prime = primer()
+    pre = Prefetcher(FakeTools(result), prime)
+    pre.heard("25k kulla phone")
+    assert await pre.settle(2)
+    assert result["price_note"] in said[0]

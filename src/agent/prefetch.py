@@ -25,13 +25,9 @@ itself, and on a Tanglish call it romanises inconsistently. Everything here is
 written to read a number and a noun out of a fragment and to return nothing at
 all the moment it is unsure, which is most of the time.
 
-## What it does NOT do
-
-It does not touch an existing shortlist. Once the customer has been told about
-"the first one" and "the second one", those refs point at phones they have
-heard named, and rebuilding the shortlist under them is how an agent starts
-answering about a different product than the one being discussed. So a
-prefetch only happens before the first search of a call.
+A model-issued search takes priority over a partial transcript. A matching
+lookup finishes into the tool cache. A different lookup is cancelled before
+the authoritative search can change the shortlist.
 """
 
 from __future__ import annotations
@@ -44,6 +40,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from src.agent.tamil_numbers import digitise
+from src.agent.tools.shortlist import search_key
 
 log = logging.getLogger(__name__)
 
@@ -329,10 +326,21 @@ def note(result: dict[str, Any], intent: Intent) -> str:
     products = result.get("products") or []
     if not products:
         return ""
-    band = f"up to {intent.max_price:,}"
-    if intent.min_price is not None:
+    if intent.max_price is None:
+        band = (
+            f"from {intent.min_price:,}"
+            if intent.min_price is not None
+            else "any price"
+        )
+    elif intent.min_price is None:
+        band = f"up to {intent.max_price:,}"
+    else:
         band = f"{intent.min_price:,} to {intent.max_price:,}"
     lines = [f"search_products has already run for {intent.category}, {band}:"]
+    if isinstance(total := result.get("total_matching"), int):
+        lines.append(f"total_matching={total}")
+    if price_note := result.get("price_note"):
+        lines.append(f"Prices: {price_note}.")
     for item in products:
         price = item.get("price_inr")
         line = f"{item.get('ref')}) {item.get('name')}"
@@ -350,7 +358,7 @@ def note(result: dict[str, Any], intent: Intent) -> str:
         if isinstance(specs, dict) and specs:
             line += " - " + ", ".join(f"{k} {v}" for k, v in specs.items())
         lines.append(line)
-    lines.append("Answer from these. Do not call search_products for this.")
+    lines.append("Do not call search_products again if these match the full request.")
     return "\n".join(lines)
 
 
@@ -401,8 +409,9 @@ class Prefetcher:
         # to 40k-up to 20-30k, three searches, six of the seven generations
         # in the call, and the prefetch fired for none of them.
         self._last: Intent | None = None
+        self._claimed = False
         self._done = 0
-        self.task: asyncio.Task[None] | None = None
+        self.task: asyncio.Task[bool] | None = None
         self.fired = False
         self.used = False
 
@@ -427,6 +436,7 @@ class Prefetcher:
         if intent is None or intent == self._last:
             return
         self._last = intent
+        self._claimed = False
         self._done += 1
         self._note("prefetch_started", **intent.as_args())
         self.task = asyncio.create_task(self._go(intent), name="prefetch")
@@ -472,20 +482,33 @@ class Prefetcher:
         did.
         """
         task = self.task
-        if task is None or task.done():
-            return self.used
-        try:
-            await asyncio.wait_for(asyncio.shield(task), timeout_s)
-        except (asyncio.TimeoutError, Exception):  # noqa: B014 - either is "no"
+        if task is None:
+            return False
+        # Cancellation of an obsolete lookup must not cancel the microphone
+        # pump waiting here. Cancellation of the pump itself still propagates.
+        done, _ = await asyncio.wait({task}, timeout=timeout_s)
+        if not done:
             self._note("prefetch_waited_out", seconds=round(timeout_s, 2))
             return False
-        return self.used
+        return not task.cancelled() and task.exception() is None and task.result()
+
+    async def before_search(self, args: dict[str, Any]) -> None:
+        """Give the explicit tool call ownership of the result and its refs."""
+        task = self.task
+        if task is None or task.done() or self._last is None:
+            return
+        self._claimed = True
+        if search_key(args) != search_key(self._last.as_args()):
+            task.cancel()
+        # A matching result will already be cached by ToolSession. For a
+        # different search, drain cancellation before the new refs are set.
+        await asyncio.gather(task, return_exceptions=True)
 
     def _note(self, kind: str, **detail: Any) -> None:
         if self._on_event is not None:
             self._on_event(kind, **detail)
 
-    async def _go(self, intent: Intent) -> None:
+    async def _go(self, intent: Intent) -> bool:
         try:
             result = await asyncio.wait_for(
                 self._tools.search_ahead(intent.as_args()), self._timeout
@@ -494,18 +517,18 @@ class Prefetcher:
             raise
         except Exception as failed:  # noqa: BLE001 - never the caller's problem
             log.warning("prefetch search failed: %s", type(failed).__name__)
-            return
+            return False
         self.fired = True
         if result.get("error"):
             log.info("prefetch search returned %s", result["error"])
-            return
-        if not (text := note(result, intent)):
-            return
+            return False
+        if self._claimed or not (text := note(result, intent)):
+            return False
         try:
             await self._prime(text)
         except Exception as failed:  # noqa: BLE001
             log.warning("prefetch could not be primed: %s", type(failed).__name__)
-            return
+            return False
         self.used = True
         self._note("prefetch_primed", products=len(result.get("products") or []))
         log.info(
@@ -513,3 +536,4 @@ class Prefetcher:
             intent.category,
             intent.as_args(),
         )
+        return True

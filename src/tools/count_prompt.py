@@ -1,28 +1,8 @@
-"""How big the standing prompt is, section by section.
+"""Count the configured standing instruction and tools with the text model.
 
-    make prompt
-
-The system instruction and the tool declarations are charged on EVERY
-generation of every call, and sliding-window compression is documented to keep
-them: "System instructions ... will always remain at the beginning of the
-result." So this is the one number in the project that is paid for about eight
-times a minute, forever, and it had never been measurable without placing a
-call.
-
-Costs nothing. `countTokens` is not billed.
-
-TWO THINGS THIS IS NOT
-
-**It is not the Live model's count.** `gemini-3.8-live` refuses countTokens
-outright - "only supports real-time bidirectional streaming" - so this counts
-with the text model instead. On the last measured call the Live model reported
-a 1,430-token floor where this counts 1,230, so it reads about 14% low. The
-ratio is printed beside the figure rather than folded into it, because a
-correction factor that hides inside a number is one nobody can check.
-
-**It is not a budget.** It is an instrument. What it is for is the second
-column: a cut you cannot measure is a cut you cannot defend, and the first
-pass over persona.py was argued entirely in prose.
+Run `make prompt` to compare fixed input before and after a change. Live
+usage also includes conversation history and provider framing. The Live
+endpoint reports that count in each generation's usage metadata.
 """
 
 from __future__ import annotations
@@ -32,20 +12,17 @@ import asyncio
 import sys
 from typing import Any
 
+from dotenv import load_dotenv
+
 from src.agent.persona import system_instruction
-from src.agent.tools.declarations import PRODUCT_DETAILS, SEARCH_PRODUCTS
 from src.config import Config, load
+from src.web.services.dependencies import declarations_for
 
 HOST = "https://generativelanguage.googleapis.com/v1beta"
 
 # The sections persona.py is written in. Used to split the instruction for
 # reporting, so a cut shows up against the rule it came from.
-HEADINGS = ("LANGUAGE", "HOW TO ANSWER", "TOOLS", "WHAT YOU MAY CLAIM")
-
-# What the Live model reported as its prompt_text floor on the measured call
-# of 2026-11-10, against what this counted for the same text. Printed, never
-# applied. See docs/COST.md.
-LIVE_FLOOR, TEXT_COUNT_THEN = 1430, 1230
+HEADINGS = ("LANGUAGE", "HOW TO ANSWER", "TOOLS", "WHAT YOU MAY CLAIM", "ENDING")
 
 
 async def count(
@@ -107,6 +84,7 @@ async def main() -> int:
     parser.add_argument("--surface", default="voice", choices=("voice", "chat"))
     args = parser.parse_args()
 
+    load_dotenv()
     settings = load("development")
     cap = settings.reply_word_cap if args.surface == "voice" else settings.chat_word_cap
     instruction = system_instruction(args.surface, cap)
@@ -123,25 +101,17 @@ async def main() -> int:
     whole = await count(settings, instruction=instruction)
     print(f"  {'system instruction':24} {whole:5}   (sections sum to {total})")
 
-    for label, declaration in (
-        ("search_products", SEARCH_PRODUCTS),
-        ("product_details", PRODUCT_DETAILS),
-    ):
-        print(f"  {label:24} {await count(settings, declarations=[declaration]):5}")
+    tools = declarations_for(settings)
+    declarations = tools["functionDeclarations"] if tools else []
+    for declaration in declarations:
+        size = await count(settings, declarations=[declaration])
+        print(f"  {declaration['name']:24} {size:5}")
 
     fixed = await count(
-        settings,
-        instruction=instruction,
-        declarations=[SEARCH_PRODUCTS, PRODUCT_DETAILS],
+        settings, instruction=instruction, declarations=declarations or None
     )
     print(f"  {'=' * 24} {'=' * 5}")
-    print(f"  {'charged every turn':24} {fixed:5}")
-
-    scaled = fixed * LIVE_FLOOR / TEXT_COUNT_THEN
-    print(
-        f"\n  the Live model counted {LIVE_FLOOR} where this counted "
-        f"{TEXT_COUNT_THEN}, so expect about {scaled:.0f} on a call."
-    )
+    print(f"  {'fixed input (text model)':24} {fixed:5}")
     return 0
 
 
