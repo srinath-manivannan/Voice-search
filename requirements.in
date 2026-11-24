@@ -32,3 +32,6 @@ python-dotenv==1.2.4
 # moving between the two repos meets one FastAPI, not two.
 fastapi==0.143.0
 uvicorn[standard]==0.38.0
+
+# Persistent guided sessions and request deduplication across replicas.
+asyncpg==0.32.0

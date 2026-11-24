@@ -549,7 +549,18 @@ function showCost(cost) {
   }
 }
 
-el('toggle').addEventListener('click', () => (state.running ? stop() : start()));
+el('toggle').addEventListener('click', async () => {
+  if (state.running) return stop();
+  if (!state.config) await loadConfig().catch(() => null);
+  // Live voice is a paid model and is off unless the server says otherwise;
+  // the Voice Call tab then opens the same Guided conversation by voice, ₹0.
+  if (!state.config?.live_voice && typeof startGuidedVoice === 'function') {
+    return startGuidedVoice();
+  }
+  return start();
+});
+// Known before the first click, so that click opens the right voice at once.
+loadConfig().catch(() => null);
 
 el('share').addEventListener('click', async () => {
   await navigator.clipboard.writeText(location.href).catch(() => {});
@@ -569,41 +580,38 @@ loadConfig().catch(() => setStatus('cannot reach the server', 'bad'));
 // it a keyboard user tabs into the list and cannot leave it except by tabbing
 // through every tab, and a screen reader is never told how many there are.
 
-const TABS = ['tab-voice', 'tab-chat'];
+const TABS = ['tab-guided', 'tab-voice', 'tab-chat'];
+const NAMES = { 'tab-guided': 'guided', 'tab-voice': 'voice', 'tab-chat': 'chat' };
 
 function showTab(which, focusPanel) {
-  const voice = which === 'voice';
-  el('voice-panel').hidden = !voice;
-  el('chat-panel').hidden = voice;
   TABS.forEach((id) => {
-    const selected = (id === 'tab-voice') === voice;
+    const selected = NAMES[id] === which;
+    el(NAMES[id] + '-panel').hidden = !selected;
     const tab = el(id);
     tab.setAttribute('aria-selected', String(selected));
     // Roving tabindex: only the selected tab is in the page's tab order, so
     // Tab moves past the whole list rather than through it.
     tab.tabIndex = selected ? 0 : -1;
   });
-  // Said once, here, rather than reached for from the chat module.
-  // focusPanel is false when the arrow keys brought us here: in a tablist
-  // the arrows move between TABS, and the panel is entered with Tab. Moving
-  // focus into the panel on an arrow press traps a keyboard user, who
-  // cannot then reach the other tab at all.
-  if (!voice) {
-    document.dispatchEvent(
-      new CustomEvent('tab:chat', { detail: { focusPanel: Boolean(focusPanel) } })
-    );
-  }
+  // Said once, here, rather than reached for from the modules that own the
+  // panels. focusPanel is false when the arrow keys brought us here: in a
+  // tablist the arrows move between TABS, and the panel is entered with
+  // Tab. Moving focus into the panel on an arrow press traps a keyboard
+  // user, who cannot then reach the other tabs at all.
+  document.dispatchEvent(
+    new CustomEvent('tab:' + which, { detail: { focusPanel: Boolean(focusPanel) } })
+  );
 }
 
 function focusTab(index) {
   const id = TABS[(index + TABS.length) % TABS.length];
-  showTab(id === 'tab-voice' ? 'voice' : 'chat', false);
+  showTab(NAMES[id], false);
   // After showTab, so the panel it reveals cannot take the focus back.
   el(id).focus();
 }
 
 TABS.forEach((id, index) => {
-  el(id).addEventListener('click', () => showTab(id === 'tab-voice' ? 'voice' : 'chat', true));
+  el(id).addEventListener('click', () => showTab(NAMES[id], true));
   el(id).addEventListener('keydown', (event) => {
     const moves = {
       ArrowRight: index + 1, ArrowLeft: index - 1,

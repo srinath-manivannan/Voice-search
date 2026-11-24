@@ -44,6 +44,7 @@ SECURITY_HEADERS = {
         "script-src 'self'; "
         "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data:; "
+        "media-src 'self' blob:; "
         "connect-src 'self' ws: wss:; "
         "frame-ancestors 'none'; "
         "base-uri 'self'"

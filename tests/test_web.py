@@ -104,8 +104,15 @@ def test_the_config_endpoint_publishes_nothing_about_the_stack(config):
     for leak in ("gemini", "model", "thinking", "word_cap", "api_key", "flash"):
         assert leak not in serialised, f"/api/v1/config leaks {leak!r}"
 
-    # Exactly what the browser needs to open its audio devices, and no more.
-    assert set(body) == {"capture_sample_rate", "playback_sample_rate", "greeting"}
+    # Exactly what the browser needs to open its audio devices, and no more -
+    # plus whether the Voice Call tab may use the paid Live voice at all, a
+    # bare yes/no that names no vendor or model.
+    assert set(body) == {
+        "capture_sample_rate",
+        "playback_sample_rate",
+        "greeting",
+        "live_voice",
+    }
     assert body["capture_sample_rate"] == 16000
 
 

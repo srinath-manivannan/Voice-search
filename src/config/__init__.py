@@ -62,8 +62,9 @@ class Config:
     max_session_minutes: float
     max_session_inr: float
     # Two different numbers, deliberately. The target is what Poorvika wants a
-    # connected minute to cost, GST in - Rs 2.50 - and it is what the screen
-    # is coloured against. The ceiling is where a session is cut off, and it is a runaway
+    # connected minute to cost, GST in - Rs 1.50, the owner's figure of
+    # 2026-11-23, restated for this path on 2026-11-24 - and it is what the
+    # screen is coloured against. The ceiling is where a session is cut off, and it is a runaway
     # guard - set well above the target because hanging up on a customer
     # mid-sentence to save a rupee is not a cost saving. We are over the
     # target today; docs/COST.md says by how much and what would close it.
@@ -74,6 +75,7 @@ class Config:
     catalogue_url: str
     catalogue_token: str
     catalogue_origin: str
+    catalogue_key_header: str
 
     # The per-item estate - price in force, live stock, card offers, bank EMI.
     # `estate.py` explains the two backends and why one environment is chosen
@@ -144,6 +146,10 @@ class Config:
     # why it is a flag and not a change. Needs GROQ_API_KEY; without one it
     # logs and stays on the Live path. See docs/CASCADE.md.
     cascade_enabled: bool
+    # The paid Live voice (Voice Call tab). ON by default: the owner keeps it
+    # for demos (2026-11-24, "நாளைக்கு டெமோ காட்டணும்"). LIVE_VOICE=0 turns it
+    # off, and the tab then opens the free Guided voice instead.
+    live_voice_enabled: bool
     grok_mouth_enabled: bool
     prefetch_wait_seconds: float
     # The cascade's ear. xAI's STT is preferred because XAI_API_KEY is
@@ -153,6 +159,43 @@ class Config:
 
     log_level: str
     env: str
+
+    # The guided call's own budget, held apart from the Live path's on
+    # purpose. Rs 1.50 a connected minute is what a guided session may spend
+    # and Rs 1.70 is where it is refused everything paid; the Live path is
+    # judged against `target_inr_per_minute` above, which is a different
+    # number for a different product. `src/guided/sessions.py` has the rule.
+    guided_target_inr_per_minute: float = 1.0
+    guided_max_inr_per_minute: float = 1.0
+    # A page left open all afternoon earns "per minute" for all of it. This
+    # is the most one session may spend however long it has been open.
+    guided_session_cap_inr: float = 0.25
+    # The Chat tab pays a model per message; this is where one conversation
+    # stops starting new paid answers (GST in). One message may finish past it.
+    chat_session_cap_inr: float = 1.00
+    guided_userinfo_url: str = ""
+    guided_database_url: str = ""
+    guided_asr_url: str = "http://127.0.0.1:8178/inference"
+    # How long a shelf's live stock and prices are believed before they are
+    # asked for again. Each rebuild is a burst of calls to Poorvika's own
+    # services - 86 for the phone shelf - so this is their load, not ours.
+    guided_shelf_ttl_seconds: float = 900.0
+    # The one voice the guided call speaks in - its recorded lines and every
+    # sentence it builds from live data. Chosen by the owner, by ear, from
+    # four auditions on 2026-11-24. Change it and run `make guided-voice
+    # ARGS=--all`: a recording in any other voice is not played.
+    guided_voice: str = "ta-in-techagent-5"
+    # Where checked sentences are kept, so each is paid for once. Not
+    # committed: it is a cache of what the shelves said this week.
+    guided_speech_dir: str = "out/guided-speech"
+    # Where each built guided shelf is saved, so a restart serves it at once.
+    guided_shelf_dir: str = "out/guided-shelves"
+    # The microphone on the guided page. Off after the owner's test of
+    # 2026-11-24: with the voice quota spent the agent could not talk back,
+    # and the open mic pressed buttons he had not meant - "கண்ணை மூடின்னு
+    # ஏதோ ஒன்று கிளிக் பண்ணிக்குது". His decision: he taps, it talks. The
+    # hearing stack stays built and tested for the phone line.
+    guided_mic_enabled: bool = False
 
     @property
     def system_instruction(self) -> str:
@@ -235,12 +278,13 @@ def load(env: str | None = None) -> Config:
         max_session_turns=int(os.environ.get("MAX_SESSION_TURNS", "40")),
         max_session_minutes=float(os.environ.get("MAX_SESSION_MINUTES", "10")),
         max_session_inr=float(os.environ.get("MAX_SESSION_INR", "50")),
-        target_inr_per_minute=float(os.environ.get("TARGET_INR_PER_MINUTE", "2.50")),
+        target_inr_per_minute=float(os.environ.get("TARGET_INR_PER_MINUTE", "1.50")),
         max_inr_per_minute=float(os.environ.get("MAX_INR_PER_MINUTE", "8.00")),
         gst_rate=float(os.environ.get("GST_RATE", "0.18")),
         catalogue_url=os.environ.get("CATALOGUE_URL", defaults.CATALOGUE_URL),
         catalogue_token=os.environ.get("CATALOGUE_TOKEN", ""),
         catalogue_origin=os.environ.get("CATALOGUE_ORIGIN", "bot"),
+        catalogue_key_header=os.environ.get("CATALOGUE_KEY_HEADER", "access-token"),
         estate_backend=os.environ.get("ESTATE_BACKEND", defaults.ESTATE_BACKEND),
         estate_api_env=os.environ.get("ESTATE_API_ENV", defaults.ESTATE_API_ENV),
         estate_src_path=os.environ.get("ESTATE_SRC_PATH", defaults.ESTATE_SRC_PATH),
@@ -308,6 +352,8 @@ def load(env: str | None = None) -> Config:
         whisper_model=os.environ.get("WHISPER_MODEL", "whisper-large-v3-turbo"),
         whisper_timeout_seconds=float(os.environ.get("WHISPER_TIMEOUT_SECONDS", "8")),
         cascade_enabled=_flag("CASCADE"),
+        live_voice_enabled=os.environ.get("LIVE_VOICE", "1").strip().lower()
+        not in ("0", "false", "no", "off"),
         # The cascade's mouth: xAI's TTS instead of a second Gemini Live
         # socket. Billed per character rather than per audio token, and it
         # needs no keepalive because a TTS socket is not closed for sitting
@@ -330,4 +376,24 @@ def load(env: str | None = None) -> Config:
         stt_language=os.environ.get("STT_LANGUAGE", "ta"),
         log_level=os.environ.get("LOG_LEVEL", defaults.LOG_LEVEL),
         env=env,
+        guided_target_inr_per_minute=float(
+            os.environ.get("GUIDED_TARGET_INR_PER_MINUTE", "1.0")
+        ),
+        guided_max_inr_per_minute=float(
+            os.environ.get("GUIDED_MAX_INR_PER_MINUTE", "1.0")
+        ),
+        guided_session_cap_inr=float(os.environ.get("GUIDED_SESSION_CAP_INR", "0.25")),
+        chat_session_cap_inr=float(os.environ.get("CHAT_SESSION_CAP_INR", "1.00")),
+        guided_shelf_ttl_seconds=float(
+            os.environ.get("GUIDED_SHELF_TTL_SECONDS", "900")
+        ),
+        guided_database_url=os.environ.get("GUIDED_DATABASE_URL", ""),
+        guided_userinfo_url=os.environ.get("GUIDED_USERINFO_URL", ""),
+        guided_asr_url=os.environ.get(
+            "GUIDED_ASR_URL", "http://127.0.0.1:8178/inference"
+        ),
+        guided_voice=os.environ.get("GUIDED_VOICE", "ta-in-techagent-5"),
+        guided_speech_dir=os.environ.get("GUIDED_SPEECH_DIR", "out/guided-speech"),
+        guided_shelf_dir=os.environ.get("GUIDED_SHELF_DIR", "out/guided-shelves"),
+        guided_mic_enabled=_flag("GUIDED_MIC"),
     )

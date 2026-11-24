@@ -26,6 +26,11 @@ def install(app: FastAPI, settings: Config) -> None:
 
     @app.websocket("/ws")
     async def conversation(websocket: WebSocket) -> None:
+        if not settings.live_voice_enabled:
+            # Switched off with LIVE_VOICE=0: the paid Live model is then not
+            # reachable at all, and the tab runs the free Guided voice.
+            await websocket.close(code=POLICY_VIOLATION, reason="live voice is off")
+            return
         client = websocket.client.host if websocket.client else "unknown"
         if not limiter.allow(client):
             log.warning(

@@ -252,6 +252,25 @@ async def test_the_greeting_takes_a_turn_id_of_its_own(config):
         assert session.turn_id == 1
 
 
+async def test_a_line_read_for_recording_is_not_greeted_or_answered(config):
+    """Recorded through `greet`, two questions came back with a "vanakkam"
+    in front and one was answered instead of read. Each was a recording
+    that sounded fine and was wrong."""
+    line = "உங்க பட்ஜெட் எவ்வளவு?"
+    sock = FakeSocket([{"setupComplete": {}}])
+    async with GeminiLiveSession(config, connect=connector(sock)) as session:
+        await session.read_aloud(line)
+        assert session.turn_id == 1
+
+    sent = sock.sent[-1]["clientContent"]
+    text = sent["turns"][0]["parts"][0]["text"]
+    assert sent["turnComplete"] is True and text.endswith(line)
+    assert "Greet the customer" not in text
+    for forbidden in ("Do not greet", "do not answer it", "say nothing else"):
+        assert forbidden in text
+    assert "ignore your reply length limit" in text and "do not translate it" in text
+
+
 class RefusingSocket(FakeSocket):
     """Closes the connection the way the server does on a setup it rejects."""
 

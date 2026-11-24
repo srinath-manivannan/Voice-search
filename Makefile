@@ -7,7 +7,7 @@
 VENV := .venv/bin
 PY   := $(VENV)/python
 
-.PHONY: help install hooks lock ui talk test audio live check audit fmt mic image alerts greeting profile
+.PHONY: help install hooks lock ui talk test audio live check audit fmt mic image alerts greeting profile guided-voice
 
 # The exception list for the dev lockfile scan, turned into flags. Comments
 # and blank lines dropped; see .pip-audit-ignore for what is in it and why.
@@ -116,6 +116,14 @@ greeting:                ## record the opening line once - costs a few paise
 	# hears nothing speaks again - which reads as an interruption and flushes
 	# the answer they were waiting for. Measured on the calls of 2026-11-16.
 	$(PY) -m src.tools.record_greeting --holding
+
+guided-voice:            ## record the guided call's fixed lines - a few rupees, once
+	# Every question the guided call asks is fixed text, so it is recorded
+	# and played rather than generated. Run after editing a sentence in
+	# src/guided/script.py - only the lines that changed are recorded again -
+	# and with ARGS=--all after changing VOICE_NAME. Each take is played back
+	# to the text model and refused if it is not the line that was written.
+	$(PY) -m src.tools.record_guided $(ARGS)
 
 profile:                 ## what one call costs in CPU - no network, no money
 	$(PY) -m src.tools.profile_call --seconds 180 --profile

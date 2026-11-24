@@ -194,6 +194,7 @@ class Facts:
     offers: Offers = field(default_factory=lambda: Offers(UNKNOWN))
     emi: Emi = field(default_factory=lambda: Emi(UNKNOWN))
     took_ms: int = 0
+    specifications: tuple[tuple[str, str], ...] = ()
 
     @property
     def unanswered(self) -> tuple[str, ...]:
@@ -259,11 +260,25 @@ def read(payload: dict[str, Any]) -> Facts:
     return Facts(
         item_code=str(payload.get("item_code") or ""),
         name=_name(sections),
+        specifications=_specifications(sections),
         price=_price(sections, summary),
         stock=_stock(sections),
         offers=_offers(sections, summary),
         emi=_emi(sections, summary),
         took_ms=_int(payload.get("took_ms")) or 0,
+    )
+
+
+def _specifications(sections: dict[str, Any]) -> tuple[tuple[str, str], ...]:
+    state, product, _ = _state(sections.get(PRODUCT))
+    if state != KNOWN:
+        return ()
+    return tuple(
+        (str(a["name"])[:100], str(a["value"])[:240])
+        for group in product.get("specification_groups") or []
+        if isinstance(group, dict)
+        for a in group.get("attributes") or []
+        if isinstance(a, dict) and a.get("name") and a.get("value")
     )
 
 

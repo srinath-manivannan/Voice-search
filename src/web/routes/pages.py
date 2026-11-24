@@ -66,4 +66,7 @@ def install(app: FastAPI, settings: Config) -> None:
             "capture_sample_rate": settings.capture_sample_rate,
             "playback_sample_rate": settings.playback_sample_rate,
             "greeting": GREETING,
+            # Whether the Voice Call tab may open the paid Live voice. When
+            # not, the tab starts the free Guided conversation with the mic on.
+            "live_voice": settings.live_voice_enabled,
         }

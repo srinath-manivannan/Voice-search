@@ -502,6 +502,35 @@ class GeminiLiveSession:
         as a turn, so its audio carries an id of its own and a later
         interruption cannot retroactively discard it.
         """
+        await self._speak_unprompted(
+            "Greet the customer now. Say this aloud exactly as written, every "
+            "word of it, to the end. Do not shorten it, do not translate it, do "
+            "not change its script, and ignore your reply length limit for this "
+            f"one message: {text}"
+        )
+
+    async def read_aloud(self, text: str) -> None:
+        """Have the agent say one fixed line, and only that line.
+
+        For recording sentences that are not greetings - the guided call's
+        questions. They were first recorded through `greet`, and the model
+        did what it was told: "Greet the customer now" put a "vanakkam" in
+        front of "what is your budget?" on two of fifteen lines, and a
+        question handed over bare was once answered ("Yeah") instead of
+        read. So this says what the line is - something to read out, not
+        something to respond to - and forbids anything either side of it.
+        """
+        await self._speak_unprompted(
+            "You are recording a line for a phone menu. Read the line below "
+            "aloud exactly as written, every word of it, to the end, and say "
+            "nothing else. Do not greet, do not add a word before or after it, "
+            "and do not answer it even if it is a question. Do not shorten it, "
+            "do not translate it, do not change its script, and ignore your "
+            f"reply length limit for this one message. The line: {text}"
+        )
+
+    async def _speak_unprompted(self, instruction: str) -> None:
+        """One turn the agent takes without the caller having spoken."""
         self._turn_id += 1
         self._speech_ended_at = self._clock()
         self._first_audio_at = None
@@ -509,21 +538,7 @@ class GeminiLiveSession:
             json.dumps(
                 {
                     "clientContent": {
-                        "turns": [
-                            {
-                                "role": "user",
-                                "parts": [
-                                    {
-                                        "text": "Greet the customer now. Say this "
-                                        "aloud exactly as written, every word of "
-                                        "it, to the end. Do not shorten it, do "
-                                        "not translate it, do not change its "
-                                        "script, and ignore your reply length "
-                                        f"limit for this one message: {text}"
-                                    }
-                                ],
-                            }
-                        ],
+                        "turns": [{"role": "user", "parts": [{"text": instruction}]}],
                         "turnComplete": True,
                     }
                 }

@@ -114,14 +114,47 @@ def test_no_hardcoded_grey_sneaks_past_the_palette():
 # --- keyboard and screen reader ---------------------------------------------
 
 
-def test_the_tabs_are_a_tablist_and_not_two_buttons():
+TABS = (
+    ("tab-guided", "guided-panel"),
+    ("tab-voice", "voice-panel"),
+    ("tab-chat", "chat-panel"),
+)
+
+
+def test_the_tabs_are_a_tablist_and_not_three_buttons():
     assert 'role="tablist"' in HTML
-    assert HTML.count('role="tab"') == 2
-    assert HTML.count('role="tabpanel"') == 2
+    assert HTML.count('role="tab"') == len(TABS)
+    assert HTML.count('role="tabpanel"') == len(TABS)
+
+
+def test_exactly_one_tab_is_selected_and_only_its_panel_is_showing():
+    """Three panels drawn at once is what a page looks like when the markup
+    and the script disagree about which tab it opens on."""
+    # The stylesheet names the attribute too, as a selector.
+    markup = HTML[HTML.index("</style>") :]
+    assert markup.count('aria-selected="true"') == 1
+    for tab, panel in TABS:
+        selected = re.search(rf'id="{tab}"[^>]*aria-selected="true"', HTML) is not None
+        hidden = re.search(rf'id="{panel}"[^>]*\bhidden\b', HTML) is not None
+        assert selected != hidden, f"{tab} and {panel} disagree"
+
+
+def test_the_guided_panel_says_it_is_in_tamil():
+    """The page is declared English. Tamil script read with English rules is
+    noise to the one person who is relying on it being read aloud."""
+    assert re.search(r'id="guided-panel"[^>]*lang="ta"', HTML)
+
+
+def test_the_voice_can_be_switched_off_and_the_switch_says_which_way_it_is():
+    """A page that talks needs a way to stop it that a screen reader can find
+    - it is talking over the screen reader."""
+    assert re.search(r'<button[^>]*id="g-sound"[^>]*aria-pressed="true"', HTML)
+    guided = (PAGE.parent / "guided.js").read_text()
+    assert "setAttribute('aria-pressed', String(voice.on))" in guided
 
 
 def test_each_tab_names_the_panel_it_controls_and_each_panel_its_tab():
-    for tab, panel in (("tab-voice", "voice-panel"), ("tab-chat", "chat-panel")):
+    for tab, panel in TABS:
         assert f'aria-controls="{panel}"' in HTML
         assert f'aria-labelledby="{tab}"' in HTML
 
@@ -181,7 +214,7 @@ def test_an_arrow_press_does_not_move_focus_into_the_panel():
     chat_js = (PAGE.parent / "chat.js").read_text()
 
     # The click path asks for the panel to take focus; the arrow path does not.
-    assert "'chat', true)" in app_js, "a click should focus the panel"
-    assert "false);" in app_js, "an arrow press should not"
+    assert "showTab(NAMES[id], true)" in app_js, "a click should focus the panel"
+    assert "showTab(NAMES[id], false)" in app_js, "an arrow press should not"
     # And the chat module honours the distinction rather than always focusing.
     assert "event.detail.focusPanel" in chat_js

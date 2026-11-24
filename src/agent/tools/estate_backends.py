@@ -122,7 +122,10 @@ def _worker_modules(src_path: str) -> tuple[Any, Any]:
     client = httpx.AsyncClient(
         # One pool, so five calls to one gateway cost one TLS handshake. The
         # Worker's runtime gives this for free; here it has to be asked for.
-        limits=httpx.Limits(max_connections=12, max_keepalive_connections=12),
+        # 24: a background shelf build takes 8 items at a time (each several
+        # calls) and a customer's card must not queue behind it. 48 at once
+        # drew no errors from the gateways when measured, 2026-11-24.
+        limits=httpx.Limits(max_connections=24, max_keepalive_connections=24),
         follow_redirects=True,
     )
 
