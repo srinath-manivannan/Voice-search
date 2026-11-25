@@ -24,6 +24,8 @@ installed in, and holds no rule of its own:
 
 from __future__ import annotations
 
+from src.web.services.spend_ledger import DailyLedger
+
 import logging
 
 from dotenv import load_dotenv
@@ -68,6 +70,8 @@ def create_app(config: Config | None = None) -> FastAPI:
     # log as well - never instead.
     reporter = build_reporter(settings)
     app.state.reporter = reporter
+    # One ceiling on everything paid, per day, for the whole process.
+    app.state.ledger = DailyLedger(settings.daily_spend_cap_inr)
 
     middleware.install(app)
     errors.install(app, reporter)

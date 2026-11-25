@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse
 
 from src.agent.persona import GREETING
@@ -34,7 +34,7 @@ def install(app: FastAPI, settings: Config) -> None:
         return {"status": "ok", "env": settings.env, "release": settings.release}
 
     @app.get("/readyz")
-    async def readyz() -> dict[str, Any]:
+    async def readyz(request: Request) -> dict[str, Any]:
         """Is this process configured well enough to take a call?
 
         Reports WHICH capability is missing rather than a bare false, because
@@ -47,7 +47,12 @@ def install(app: FastAPI, settings: Config) -> None:
             "catalogue": bool(settings.catalogue_token),
             "estate": settings.estate_backend != "off",
         }
-        return {"ready": all(checks.values()), "checks": checks}
+        # Warm: the phone shelf is checked against the estate and held, so a
+        # recommendation will not wait on the 630-item build. A deploy can
+        # hold traffic until this is true.
+        flow = getattr(request.app.state, "guided", None)
+        warm = bool(flow is not None and flow.warm_enough())
+        return {"ready": all(checks.values()), "checks": checks, "warm": warm}
 
     @app.get("/api/v1/config")
     async def config_summary() -> dict[str, Any]:
@@ -69,4 +74,7 @@ def install(app: FastAPI, settings: Config) -> None:
             # Whether the Voice Call tab may open the paid Live voice. When
             # not, the tab starts the free Guided conversation with the mic on.
             "live_voice": settings.live_voice_enabled,
+            # Whether a Poorvika-hosted speech worker exists. Without one the
+            # Guided mic is offered only where the browser can hear itself.
+            "hosted_asr": bool(settings.guided_asr_url),
         }

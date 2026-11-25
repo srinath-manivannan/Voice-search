@@ -40,5 +40,18 @@ def install(app: FastAPI, settings: Config) -> None:
             )
             await websocket.close(code=POLICY_VIOLATION, reason="too many calls")
             return
+        ledger = websocket.app.state.ledger
         await websocket.accept()
-        await VoiceCall(websocket, settings, websocket.app.state.reporter).run()
+        if not ledger.allows():
+            # Accepted first so the page can show why: the day's paid
+            # ceiling is spent, and the free Guided call is still there.
+            await websocket.close(
+                code=POLICY_VIOLATION,
+                reason="Voice calls are paused for today - please use Guided",
+            )
+            return
+        call = VoiceCall(websocket, settings, websocket.app.state.reporter)
+        try:
+            await call.run()
+        finally:
+            ledger.add(call.spent_inr)

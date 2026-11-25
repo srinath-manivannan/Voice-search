@@ -164,6 +164,9 @@ class Flow:
         # With no model behind it every question is sent to the shop, which
         # is the right way for this to be switched off.
         self._answerer = answerer or Answerer()
+        # The day's ceiling on everything paid (set by the app; None in tests
+        # that do not care). The think checks it and adds to it.
+        self.ledger: Any | None = None
         # Item code -> (when, the ask in flight or done) for card facts fetched
         # ahead of a tap. A tap joins it rather than asking again.
         self._prefetched: dict[
@@ -190,6 +193,10 @@ class Flow:
             signature,
             lambda: getattr(self, method)(sid, *args),
         )
+
+    def warm_enough(self) -> bool:
+        """The phone shelf is verified and held: recommendations will not wait."""
+        return bool(self._book.held("phone"))
 
     def warm(self) -> None:
         """Every shelf, one after another, the busiest first - so the first
@@ -375,6 +382,10 @@ class Flow:
             # gets the whole shopping flow, ranked by rule, at ₹0.
             if not session.verified or session.rank_attempted:
                 return False
+            if self.ledger is not None and not self.ledger.allows(
+                self._governor.inr(WORST_CASE_USD)
+            ):
+                return False  # today's paid ceiling: rank by rule, free
             if not self._governor.allows(session, WORST_CASE_USD):
                 return False
             session.rank_attempted = True
@@ -388,6 +399,8 @@ class Flow:
             reserve,
             self._lang(session),
         )
+        if chosen.usd and self.ledger is not None:
+            self.ledger.add(self._governor.inr(chosen.usd))
         if chosen.usd:
             session.reserved_usd = 0.0
             session.spent_usd += chosen.usd

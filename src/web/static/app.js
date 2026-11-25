@@ -227,7 +227,11 @@ async function start() {
     }
   };
 
-  state.socket.onclose = () => { if (state.running) stop(); };
+  state.socket.onclose = (event) => {
+    // A refusal says why ("voice calls are paused for today"); show it.
+    if (event && event.reason) setStatus(event.reason, 'bad');
+    if (state.running) stop();
+  };
   state.socket.onerror = () => setStatus('connection failed', 'bad');
 
   state.socket.onopen = () => {

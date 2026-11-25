@@ -21,6 +21,11 @@
 # that asks the network, because a commit should not wait on PyPI.
 
 default_install_hook_types: [pre-commit, pre-push]
+# vendor/ is a byte-for-byte copy of the Search-proxy estate code (see
+# vendor/estate/SOURCE). It is formatted, linted and secret-scanned in its
+# own repository; reformatting it here would only make it drift. Its three
+# "secret" hits are the NAMES of environment variables, checked 2026-11-25.
+exclude: ^vendor/
 default_stages: [pre-commit]
 
 repos:

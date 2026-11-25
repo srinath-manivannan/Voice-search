@@ -761,8 +761,19 @@ function drawCard(product) {
 // itself - every time the agent finishes a line, the shop listens again.
 
 const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-const convo = {on: false, rec: null, checking: false, hosted: null, mode: '', lang: 'auto', misses: 0,
-  supported: !!(Recognition || navigator.mediaDevices?.getUserMedia)};
+const convo = {on: false, rec: null, checking: false, hosted: null, mode: '', lang: 'auto', misses: 0};
+
+// Hosted speech exists only where the server says so; this deployment runs
+// none by default, and then the mic is offered only where the browser itself
+// can hear (Chrome, Edge, Safari). Elsewhere: tap and type.
+function hostedSpeech() {
+  return typeof state !== 'undefined' && !!state.config?.hosted_asr
+    && !!navigator.mediaDevices?.getUserMedia;
+}
+
+function micSupported() {
+  return !!Recognition || hostedSpeech();
+}
 
 function convoLabel() {
   const button = el('g-mic');
@@ -772,7 +783,7 @@ function convoLabel() {
 }
 
 function drawMic() {
-  el('g-mic').hidden = !convo.supported;
+  el('g-mic').hidden = !micSupported();
 }
 
 function showHeard(heard, said) {
@@ -806,9 +817,10 @@ async function listenSoon() {
       local = Recognition?.available &&
         await Recognition.available({langs: [language], processLocally: true}) === 'available';
     } catch { /* no on-device pack: the browser's recognition still hears */ }
-    const native = convo.mode !== 'hosted' && !!Recognition;
+    const native = (convo.mode !== 'hosted' || !hostedSpeech()) && !!Recognition;
     if (!convo.on || agentSpeaking()) return;
     if (!native) {
+      if (!hostedSpeech()) { micFailure(); return; }
       const mic = convo.hosted = new GuidedMicrophone({
         language: () => convo.lang, interrupted: () => {}, text: sendSaid, failed: micFailure,
       });
@@ -827,7 +839,10 @@ async function listenSoon() {
     rec.onerror = e => {
       if (convo.rec !== rec) return;
       if (e.error === 'not-allowed') micFailure();
-      else if (!['aborted', 'no-speech'].includes(e.error)) convo.mode = 'hosted';
+      else if (!['aborted', 'no-speech'].includes(e.error)) {
+        if (hostedSpeech()) convo.mode = 'hosted';
+        else micFailure();
+      }
     };
     rec.onend = () => {
       if (convo.rec === rec) { convo.rec = null; setTimeout(listenSoon, 100); }
@@ -892,7 +907,7 @@ async function sendSaid(text, kind = 'speech') {
 // is said first; the mic opens when it ends, as everywhere else.
 function startGuidedVoice() {
   showTab('guided', true);  // starts the guided session if none is open
-  if (!convo.supported) return;  // no microphone here: taps and typing still work
+  if (!micSupported()) return;  // no microphone here: taps and typing still work
   voice.blocked = false;
   soundLabel();
   convo.on = true;

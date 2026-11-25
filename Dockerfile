@@ -32,14 +32,16 @@ ARG APP_RELEASE=unknown
 
 # Not root. A voice session parses audio off the network; if anything in that
 # path is ever exploitable, it should not be exploitable as uid 0.
-RUN apt-get update && apt-get install -y --no-install-recommends espeak-ng \
- && rm -rf /var/lib/apt/lists/* && useradd --create-home --uid 10001 poorvika
+RUN useradd --create-home --uid 10001 poorvika
 
 WORKDIR /app
 
 COPY --from=build /install /usr/local
 
 COPY src ./src
+# The estate's own code (stock, price, offers, EMI), vendored from the
+# Search-proxy Worker - see vendor/estate/SOURCE for the commit.
+COPY vendor ./vendor
 
 # Where traces are written. Owned by the runtime user, and a volume in any
 # real deployment: they are call records and do not belong in the image.

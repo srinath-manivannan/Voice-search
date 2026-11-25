@@ -112,6 +112,7 @@ def test_the_config_endpoint_publishes_nothing_about_the_stack(config):
         "playback_sample_rate",
         "greeting",
         "live_voice",
+        "hosted_asr",
     }
     assert body["capture_sample_rate"] == 16000
 

@@ -55,7 +55,9 @@ ESTATE_API_ENV = "production"
 # POST /product on a deployed one; "off" disables per-item facts entirely.
 ESTATE_BACKEND = "inprocess"
 # Relative to this repository's root, not the working directory.
-ESTATE_SRC_PATH = "../../Search-proxy/products-search-engine"
+# The estate code shipped with this repo (make vendor-estate refreshes it);
+# point ESTATE_SRC_PATH at a Search-proxy checkout to develop against it.
+ESTATE_SRC_PATH = "vendor/estate"
 
 # Context window compression, and the floor underneath it.
 #

@@ -126,6 +126,8 @@ def install(app: FastAPI, settings: Config) -> None:
         """
         if not hasattr(app.state, "guided"):
             app.state.guided = guided_flow(settings)
+            if app.state.guided is not None:
+                app.state.guided.ledger = app.state.ledger
         flow: Flow | None = app.state.guided
         if flow is not None:
             flow.warm()
@@ -137,6 +139,8 @@ def install(app: FastAPI, settings: Config) -> None:
         state = request.app.state
         if not hasattr(state, "guided"):
             state.guided = guided_flow(settings)
+            if state.guided is not None:
+                state.guided.ledger = state.ledger
         if state.guided is None:
             raise HTTPException(status_code=503, detail=line("say_down"))
         flow: Flow = state.guided
@@ -292,6 +296,9 @@ def install(app: FastAPI, settings: Config) -> None:
         session: str = Query(min_length=16, max_length=32, pattern=r"^[A-Za-z0-9_-]+$"),
         lang: str = Query(pattern="^(ta|en|auto)$"),
     ) -> dict[str, str]:
+        if not settings.guided_asr_url:
+            # No hosted speech worker in this deployment.
+            raise HTTPException(404, "speech is heard by the browser here")
         admit(hears, request)
         if not await flow_for(request).has_session(session):
             raise HTTPException(404, line("say_expired"))

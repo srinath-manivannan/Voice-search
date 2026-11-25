@@ -72,7 +72,11 @@ class ChatRelay:
 
     async def _answer(self, text: str) -> None:
         spent = spent_inr(self._session.usage, self._settings)
-        if spent >= self._settings.chat_session_cap_inr:
+        ledger = getattr(getattr(self._socket, "app", None), "state", None)
+        ledger = getattr(ledger, "ledger", None)
+        if spent >= self._settings.chat_session_cap_inr or (
+            ledger is not None and not ledger.allows()
+        ):
             # No model call at all past the cap: a fixed line, and the way
             # to the free Guided call.
             await self._socket.send_json({"type": "start"})
@@ -90,6 +94,8 @@ class ChatRelay:
         async for delta in self._session.send(text):
             await self._socket.send_json({"type": "delta", "text": delta})
 
+        if ledger is not None:
+            ledger.add(spent_inr(self._session.usage, self._settings) - spent)
         record = self._session.result.turns[-1] if self._session.result.turns else None
         await self._socket.send_json(
             {

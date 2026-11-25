@@ -173,9 +173,14 @@ class Config:
     # The Chat tab pays a model per message; this is where one conversation
     # stops starting new paid answers (GST in). One message may finish past it.
     chat_session_cap_inr: float = 1.00
+    # Everything paid, all users, per day (IST), GST in: Live voice, Chat and
+    # the guided think. Past it they pause until midnight; Guided stays free.
+    daily_spend_cap_inr: float = 300.0
     guided_userinfo_url: str = ""
     guided_database_url: str = ""
-    guided_asr_url: str = "http://127.0.0.1:8178/inference"
+    # A Poorvika-hosted speech worker. Empty (the default): none is run, and
+    # the mic is offered only where the browser itself can hear.
+    guided_asr_url: str = ""
     # How long a shelf's live stock and prices are believed before they are
     # asked for again. Each rebuild is a burst of calls to Poorvika's own
     # services - 86 for the phone shelf - so this is their load, not ours.
@@ -384,14 +389,13 @@ def load(env: str | None = None) -> Config:
         ),
         guided_session_cap_inr=float(os.environ.get("GUIDED_SESSION_CAP_INR", "0.25")),
         chat_session_cap_inr=float(os.environ.get("CHAT_SESSION_CAP_INR", "1.00")),
+        daily_spend_cap_inr=float(os.environ.get("DAILY_SPEND_CAP_INR", "300")),
         guided_shelf_ttl_seconds=float(
             os.environ.get("GUIDED_SHELF_TTL_SECONDS", "900")
         ),
         guided_database_url=os.environ.get("GUIDED_DATABASE_URL", ""),
         guided_userinfo_url=os.environ.get("GUIDED_USERINFO_URL", ""),
-        guided_asr_url=os.environ.get(
-            "GUIDED_ASR_URL", "http://127.0.0.1:8178/inference"
-        ),
+        guided_asr_url=os.environ.get("GUIDED_ASR_URL", ""),
         guided_voice=os.environ.get("GUIDED_VOICE", "ta-in-techagent-5"),
         guided_speech_dir=os.environ.get("GUIDED_SPEECH_DIR", "out/guided-speech"),
         guided_shelf_dir=os.environ.get("GUIDED_SHELF_DIR", "out/guided-shelves"),

@@ -157,6 +157,13 @@ class VoiceCall:
         elapsed = (time.monotonic() - self._opened_at) / 60
         return max(elapsed, 1 / 60) if floor else elapsed
 
+    @property
+    def spent_inr(self) -> float:
+        """What this call cost, GST in - for the day's ceiling."""
+        return (
+            spent_inr(self._usage, self._settings) if self._usage is not None else 0.0
+        )
+
     async def _push(self, payload: dict[str, Any]) -> None:
         """Send one update, then enforce the budget if a turn just ended."""
         if payload.get("type") == "turn":

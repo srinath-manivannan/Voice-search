@@ -95,6 +95,17 @@ fmt:                     ## reformat in place
 	$(VENV)/ruff format src tests
 	$(VENV)/ruff check --fix src tests
 
+# The estate (stock, price, offers, EMI) is the Search-proxy Worker's product
+# service run in-process. The image cannot reach a sibling checkout, so the
+# four files it imports are copied in here and committed, with the commit
+# they came from in vendor/estate/SOURCE.
+ESTATE_SOURCE ?= ../../Search-proxy/products-search-engine
+vendor-estate:           ## refresh vendor/estate from the Search-proxy checkout
+	mkdir -p vendor/estate/src/worker vendor/estate/src/tools
+	cp $(ESTATE_SOURCE)/src/worker/product.py $(ESTATE_SOURCE)/src/worker/apis.py $(ESTATE_SOURCE)/src/worker/adapters.py vendor/estate/src/worker/
+	cp $(ESTATE_SOURCE)/src/tools/worker_shim.py vendor/estate/src/tools/
+	echo "search-proxy $$(git -C $(ESTATE_SOURCE) rev-parse HEAD) copied $$(date -u +%F)" > vendor/estate/SOURCE
+
 image:                   ## build the container and check it answers /healthz
 	docker build --build-arg APP_RELEASE=$$(git rev-parse --short HEAD) \
 	  -t poorvika-voice:local .
