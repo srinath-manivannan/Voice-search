@@ -788,6 +788,10 @@ class Flow:
         # this turn answered something about the product, never for "Tamil"
         # alone or a command like "show another".
         about_need = {SHELF, BRAND, BUDGET, PURPOSE, *engine.USE_LEVELS}
+        # The language as it stands NOW: the same sentence may have chosen it
+        # ("i need samsung phone under 20K" on the first screen is English),
+        # and the overview is said in the language the call continues in.
+        lang = self._lang(session)
         if (
             session.shelf is not None
             and pressed

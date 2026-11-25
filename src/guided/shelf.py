@@ -493,7 +493,13 @@ class ShelfBook:
         self._index = index
         self._estate = estate
         self._ttl = ttl_s
+        # One limit on estate calls for every shelf at once, made on first
+        # use in the loop that uses it: a semaphore is bound to one event
+        # loop, and a book that outlives its loop (tests, a restarted
+        # lifespan) would otherwise fail every build after the first.
         self._wide = wide
+        self._estate_slots: asyncio.Semaphore | None = None
+        self._slots_loop: asyncio.AbstractEventLoop | None = None
         self._patience = patience_s
         self._clock = clock
         self._held: dict[str, _Held] = {}
@@ -648,6 +654,10 @@ class ShelfBook:
                     # it every shelf was started at once - two hundred calls
                     # on a twelve-connection pool, all timing out.
                     await self.items(shelf, verified=True)
+                    # A stale snapshot is immediately usable by a customer,
+                    # but its background refresh still owns the warm-up slot.
+                    if (refresh := self._building.get(shelf)) is not None:
+                        await asyncio.shield(refresh)
                 except Exception as failed:  # noqa: BLE001 - warming is best effort
                     log.warning("could not warm the %s shelf: %s", shelf, failed)
 
@@ -707,7 +717,7 @@ class ShelfBook:
             }
             return items
 
-        stocks = await self._ask(documents, (estate_api.STOCK,))
+        stocks = await self._ask(shelf, documents, (estate_api.STOCK,))
         # Kept unless we were TOLD it is gone. "Could not ask" is not "no".
         alive = [
             (document, facts.stock if facts else None)
@@ -721,7 +731,7 @@ class ShelfBook:
             if shelf in {"phone", "speaker"}
             else (estate_api.PRICING,)
         )
-        prices = await self._ask([d for d, _ in alive], sections)
+        prices = await self._ask(shelf, [d for d, _ in alive], sections)
 
         if not any(stocks) and not any(prices):
             # Nothing answered at all. That is the estate being down, and
@@ -790,16 +800,20 @@ class ShelfBook:
         return _one_of_each(built)
 
     async def _ask(
-        self, documents: list[dict[str, Any]], sections: tuple[str, ...]
+        self, shelf: str, documents: list[dict[str, Any]], sections: tuple[str, ...]
     ) -> list[estate_api.Facts | None]:
         """One estate question per document, a few at a time, in order."""
         estate = self._estate
         assert estate is not None  # noqa: S101 - narrowed by the caller
-        gate = asyncio.Semaphore(self._wide)
+        loop = asyncio.get_running_loop()
+        if self._estate_slots is None or self._slots_loop is not loop:
+            self._estate_slots = asyncio.Semaphore(self._wide)
+            self._slots_loop = loop
+        slots = self._estate_slots
 
         async def one(document: dict[str, Any]) -> estate_api.Facts | None:
             code = str(document.get("item_code"))
-            async with gate:
+            async with slots:
                 try:
                     payload = await asyncio.wait_for(
                         estate.product(code, sections), self._patience
@@ -809,12 +823,24 @@ class ShelfBook:
                         return None
                     return facts
                 except (estate_api.EstateUnavailable, asyncio.TimeoutError) as down:
-                    log.info(
-                        "estate did not answer %s for %s: %s", sections, code, down
+                    log.debug(
+                        "estate did not answer %s for %s: %s",
+                        sections,
+                        code,
+                        type(down).__name__,
                     )
                     return None
 
-        return list(await asyncio.gather(*(one(document) for document in documents)))
+        answers = list(await asyncio.gather(*(one(document) for document in documents)))
+        if missing := answers.count(None):
+            log.warning(
+                "%s shelf: %d of %d %s checks returned no usable response",
+                shelf,
+                missing,
+                len(answers),
+                "/".join(sections),
+            )
+        return answers
 
 
 _ITEM_FIELDS = {f.name for f in dataclasses.fields(Item)}

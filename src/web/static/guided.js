@@ -859,18 +859,20 @@ function stopListening() {
   if (convo.hosted) { convo.hosted.stop(); convo.hosted = null; }
 }
 
-async function sendSaid(text, kind = 'speech') {
+async function sendSaid(text, kind = 'speech', again = false) {
   if (guided.busy || !guided.session) { listenSoon(); return; }
   guided.busy = true;
   stopListening();
   waiting(SAYS.understanding);
   let view = null;
+  let forgotten = false;
   try {
     const response = await fetch('/api/v1/guided/said', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
       body: JSON.stringify({ session: guided.session, text: text.slice(0, 300), kind }),
     });
+    forgotten = response.status === 404;
     view = await response.json().catch(() => null);
     if (!response.ok) view = null;
   } catch (error) {
@@ -878,6 +880,16 @@ async function sendSaid(text, kind = 'speech') {
   }
   waiting(null);
   guided.busy = false;
+  if (forgotten && !again) {
+    // The server no longer knows this session - it restarted, and with no
+    // database sessions live in memory (owner's plan, 2026-11-25). A tap
+    // already starts afresh; typed or spoken words must not be lost either:
+    // open a new session quietly and say the same words again, once.
+    guided.session = null;
+    await guidedStart();
+    hush();
+    if (guided.session) return sendSaid(text, kind, true);
+  }
   if (!view) { showHeard({ text: text }, SAYS.failed); listenSoon(); return; }
   if (view.step === 'heard') {
     convo.misses += 1;

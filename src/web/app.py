@@ -45,6 +45,11 @@ def create_app(config: Config | None = None) -> FastAPI:
     load_dotenv()
     settings = config or load()
     logging.basicConfig(level=settings.log_level)
+    # Each inventory refresh makes hundreds of HTTP calls. Keep request
+    # traces available at DEBUG and show shelf summaries at INFO.
+    logging.getLogger("httpx").setLevel(
+        logging.WARNING if settings.log_level == "INFO" else settings.log_level
+    )
 
     app = FastAPI(
         title="Poorvika voice agent",

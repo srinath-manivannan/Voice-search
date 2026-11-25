@@ -217,3 +217,37 @@ def test_the_voice_call_tab_starts_the_guided_voice():
     assert "!state.config?.live_voice" in app and "startGuidedVoice()" in app
     assert "function startGuidedVoice()" in guided
     assert "showTab('guided', true)" in guided
+
+
+def test_a_sentence_that_chooses_english_is_said_back_in_english(monkeypatch):
+    """Live, 2026-11-25: "i need samsung phone under 20K" typed on the first
+    screen chose English, and the overview came back in Tamil - its language
+    was read before the sentence chose one."""
+    rig = Rig(monkeypatch)
+    sid = rig.post("start")["session"]
+
+    view = typed(rig, sid, "i need samsung phone under 20K")
+
+    assert view["lang"] == "en"
+    assert view["overview"]["text"] == (
+        "Sure, you're looking for a Samsung phone up to ₹20,000."
+    )
+    assert view["question"]["ask"] == "What will you mainly use it for?"
+
+
+def test_a_forgotten_session_is_a_404_the_page_can_recover_from(monkeypatch):
+    """With no database, a restart forgets every session. The page starts a
+    new one and sends the same words again on this 404 (guided.js)."""
+    rig = Rig(monkeypatch)
+
+    response = rig.client.post(
+        "/api/v1/guided/said",
+        json={"session": "AAAAAAAAAAAAAAAAAAAAAA", "text": "i need samsung phone"},
+    )
+
+    assert response.status_code == 404
+    page = Path("src/web/static/guided.js").read_text()
+    assert (
+        "if (forgotten && !again)" in page
+        and "return sendSaid(text, kind, true)" in page
+    )

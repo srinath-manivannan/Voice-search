@@ -353,7 +353,9 @@ class PricesTimeOut(FakeEstate):
         return await super().product(item_code, sections)
 
 
-async def test_prices_that_never_answered_are_an_outage_not_an_empty_shelf(tmp_path):
+async def test_prices_that_never_answered_are_an_outage_not_an_empty_shelf(
+    tmp_path, caplog
+):
     """Live, 2026-11-24: seventeen shelves built at once timed out and were
     saved EMPTY - speaker had 76 in stock and 0 priced. Now the build fails,
     nothing is saved, and the index's shelf keeps the questions running."""
@@ -367,6 +369,10 @@ async def test_prices_that_never_answered_are_an_outage_not_an_empty_shelf(tmp_p
     assert {i.item_code for i in served} == {"1", "2"}
     assert not any(i.price_confirmed for i in served), "the index's, unconfirmed"
     assert not (tmp_path / "phone.json").exists(), "an outage is never saved"
+    assert (
+        "phone shelf: 2 of 2 pricing/product checks returned no usable response"
+        in caplog.messages
+    )
 
 
 async def test_warming_builds_one_shelf_at_a_time():
@@ -383,6 +389,62 @@ async def test_warming_builds_one_shelf_at_a_time():
     assert index.reads == ["phone"], "speaker waits for phone to be verified"
     await shelves._warming
     assert index.reads == ["phone", "speaker"]
+
+
+async def test_warming_waits_for_each_stale_snapshot_to_refresh(tmp_path):
+    documents, answers = _two_phones()
+    index = FakeIndex({"phone": documents, "speaker": documents})
+    saved = ShelfBook(
+        index, FakeEstate(answers), snapshot_dir=tmp_path, wall=lambda: 1000.0
+    )
+    for shelf in index.shelves:
+        await saved.items(shelf, verified=True)
+
+    index.reads.clear()
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    class PausedEstate(FakeEstate):
+        async def product(self, item_code, sections):
+            entered.set()
+            await release.wait()
+            return await super().product(item_code, sections)
+
+    restarted = ShelfBook(
+        index, PausedEstate(answers), snapshot_dir=tmp_path, wall=lambda: 2000.0
+    )
+    restarted.warm(index.shelves)
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=1)
+        assert index.reads == ["phone"]
+        assert await asyncio.wait_for(restarted.items("phone"), timeout=1)
+    finally:
+        release.set()
+        await restarted._warming
+    assert index.reads == ["phone", "speaker"]
+
+
+async def test_concurrent_shelf_builds_share_the_estate_limit():
+    documents, answers = _two_phones()
+    index = FakeIndex({"phone": documents, "speaker": documents})
+    active = peak = 0
+
+    class CountingEstate(FakeEstate):
+        async def product(self, item_code, sections):
+            nonlocal active, peak
+            active += 1
+            peak = max(peak, active)
+            try:
+                await asyncio.sleep(0)
+                return await super().product(item_code, sections)
+            finally:
+                active -= 1
+
+    shelves = ShelfBook(index, CountingEstate(answers), wide=2)
+    results = await asyncio.gather(
+        *(shelves.items(s, verified=True) for s in index.shelves)
+    )
+    assert all(results)
+    assert peak == 2
 
 
 async def test_a_quick_build_is_waited_for_so_no_unchecked_price_is_shown():
