@@ -142,4 +142,11 @@ ALLOWED_ORIGINS = "http://127.0.0.1:8080,http://localhost:8080"
 # reply to hide it in, and at 200 - one rotation per generation - there is not.
 # Worth Rs 0.25 a connected minute against 600. Zero switches rotation off and
 # leaves one socket for the whole call. See docs/COST.md.
-ROTATE_ABOVE_AUDIO_TOKENS = 400
+#
+# 300 since 2026-11-25, measured with src/tools/measure_live (same two Tamil
+# lines every run): Rs 2.97 a minute at 400, Rs 2.39 at 300 - together with
+# the handover note now carrying refs and stock, without which the fresh
+# socket re-ran a search to find "the first one". The spare is still hidden:
+# it opens on the tool-call generation and the EMI answer took about three
+# seconds at both settings.
+ROTATE_ABOVE_AUDIO_TOKENS = 300

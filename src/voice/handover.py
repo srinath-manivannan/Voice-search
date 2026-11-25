@@ -25,6 +25,7 @@ refs still resolve because the shortlist itself never moved.
 from __future__ import annotations
 
 from src.agent.tools.runner import ToolSession
+from src.agent.tools.shortlist import Candidate
 
 # A rotation the customer notices is a rotation that failed. The greeting is
 # the loudest way to notice one, so it is refused explicitly rather than left
@@ -55,14 +56,35 @@ def _budget_sentence(session: ToolSession) -> str | None:
     return f"They asked for something over {_money(low)} rupees."
 
 
+def _stock_words(session: ToolSession, candidate: Candidate) -> str:
+    """What the old socket's search result said about stock, nothing more."""
+    known = session.stock_for(candidate)
+    if known is not None:
+        return "in stock" if known else "out of stock"
+    return "listed in stock" if candidate.in_stock_hint else "listed out of stock"
+
+
 def _offered_sentence(session: ToolSession) -> str | None:
+    """The shortlist, with the refs product_details takes and the stock.
+
+    Without them, "is the first one in stock?" after a rotation made the
+    agent run search_products again just to get back what the old socket
+    already knew: one more generation, re-billed in full (measured
+    2026-11-25, about ₹0.19 each time). Price and stock are the two facts
+    the search result carried; anything else is product_details' to fetch.
+    """
     if not session.shortlist:
         return None
-    offered = ", ".join(
-        f"{c.name} at {_money(c.price)} rupees" if c.price else c.name
+    offered = "; ".join(
+        f"ref {c.ref} {c.name}"
+        + (f" at {_money(c.price)} rupees" if c.price else "")
+        + f", {_stock_words(session, c)}"
         for c in session.shortlist
     )
-    return f"You offered {offered}."
+    return (
+        f"You offered {offered}. Those refs still work in product_details;"
+        " do not search again for these."
+    )
 
 
 def _discussed_sentence(session: ToolSession) -> str | None:

@@ -18,7 +18,7 @@ default). Everything a customer has open lives in that process's memory.
 | Catalogue | production Typesense via `proxy.poorvika.com` | ₹0 (Poorvika's) |
 | Stock, price, offers, EMI | the estate, run in-process from `vendor/estate` | ₹0 (Poorvika's) |
 | Ranking think | Gemini text, verified accounts only, inside the daily ceiling | ~₹0.06 when used |
-| Voice Call tab | Gemini Live, inside per-call and daily ceilings | ~₹3.40 a minute |
+| Voice Call tab | Gemini Live, inside per-call and daily ceilings | ~₹2.40 a minute (measured, docs/COST.md) |
 | Chat tab | Gemini text, ₹1 per conversation, inside the daily ceiling | a few paise a message |
 
 Not used, and not needed: a database (`GUIDED_DATABASE_URL` empty - sessions
@@ -49,7 +49,7 @@ Guided is ₹0 for everyone. The paid tabs are bounded three ways:
 | Setting | Default | For a public site |
 |---|---|---|
 | `DAILY_SPEND_CAP_INR` | 300 | everything paid, all users, per day (IST). Past it, Voice Call and Chat pause until midnight with a message; Guided carries on |
-| `MAX_SESSION_INR` | 50 | **10** - one Live call stops at ₹10 (about three minutes) |
+| `MAX_SESSION_INR` | 50 | **10** - one Live call stops at ₹10 (about four minutes) |
 | `MAX_SESSION_MINUTES` | 10 | 5 |
 | `CHAT_SESSION_CAP_INR` | 1.00 | 1.00 |
 | `LIVE_VOICE` | on | on while demos need it; `0` takes the paid Voice Call off entirely and the tab opens Guided by voice |

@@ -159,6 +159,13 @@ class ToolSession:
         """
         return self._budget
 
+    def stock_for(self, candidate: Candidate) -> bool | None:
+        """Stock the estate confirmed for a shortlisted item, or None."""
+        held = self._facts.get(candidate.item_code)
+        if held is None or held[1].stock.state != estate_api.KNOWN:
+            return None
+        return bool(held[1].stock.in_stock)
+
     @property
     def discussed(self) -> Candidate | None:
         """The one they were last asking about, if they narrowed down."""

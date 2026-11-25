@@ -3,6 +3,48 @@
 Model cost only. Telephony, hosting and our own compute are not in here.
 All rupee figures are inclusive of 18% GST at ₹89 to the dollar.
 
+## From about ₹3 to about ₹2.40 a minute, 25 November 2026
+
+The owner's meter read ₹3.40 a minute on real calls; the target was ₹2.50.
+`python -m src.tools.measure_live ws://<host>/ws` now measures it the same
+way every time: two fixed Tamil caller lines (a Samsung camera phone under
+₹25,000, then "is the first one in stock, and the EMI?") spoken into the real
+`/ws` at real time, the server's own cost lines read back, and what both
+sides said printed under them. One run is one real Live call, about ₹1.50.
+
+| Setting (each row 3 calls) | ₹/min, each call | Average |
+|---|---|---:|
+| Before: rotate at 400, word cap 18 | 3.27, 2.80, 2.83 | **2.97** |
+| Rotate 300, word cap 12 | 2.18, 2.91, 2.47 | 2.52 |
+| Rotate 300, cap 12, window 3000/2400 | 2.59, 2.64, 2.98 | 2.74 |
+| Rotate 300, cap 12, handover note with refs and stock | 2.48, 2.43, 2.38 | 2.43 |
+| **Shipped: rotate 300, cap 18, handover note with refs and stock** | 2.21, 2.54, 2.41 | **2.39** |
+
+What moved it:
+
+- **Rotation at 300 audio tokens instead of 400.** Retained audio is the
+  dearest thing in the window; a fresh socket after each spoken answer
+  keeps it near the caller's latest line. Reply latency did not change -
+  the EMI answer took about three seconds at both settings - because the
+  spare opens during the tool-call generation.
+- **The handover note carries each shortlisted product's ref and stock.**
+  Before, the note named the phones but not their refs, so after a rotation
+  "the first one in stock?" made the agent run `search_products` again just
+  to find it: one whole extra generation, about ₹0.19. Every run with the
+  new note made exactly one search and one EMI lookup.
+
+What did not:
+
+- **A 12-word reply cap.** Same cost as 18 within the noise, and the
+  persona's two-products-with-price answer does not fit in 12 words. The
+  cap stays at 18.
+- **A smaller context window (3000/2400).** Rotation already keeps the
+  window small; this only added variance.
+
+Still in the bill and not ours to remove: thinking, ₹0.26–0.55 a minute,
+which `gemini-3.8-live` does not let us switch off. Calls vary ±₹0.30 from
+run to run on identical input; a single call is not a measurement.
+
 ## Browser voice call measurement, 23 November 2026
 
 A caller asked for a camera phone and then asked whether the first recommendation was in stock. The same two recordings went through the browser WebSocket on the original and updated builds, using Gemini Live and the configured catalogue. Each call produced two spoken answers and one tool generation. The meter uses provider token counts and the configured exchange rate and GST.
