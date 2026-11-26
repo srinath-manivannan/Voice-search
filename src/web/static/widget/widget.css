@@ -23,6 +23,8 @@
 
 * { box-sizing: border-box; }
 
+[hidden] { display: none !important; }
+
 .sa-sr {
   position: absolute;
   width: 1px;
@@ -94,15 +96,18 @@ button:focus-visible, textarea:focus-visible {
 
 .sa-header button { color: var(--sa-accent-ink); font-size: 20px; flex: 0 0 auto; }
 .sa-header button:hover { background: rgba(255, 255, 255, 0.16); border-radius: 12px; }
+.sa-overflow { position: relative; order: 1; flex: 0 0 auto; }
+#sa-min { order: 2; }
+#sa-close { order: 3; }
 
 .sa-logo { width: 28px; height: 28px; border-radius: 8px; object-fit: cover; background: #fff; }
 .sa-header:has(.sa-logo) .sa-mark { display: none; }
 
 .sa-menu {
   position: absolute;
-  top: 52px;
-  right: 64px;
-  z-index: 3;
+  right: 12px;
+  top: calc(100% + 4px);
+  z-index: 30;
   display: flex;
   flex-direction: column;
   min-width: 160px;
@@ -162,7 +167,7 @@ button:focus-visible, textarea:focus-visible {
 .sa-turn { display: flex; flex-direction: column; gap: 4px; max-width: 100%; }
 .sa-time { font-size: 12px; color: var(--sa-muted); }
 .sa-turn.mine { align-items: flex-end; }
-.sa-turn.mine .sa-time { text-align: right; }
+.sa-turn.mine .sa-time { text-align: right; color: rgba(255, 255, 255, 0.85); }
 
 .sa-products {
   display: flex;
@@ -264,7 +269,10 @@ button:focus-visible, textarea:focus-visible {
   gap: 8px;
   padding: 0 16px 12px;
   overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
+.sa-chips::-webkit-scrollbar, .sa-suggestions::-webkit-scrollbar { display: none; }
 
 .sa-chips button, .sa-suggestions button, .sa-card button, .sa-context button {
   flex: 0 0 auto;
@@ -325,13 +333,16 @@ button:focus-visible, textarea:focus-visible {
 
 textarea {
   flex: 1;
+  height: 44px;
   min-height: 44px;
   max-height: 120px;
   resize: none;
+  overflow-y: hidden;
   border: 1px solid var(--sa-line);
   border-radius: 12px;
   padding: 10px 12px;
   font-size: 16px;
+  line-height: 24px;
 }
 
 .sa-send {

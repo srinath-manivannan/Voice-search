@@ -38,6 +38,22 @@ def test_orange_tokens_and_product_actions(watched, stack: Stack) -> None:
     assert watched.errors == []
 
 
+def test_overflow_menu_stays_closed_until_the_button_is_pressed(
+    watched, stack: Stack
+) -> None:
+    page = watched.page
+    page.set_viewport_size({"width": 1280, "height": 800})
+    page.goto(stack.storefront)
+    page.get_by_role("button", name="Open Shopping Assistant chat").click()
+    page.locator("iframe[title='Shopping Assistant chat']").wait_for(state="attached")
+    frame = next(item for item in page.frames if "/widget/v1" in (item.url or ""))
+    frame.locator("#sa-welcome").wait_for(state="visible")
+    expect(frame.locator(".sa-menu")).to_be_hidden()
+    frame.get_by_role("button", name="Chat options").click()
+    expect(frame.locator(".sa-menu")).to_be_visible()
+    assert watched.errors == []
+
+
 def test_direct_widget_is_a_narrow_shell(page, stack: Stack) -> None:  # noqa: ANN001
     page.set_viewport_size({"width": 1280, "height": 800})
     page.goto(stack.widget + "/widget/v1/")

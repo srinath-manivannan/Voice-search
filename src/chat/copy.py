@@ -20,7 +20,7 @@ SUBTITLE = (
     "Ask me anything, anytime!"
 )
 
-PLACEHOLDER = 'Try: "Best phone under ₹30,000 with good camera"'
+PLACEHOLDER = 'Try: "Best phone under ₹30,000"'
 
 LIMIT_REACHED = (
     "I can't answer more questions in this chat right now. You can keep "

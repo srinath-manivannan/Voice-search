@@ -28,6 +28,7 @@ from typing import Any
 
 from src.agent.tools import estate as estate_api
 from src.guided import engine, spoken
+from src.guided.stores import directions_url
 from src.guided.answers import (
     CAPPED,
     DELIVERY,
@@ -153,6 +154,7 @@ class Flow:
         speech: SpeechBook | None = None,
         listener: Listener | None = None,
         store: JourneyStore | None = None,
+        map_prefix: str = "",
     ) -> None:
         self._book = book
         self._recommender = recommender
@@ -177,6 +179,7 @@ class Flow:
         self._speech = speech
         # None: the mic button is not offered, and taps are the only input.
         self._listener = listener
+        self._map_prefix = map_prefix
 
     # ── the steps ─────────────────────────────────────────────────────────
 
@@ -593,7 +596,7 @@ class Flow:
             view.update(say=message, audio=None, speak={"text": message})
             return view
         session.latest_card = card
-        session.branches = _branches(payload)
+        session.branches = _branches(payload, prefix=self._map_prefix)
         # Started now and not awaited: the card is on screen while the spec
         # sheet is still arriving, and a question waits only for what is left.
         session.facts = asyncio.ensure_future(
@@ -1729,7 +1732,9 @@ class Flow:
             return None
 
 
-def _branches(payload: dict[str, Any] | None) -> tuple[dict[str, Any], ...]:
+def _branches(
+    payload: dict[str, Any] | None, *, prefix: str = ""
+) -> tuple[dict[str, Any], ...]:
     """The shops holding stock, best-stocked first, enough to send someone to."""
     sections = (payload or {}).get("sections")
     stock = sections.get("stock") if isinstance(sections, dict) else None
@@ -1744,20 +1749,32 @@ def _branches(payload: dict[str, Any] | None) -> tuple[dict[str, Any], ...]:
         if not (isinstance(b, dict) and (b.get("label") or b.get("name"))):
             continue
         quantity = int(b["quantity"]) if str(b.get("quantity", "")).isdigit() else 0
-        rows.append(
-            (
-                quantity,
-                {
-                    "name": str(b.get("label") or b.get("name") or "").strip(),
-                    "state": str(b.get("state") or "").strip(),
-                    "quantity": quantity or None,
-                    # Where it is, for directions: the estate gives no phone
-                    # number, so the handover is the way there.
-                    "area": str(b.get("area") or "").strip(),
-                    "city": str(b.get("city") or "").strip(),
-                },
-            )
-        )
+        shop = {
+            "name": str(b.get("label") or b.get("name") or "").strip(),
+            "state": str(b.get("state") or "").strip(),
+            "quantity": quantity or None,
+            # Where it is, for directions: the estate gives no phone
+            # number, so the handover is the way there.
+            "area": str(b.get("area") or "").strip(),
+            "city": str(b.get("city") or "").strip(),
+            "address": str(b.get("address") or "").strip(),
+            "pincode": str(b.get("pincode") or b.get("pin") or "").strip(),
+        }
+        geo = b.get("geo") if isinstance(b.get("geo"), dict) else None
+        if geo:
+            shop["geo"] = geo
+        for key in (
+            "lat",
+            "lng",
+            "latitude",
+            "longitude",
+            "maps_url",
+            "map_url",
+        ):
+            if b.get(key) not in (None, ""):
+                shop[key] = b.get(key)
+        shop["directions"] = directions_url(shop, prefix=prefix)
+        rows.append((quantity, shop))
     rows.sort(key=lambda pair: -pair[0])
     return tuple(row for _, row in rows[:8])
 

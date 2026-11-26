@@ -210,6 +210,9 @@ class Config:
     brand_subtitle: str = "Your smart shopping guide"
     brand_primary_color: str = "#F36F21"
     brand_logo_url: str = ""
+    # Words placed before a branch in a maps search. Empty unless configured.
+    # The generic assistant name is never used here.
+    store_map_query_prefix: str = ""
     # Exact scheme, host and port. No wildcards. Empty refuses every embed.
     widget_host_origins: tuple[str, ...] = ()
     # The origin of this process. /ws/chat accepts a socket only from it.
@@ -304,6 +307,21 @@ def brand_logo(raw: str | None) -> str:
     if value.startswith("https://") or value.startswith("http://"):
         return value
     return ""
+
+
+def _map_query_prefix() -> str:
+    """STORE_MAP_QUERY_PREFIX, else a custom brand, else nothing.
+
+    ``Shopping Assistant`` is the generic default and must not be searched
+    for as if it were a shop.
+    """
+    explicit = os.environ.get("STORE_MAP_QUERY_PREFIX", "").strip()
+    if explicit:
+        return explicit
+    brand = os.environ.get("BRAND_NAME", "").strip()
+    if brand.casefold() in {"", "shopping assistant"}:
+        return ""
+    return brand
 
 
 def _brand_name() -> str:
@@ -513,6 +531,7 @@ def load(env: str | None = None) -> Config:
         or "Your smart shopping guide",
         brand_primary_color=brand_color(os.environ.get("BRAND_PRIMARY_COLOR")),
         brand_logo_url=brand_logo(os.environ.get("BRAND_LOGO_URL")),
+        store_map_query_prefix=_map_query_prefix(),
         widget_host_origins=tuple(
             origin.strip()
             for origin in os.environ.get("WIDGET_HOST_ORIGINS", "").split(",")

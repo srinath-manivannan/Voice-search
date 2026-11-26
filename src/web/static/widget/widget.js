@@ -502,8 +502,18 @@
     if (product) post({ type: "sa.navigate", product_id: product.product_id, variant_id: product.variant_id });
     post({ type: "sa.close" });
   });
+  input.addEventListener("input", function () {
+    input.style.height = "44px";
+    var next = Math.min(input.scrollHeight, 120);
+    input.style.height = Math.max(44, next) + "px";
+  });
   document.addEventListener("keydown", function (event) {
     if (event.key === "Escape") {
+      if (menuPop && !menuPop.hidden) {
+        menuPop.hidden = true;
+        if (menu) menu.setAttribute("aria-expanded", "false");
+        return;
+      }
       post({ type: "sa.close" });
       return;
     }
@@ -561,10 +571,19 @@
   var menu = document.getElementById("sa-menu");
   var menuPop = document.getElementById("sa-menu-pop");
   if (menu && menuPop) {
-    menu.addEventListener("click", function () {
+    menuPop.hidden = true;
+    menu.setAttribute("aria-expanded", "false");
+    menu.addEventListener("click", function (event) {
+      event.stopPropagation();
       var open = menuPop.hidden;
       menuPop.hidden = !open;
       menu.setAttribute("aria-expanded", open ? "true" : "false");
+    });
+    menuPop.addEventListener("click", function (event) { event.stopPropagation(); });
+    document.addEventListener("click", function () {
+      if (menuPop.hidden) return;
+      menuPop.hidden = true;
+      menu.setAttribute("aria-expanded", "false");
     });
     document.getElementById("sa-new").addEventListener("click", function () {
       menuPop.hidden = true;
