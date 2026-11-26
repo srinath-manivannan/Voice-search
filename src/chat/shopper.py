@@ -60,6 +60,12 @@ _SHOW_ALL = ("show all", "show me all", "all the options", "all matching", "show
 _AVAIL = ("is this available", "is it available", "availability")
 _EMI = ("emi", "installment", "instalment")
 _COMPARE = ("compare",)
+_SIMILAR = ("similar", "alternatives")
+_DETAILS = ("full spec", "store availability")
+_CATEGORY = re.compile(
+    r"\b(phones?|laptops?|acs?|fridge|fridges|tv|tvs|tablet|tablets)\b",
+    re.IGNORECASE,
+)
 _YES = {"yes", "yeah", "yep", "ok", "okay", "sure", "haan", "ஆமா", "ஆம்"}
 _LETTERS = "ABCDEFGHIJ"
 
@@ -294,6 +300,12 @@ class ShopperGuide:
                 ["Yes, while walking", "Mostly standing still", "Both"],
             )
 
+        if _has(cleaned, _SIMILAR):
+            return await self._show(slots, intro="Similar options in the same budget")
+        if _has(cleaned, _DETAILS) and slots.visible:
+            letter = str(slots.visible[0].get("ref") or "A")
+            return self._about(slots, letter, None, folded)
+
         if slots.budget or slots.brand:
             intro = self._kept(slots) if brand and slots.previous_brand else ""
             return await self._show(slots, intro=intro)
@@ -304,7 +316,22 @@ class ShopperGuide:
                 "Tell me what you need in plain words — for example a phone and a budget.",
                 ["Best phone under ₹25,000", "Compare similar"],
             )
+        if self._needs_a_budget(slots, cleaned) and len(slots.asked) < 2:
+            slots.asked.append("budget")
+            slots.pending = "budget"
+            return self._turn(
+                slots,
+                "What budget should I stay within, and what matters most — "
+                "price, camera, battery, or performance?",
+                ["Under ₹20,000", "Under ₹30,000", "Under ₹50,000"],
+            )
         return GuideTurn("", [], [], slots.as_dict(), model_needed=True)
+
+    def _needs_a_budget(self, slots: Slots, text: str) -> bool:
+        """One clarifying question, and only when the shopper named a category."""
+        if slots.budget or slots.brand or "budget" in slots.asked:
+            return False
+        return _CATEGORY.search(text) is not None
 
     async def _show(
         self, slots: Slots, *, intro: str = "", limit: int = 4

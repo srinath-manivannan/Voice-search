@@ -38,7 +38,10 @@ from src.observability.metrics import (
     RUPEE_BUCKETS,
 )
 from src.observability.reporting import Reporter
+from src.voice.active_minute import ActiveClock
 from src.voice.budget import BudgetExceeded, SessionBudget
+from src.voice.guard import worst_case_inr
+from src.voice.route_b import HashCachedMouth, RoutedBrain
 from src.agent.prefetch import Prefetcher
 from src.voice.grok_tts import GrokMouth
 from src.voice.spoken_by_grok import SpokenByGrok
@@ -149,6 +152,9 @@ class VoiceCall:
         # conversation does.
         self._trace = CallTrace()
         self._shadow = self._open_shadow()
+        # Silence is not recorded here, so it does not earn a rupee.
+        self._active = ActiveClock()
+        self._active_mark = time.monotonic()
 
     # -- helpers ------------------------------------------------------------
 
@@ -174,6 +180,7 @@ class VoiceCall:
                     float(first_audio),
                     LATENCY_BUCKETS_MS,
                 )
+        self._note_active(payload)
         remember(self._memory, payload)
         if (
             payload.get("type") == "turn"
@@ -219,16 +226,49 @@ class VoiceCall:
                     self._settings.usd_inr, self._settings.gst_rate, minutes
                 ),
             )
+            self._guard_active_minute()
         except BudgetExceeded as stop:
-            METRICS.count(
-                "voice_calls_stopped_by_budget_total",
-                "Calls a session ceiling ended mid-conversation",
-            )
-            log.warning("session stopped: %s", stop.reason)
-            self._talking.trace.record("budget_exceeded", reason=stop.reason)
-            with contextlib.suppress(Exception):
-                await self._socket.send_json({"type": "ended", "message": stop.spoken})
+            await self._stop_for_budget(stop)
             raise
+
+    def _note_active(self, payload: dict[str, Any]) -> None:
+        """Count speech. A quiet gap is left off the clock on purpose."""
+        now = time.monotonic()
+        kind = payload.get("type")
+        if kind == "caller_transcript":
+            self._active.shopper_spoke(self._active_mark, now)
+            self._active_mark = now
+        elif kind in {"transcript", "turn"}:
+            self._active.assistant_spoke(self._active_mark, now)
+            self._active_mark = now
+
+    def _guard_active_minute(self) -> None:
+        """₹2 per active minute, GST in, reserved before the next paid step."""
+        if not self._settings.voice_route_b_enabled or self._usage is None:
+            return
+        spent = self.spent_inr
+        active = self._active.active_minutes()
+        if spent > worst_case_inr(active):
+            raise BudgetExceeded(
+                "active-minute guard",
+                "This call has reached its budget. You can continue in Chat.",
+            )
+        if active >= 1.0 and spent / active > 2.0:
+            raise BudgetExceeded(
+                "rupee per active minute",
+                "This call has reached its budget. You can continue in Chat.",
+            )
+
+    async def _stop_for_budget(self, stop: BudgetExceeded) -> None:
+        METRICS.count(
+            "voice_calls_stopped_by_budget_total",
+            "Calls a session ceiling ended mid-conversation",
+        )
+        log.warning("session stopped: %s", stop.reason)
+        if self._talking is not None:
+            self._talking.trace.record("budget_exceeded", reason=stop.reason)
+        with contextlib.suppress(Exception):
+            await self._socket.send_json({"type": "ended", "message": stop.spoken})
 
     async def _read_microphone(self) -> None:
         """Binary is audio, JSON is control. Nothing else arrives."""
@@ -333,31 +373,44 @@ class VoiceCall:
         fallback here is the entire Live path, which is the one that works.
         """
         settings = self._settings
-        if not settings.cascade_enabled:
+        route_b = settings.voice_route_b_enabled or settings.cascade_enabled
+        if not route_b:
             return None
+        factory = getattr(self._socket.app.state, "cascade_factory", None)
+        if factory is not None:
+            made = factory(tools, listener)
+            return made if isinstance(made, CascadeSession) else None
         ear = self._ear()
         if ear is None:
-            log.warning("CASCADE is on but no ear is configured; staying on Live")
+            log.warning(
+                "Route B is on but no ear is configured; native audio stays off "
+                "unless Route A is the selected path"
+            )
             return None
 
+        brain: Any = ChatSession(
+            GeminiTextModel(
+                api_key=settings.gemini_api_key,
+                model=settings.gemini_text_model,
+                system_instruction=settings.system_instruction,
+                tools=dependencies.declarations_for(settings),
+            ),
+            tools=tools,
+        )
+        mouth: Any = self._mouth()
+        if settings.voice_route_b_enabled:
+            # Route C is the deterministic line. Open questions stay on the
+            # bounded flash-lite session. Identical lines replay from a hash.
+            brain = RoutedBrain(
+                brain,
+                route_b=True,
+                route_a=settings.voice_route_a_enabled,
+            )
+            mouth = HashCachedMouth(mouth)
         return CascadeSession(
             ear,
-            # The chat tab's own session, unchanged, with the VOICE
-            # instruction rather than the chat one: the reply is going to be
-            # spoken, so it is capped and worded for speech.
-            ChatSession(
-                GeminiTextModel(
-                    api_key=settings.gemini_api_key,
-                    model=settings.gemini_text_model,
-                    system_instruction=settings.system_instruction,
-                    tools=dependencies.declarations_for(settings),
-                ),
-                tools=tools,
-            ),
-            # No tools, no persona, and no room to vary. It reads what it
-            # is given, and a loudspeaker that can paraphrase a price is
-            # worse than one that cannot speak at all.
-            self._mouth(),
+            brain,
+            mouth,
             rate=settings.capture_sample_rate,
             ear_timeout_s=settings.whisper_timeout_seconds,
             on_caller_speech=listener,
@@ -377,7 +430,7 @@ class VoiceCall:
         if not settings.xai_api_key:
             log.warning("GROK_MOUTH is on but XAI_API_KEY is empty; using Gemini")
             return False
-        if not settings.cascade_enabled:
+        if not settings.cascade_enabled and not settings.voice_route_b_enabled:
             # Only on the cascade, and not by choice.
             #
             # Having Live hear and think and Grok speak was the right shape:
@@ -553,6 +606,12 @@ class VoiceCall:
 
         if (cascade := self._open_cascade(tools, listener)) is not None:
             return cascade
+        # Route B with Route A off must not open the native Live socket.
+        if (
+            self._settings.voice_route_b_enabled
+            and not self._settings.voice_route_a_enabled
+        ):
+            raise RuntimeError("route B cascade is not available")
 
         return RotatingLiveSession(
             lambda: GeminiLiveSession(

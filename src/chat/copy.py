@@ -7,10 +7,20 @@ failure state cannot drift into a fragment or a second language.
 
 from __future__ import annotations
 
-WELCOME = (
-    "Hi! I'm the Shopping Assistant. Ask me about any product — prices, "
-    "stock near you, offers or EMI. You can type in English, Tamil or Tanglish."
+
+def welcome_line(name: str = "Shopping Assistant") -> str:
+    """The headline painted into the page. No network call is required to show it."""
+    return f"Hi! I'm {name}. What can I help you with?"
+
+
+WELCOME = welcome_line()
+
+SUBTITLE = (
+    "Your smart shopping guide — products, offers, stores & support. "
+    "Ask me anything, anytime!"
 )
+
+PLACEHOLDER = 'Try: "Best phone under ₹30,000 with good camera"'
 
 LIMIT_REACHED = (
     "I can't answer more questions in this chat right now. You can keep "
@@ -47,7 +57,8 @@ FOOTER = "AI answers · prices and stock checked live · confirm at checkout"
 
 SUGGESTIONS = (
     "Is this available?",
-    "Best phone under ₹25,000",
-    "Compare similar",
-    "EMI options",
+    "Help me find the right phone",
+    "Best AC for my room",
+    "Laptop under ₹50,000",
+    "Check store availability",
 )

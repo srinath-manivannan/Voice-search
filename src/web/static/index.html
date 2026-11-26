@@ -25,7 +25,15 @@
        share bar in the cost table, both of which are non-text UI at 3.48:1
        against a 3:1 requirement - and the bar's value is in the number
        beside it, so nothing depends on seeing the colour at all. */
-    --brand: #f4511e;
+    --sa-accent: #F36F21;
+    --sa-accent-hover: #D95B12;
+    --sa-accent-soft: #FFF4EC;
+    --sa-ink: #1C1F26;
+    --sa-muted: #5F6673;
+    --sa-surface: #FFFFFF;
+    --sa-bg: #F6F7F9;
+    --sa-border: #E6E8EC;
+    --brand: #D95B12;
     /* A deeper orange wherever white text sits on it. White on the logo orange
        is about 3.4:1, under the 4.5:1 that 14px text needs; this clears it. */
     --brand-ink: #c2410c;
@@ -51,13 +59,13 @@
     overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
   }
   body {
-    margin: 0; background: var(--bg); color: var(--ink);
+    margin: 0; background: var(--sa-bg); color: var(--sa-ink);
     font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
     display: flex; flex-direction: column; min-height: 100vh;
   }
 
   /* header ------------------------------------------------------------- */
-  header { display: flex; align-items: center; gap: 12px; padding: 14px 20px; }
+  header { display: flex; align-items: center; gap: 12px; padding: 14px 20px; background: var(--sa-surface); border-bottom: 3px solid var(--sa-accent); }
   /* The supplied file is orange on its own off-white ground, so the tile adds
      no background - only the rounded corner and a hairline, without which a
      near-white square on a white header has no edge at all. */
@@ -87,7 +95,7 @@
   .tab {
     background: none; border: 0; padding: 10px 0 12px; font-size: 14.5px;
     color: var(--dim); cursor: pointer; border-bottom: 2px solid transparent;
-    display: flex; align-items: center; gap: 7px;
+    display: flex; align-items: center; gap: 7px; min-height: 44px;
   }
   .tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--brand); font-weight: 500; }
   .tab:disabled { opacity: .45; cursor: not-allowed; }
@@ -179,7 +187,7 @@
   .cta {
     background: var(--brand-ink); color: #fff; border: 0; border-radius: 999px;
     padding: 12px 26px; font-size: 14.5px; font-weight: 500; cursor: pointer;
-    display: inline-flex; align-items: center; gap: 9px;
+    display: inline-flex; align-items: center; gap: 9px; min-height: 44px; min-width: 44px;
   }
   .cta:hover { background: var(--brand-ink-hover); }
   .cta:disabled { opacity: .5; cursor: default; }
@@ -224,7 +232,7 @@
   }
   .composer input:focus { border-color: var(--brand-ink); }
   .send {
-    width: 42px; height: 42px; border-radius: 50%; border: 0;
+    width: 44px; height: 44px; border-radius: 50%; border: 0;
     background: var(--brand-ink); color: #fff; cursor: pointer; flex: none;
     display: grid; place-items: center;
   }
@@ -252,6 +260,49 @@
   .stats strong { font-size: 17px; font-weight: 600; }
   .good { color: var(--good); } .warn { color: var(--warn); } .bad { color: var(--bad); }
   .note { color: var(--dim); font-size: 11.5px; max-width: 330px; }
+
+  .voice-notice {
+    max-width: 420px; margin: 14px auto 0; padding: 12px 14px; text-align: left;
+    background: var(--sa-accent-soft); color: var(--sa-ink);
+    border: 1px solid var(--sa-border); border-radius: 14px; font-size: 14px;
+  }
+  .chat-hero { text-align: left; padding: 8px 4px 12px; }
+  .chat-hero h2 { font-size: 22px; line-height: 1.3; margin: 0; }
+  .chat-hero p { color: var(--sa-muted); margin: 8px 0 0; }
+  .chat-day {
+    display: inline-block; margin: 0 0 10px; padding: 4px 10px; border-radius: 999px;
+    background: var(--sa-bg); color: var(--sa-muted); font-size: 12px; font-weight: 700;
+  }
+  .chat-chips { display: flex; gap: 8px; overflow-x: auto; padding: 4px 0 12px; }
+  .chat-chips button {
+    flex: 0 0 auto; min-height: 44px; border-radius: 999px; border: 1px solid var(--sa-border);
+    background: #fff; color: var(--sa-ink); padding: 8px 14px; cursor: pointer;
+  }
+  .chat-chips button:hover { border-color: var(--sa-accent); background: var(--sa-accent-soft); }
+  .msg time { display: block; margin-top: 4px; font-size: 12px; color: var(--sa-muted); }
+  .chat-products { display: flex; gap: 10px; overflow-x: auto; margin-top: 8px; }
+  .chat-product {
+    flex: 0 0 220px; text-align: left; background: #fff; border: 1px solid var(--sa-border);
+    border-radius: 16px; padding: 12px; box-shadow: 0 8px 24px rgba(28,31,38,.06);
+  }
+  .chat-product img { width: 100%; height: 88px; object-fit: contain; background: var(--sa-bg); border-radius: 10px; }
+  .chat-product .badge { display: inline-block; background: var(--sa-accent-soft); color: var(--sa-accent-hover); border-radius: 999px; font-size: 12px; font-weight: 700; padding: 2px 8px; }
+  .chat-product h3 { margin: 6px 0 0; font-size: 15px; }
+  .chat-product p { margin: 4px 0 0; color: var(--sa-muted); font-size: 13px; }
+  .chat-product .rupee { color: var(--sa-ink); font-weight: 700; }
+  .chat-product button { width: 100%; min-height: 44px; margin-top: 6px; border-radius: 12px; border: 1px solid var(--sa-accent); background: #fff; color: var(--sa-accent); font-weight: 600; cursor: pointer; }
+  .chat-product button.view { background: var(--sa-accent); color: #fff; }
+  .typing { display: inline-flex; gap: 5px; padding: 8px 4px; }
+  .typing i { width: 7px; height: 7px; border-radius: 50%; background: var(--sa-accent); animation: blink 1s infinite; }
+  .typing i:nth-child(2) { animation-delay: .15s; }
+  .typing i:nth-child(3) { animation-delay: .3s; }
+  @keyframes blink { 50% { opacity: .25; } }
+  .chat-menu { position: relative; }
+  .chat-pop { position: absolute; right: 0; top: 36px; background: #fff; border: 1px solid var(--sa-border); border-radius: 12px; box-shadow: 0 12px 32px rgba(28,31,38,.12); padding: 6px; z-index: 2; }
+  .chat-pop button { display: block; width: 100%; min-height: 44px; min-width: 140px; text-align: left; border: 0; background: transparent; padding: 0 12px; cursor: pointer; }
+  body.sa-embed header, body.sa-embed nav[role="tablist"], body.sa-embed .drawer, body.sa-embed #meter { display: none !important; }
+  body.sa-embed main { padding: 12px; place-items: stretch; align-content: stretch; }
+  body.sa-embed .stage, body.sa-embed #chat-panel { max-width: none; }
 
 
   /* what the call cost, for someone who has never seen a token ---------- */
@@ -472,12 +523,13 @@
   .g-link:hover { background: var(--soft); }
   .g-cost { font-size: 12px; color: var(--dim); margin: 14px auto 0; max-width: 460px; line-height: 1.5; }
 </style>
+<script id="sa-brand" type="application/json">__SA_BRAND_JSON__</script>
 </head>
 <body data-state="idle">
 
 <header>
   <img class="logo" src="/static/logo-photo.avif" alt="Shopping Assistant">
-  <div class="who"><b>Shopping Assistant</b><span>AI help for this store</span></div>
+  <div class="who"><b id="brand-name">Shopping Assistant</b><span id="brand-sub">Your smart shopping guide</span></div>
   <div class="spacer"></div>
   <button class="icon-btn" id="share" title="Copy link" aria-label="Copy link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg></button>
 </header>
@@ -547,6 +599,7 @@
     </p>
 
     <button class="cta" id="toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .3 1.9.6 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.5c.9.3 1.8.5 2.8.6a2 2 0 0 1 1.7 2z"/></svg><span>Start Call</span></button>
+    <p id="voice-notice" class="voice-notice" role="status" hidden></p>
     <div class="state" id="status"></div>
 
     <div id="spend" hidden>
@@ -579,12 +632,19 @@
   </div>
 
   <div id="chat-panel" role="tabpanel" aria-labelledby="tab-chat" tabindex="0" hidden>
-    <div id="messages"></div>
-    <div class="composer">
-      <label class="sr-only" for="chat-input">Message the Shopping Assistant</label>
-      <input id="chat-input" placeholder="Type your question…" autocomplete="off">
-      <button class="send" id="chat-send" title="Send" aria-label="Send"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2.6 20.9 21.4 12.8c.9-.4.9-1.6 0-2L2.6 2.7c-.8-.3-1.6.4-1.4 1.2L2.9 10c.1.4.4.7.8.8l7.6 1.2-7.6 1.2c-.4.1-.7.4-.8.8L1.2 19.7c-.2.8.6 1.5 1.4 1.2z"/></svg></button>
+    <div id="messages">
+      <div class="chat-hero" id="chat-welcome">
+        <p class="chat-day">Today</p>
+        <h2 id="chat-headline">Hi! I'm Shopping Assistant. What can I help you with?</h2>
+        <p id="chat-lead">Your smart shopping guide — products, offers, stores & support. Ask me anything, anytime!</p>
+      </div>
+      <div id="chat-chips" class="chat-chips"></div>
     </div>
+    <form class="composer" id="chat-form" autocomplete="off">
+      <label class="sr-only" for="chat-input">Message the Shopping Assistant</label>
+      <input id="chat-input" placeholder="Try: &quot;Best phone under ₹30,000 with good camera&quot;" autocomplete="off">
+      <button class="send" id="chat-send" title="Send" aria-label="Send" type="submit"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2.6 20.9 21.4 12.8c.9-.4.9-1.6 0-2L2.6 2.7c-.8-.3-1.6.4-1.4 1.2L2.9 10c.1.4.4.7.8.8l7.6 1.2-7.6 1.2c-.4.1-.7.4-.8.8L1.2 19.7c-.2.8.6 1.5 1.4 1.2z"/></svg></button>
+    </form>
     <p class="composer-note">You're chatting with an AI assistant.</p>
   </div>
 </main>
@@ -634,6 +694,30 @@
   </div>
 </details>
 
+<script>
+(function () {
+  var node = document.getElementById("sa-brand");
+  var brand = {};
+  try { brand = JSON.parse((node && node.textContent) || "{}"); } catch (err) { brand = {}; }
+  var root = document.documentElement;
+  if (brand.color) {
+    root.style.setProperty("--sa-accent", brand.color);
+    root.style.setProperty("--brand", brand.color);
+  }
+  if (brand.hover) root.style.setProperty("--sa-accent-hover", brand.hover);
+  var name = document.getElementById("brand-name");
+  var sub = document.getElementById("brand-sub");
+  if (name && brand.name) name.textContent = brand.name;
+  if (sub && brand.subtitle) sub.textContent = brand.subtitle;
+  if (brand.name) document.title = brand.name;
+  var headline = document.getElementById("chat-headline");
+  if (headline && brand.headline) headline.textContent = brand.headline;
+  if (brand.logo) {
+    var logo = document.querySelector("header .logo");
+    if (logo) logo.src = brand.logo;
+  }
+})();
+</script>
 <script src="/static/app.js"></script>
 <script src="/static/chat.js"></script>
 <script src="/static/guided-mic.js"></script>

@@ -918,20 +918,6 @@ async function sendSaid(text, kind = 'speech', again = false) {
   }, target ? 400 : 0);
 }
 
-// The Voice Call tab, at ₹0 (owner, 2026-11-24): the same guided
-// conversation with the mic on. The click that got us here is the gesture a
-// browser wants before it plays sound or opens a microphone. The greeting
-// is said first; the mic opens when it ends, as everywhere else.
-function startGuidedVoice() {
-  showTab('guided', true);  // starts the guided session if none is open
-  if (!micSupported()) return;  // no microphone here: taps and typing still work
-  voice.blocked = false;
-  soundLabel();
-  convo.on = true;
-  convoLabel();
-  listenSoon();
-}
-
 // Typing continues the same conversation as tapping and speaking: the
 // words go down the same free path as speech, and the reply is drawn the
 // same way. A tap of "send" is a deliberate act, so the agent is hushed.

@@ -2,22 +2,36 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import HTMLResponse
 
 from src.agent.persona import GREETING
-from src.config import Config
+from src.chat.copy import SUBTITLE, welcome_line
+from src.config import Config, accent_hover
 
 STATIC = Path(__file__).resolve().parents[1] / "static"
 
 
 def install(app: FastAPI, settings: Config) -> None:
     @app.get("/", include_in_schema=False)
-    async def index() -> FileResponse:
-        return FileResponse(STATIC / "index.html")
+    async def index() -> HTMLResponse:
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        brand = {
+            "name": settings.brand_name,
+            "subtitle": settings.brand_subtitle or SUBTITLE,
+            "headline": welcome_line(settings.brand_name),
+            "color": settings.brand_primary_color,
+            "hover": accent_hover(settings.brand_primary_color),
+            "logo": settings.brand_logo_url,
+        }
+        html = html.replace(
+            "__SA_BRAND_JSON__", json.dumps(brand).replace("<", "\\u003c")
+        )
+        return HTMLResponse(html)
 
     install_health(app, settings, include_warm=True)
 

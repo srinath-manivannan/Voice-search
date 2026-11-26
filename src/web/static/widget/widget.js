@@ -6,6 +6,8 @@
   var config = {};
   try { config = JSON.parse(configNode.textContent || "{}"); } catch (err) { config = {}; }
   var ASSISTANT = config.assistant_name || "Shopping Assistant";
+  var HEADLINE = config.headline || ("Hi! I'm " + ASSISTANT + ". What can I help you with?");
+  var LEAD = (document.getElementById("sa-lead") || {}).textContent || "";
   var HOSTS = config.host_origins || [];
   var SUGGESTIONS = config.suggestions || [
     "Is this available?",
@@ -24,6 +26,14 @@
   var title = document.getElementById("sa-title");
   if (title) title.textContent = ASSISTANT;
   document.title = ASSISTANT;
+  if (!window.parent || window.parent === window) {
+    document.documentElement.setAttribute("data-standalone", "1");
+  }
+  if (config.color) {
+    document.documentElement.style.setProperty("--sa-accent", config.color);
+    document.documentElement.style.setProperty("--brand", config.color);
+  }
+  var surfaces = config.surfaces || ["chat"];
 
   var parentOrigin = "";
   var nonce = "";
@@ -136,50 +146,150 @@
     post({ type: "sa.layout", mode: modal ? "sheet" : "panel", modal: modal });
   }
 
+  function pageHost() {
+    if (parentOrigin) return parentOrigin;
+    if (!window.parent || window.parent === window) return location.origin;
+    return "";
+  }
+
+  function clock() {
+    try {
+      return new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+    } catch (err) {
+      return "";
+    }
+  }
+
   function addBubble(text, mine) {
+    var wrap = document.createElement("div");
+    wrap.className = "sa-turn" + (mine ? " mine" : "");
     var node = document.createElement("p");
     node.className = "sa-msg " + (mine ? "user" : "assistant");
     node.textContent = text;
     if (mine && tamil(text)) node.lang = "ta";
-    logEl.appendChild(node);
+    var time = document.createElement("time");
+    time.className = "sa-time";
+    time.dateTime = new Date().toISOString();
+    time.textContent = clock();
+    wrap.appendChild(node);
+    wrap.appendChild(time);
+    logEl.appendChild(wrap);
     logEl.scrollTop = logEl.scrollHeight;
     return node;
   }
 
-  function renderCards(cards) {
-    cardsEl.innerHTML = "";
-    (cards || []).forEach(function (card) {
-      var item = document.createElement("article");
-      item.className = "sa-card";
-      item.setAttribute("role", "listitem");
-      var price = card.price && card.price.selling_inr ? "₹" + Number(card.price.selling_inr).toLocaleString("en-IN") : "Price not confirmed";
-      var stock = (card.stock && card.stock.label) || "Stock not confirmed right now";
-      item.setAttribute("aria-label", "Option " + card.ref + ", " + card.model_name + ", " + price + ", " + stock);
-      item.innerHTML = "<div class='sa-letter'>" + card.ref + "</div><div><h2></h2><p class='sa-price'></p><p class='sa-benefit'></p><p class='sa-stock'></p><div class='sa-actions'></div></div>";
-      item.querySelector("h2").textContent = card.model_name || "";
-      item.querySelector(".sa-price").textContent = price + (card.variant_label ? " · " + card.variant_label : "");
-      item.querySelector(".sa-benefit").textContent = card.benefit || "";
-      item.querySelector(".sa-stock").textContent = stock;
-      var actions = item.querySelector(".sa-actions");
-      var view = document.createElement("button");
-      view.type = "button";
-      view.textContent = "View";
-      view.addEventListener("click", function () {
-        post({ type: "sa.navigate", product_id: card.sku_id, variant_id: card.variant_id });
-      });
-      actions.appendChild(view);
-      if (card.offer_line) {
-        var offer = document.createElement("p");
-        offer.textContent = card.offer_line;
-        actions.parentNode.insertBefore(offer, actions);
-      }
-      if (card.emi_line) {
-        var emi = document.createElement("p");
-        emi.textContent = card.emi_line;
-        actions.parentNode.insertBefore(emi, actions);
-      }
-      cardsEl.appendChild(item);
+  var PLACEHOLDER_IMG = "data:image/svg+xml," + encodeURIComponent(
+    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 80'>" +
+    "<rect width='80' height='80' rx='12' fill='#F6F7F9'/>" +
+    "<rect x='18' y='22' width='44' height='36' rx='6' fill='#E6E8EC'/>" +
+    "</svg>"
+  );
+
+  function showTyping(on) {
+    var node = document.getElementById("sa-typing");
+    if (!on) {
+      if (node) node.remove();
+      return;
+    }
+    if (!node) {
+      node = document.createElement("p");
+      node.id = "sa-typing";
+      node.className = "sa-typing";
+      node.setAttribute("aria-hidden", "true");
+      node.innerHTML = "<i></i><i></i><i></i>";
+      logEl.appendChild(node);
+    }
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function fromCards(cards) {
+    return (cards || []).map(function (card) {
+      var price = card.price && card.price.selling_inr;
+      return {
+        brand: card.brand || "",
+        image_url: card.image_url || "",
+        title: card.model_name || "",
+        spec: card.benefit || card.variant_label || "",
+        price_label: price ? "₹" + Number(price).toLocaleString("en-IN") : "",
+        url: card.url || "",
+        product_id: card.sku_id || "",
+        variant_id: card.variant_id || ""
+      };
     });
+  }
+
+  function viewProduct(product) {
+    var framed = window.parent && window.parent !== window;
+    if (framed && product.product_id) {
+      post({ type: "sa.navigate", product_id: product.product_id, variant_id: product.variant_id || "" });
+      return;
+    }
+    if (product.url) window.open(product.url, "_blank", "noopener,noreferrer");
+  }
+
+  function renderProducts(messageNode, products) {
+    if (!messageNode || !products || !products.length) return;
+    var row = document.createElement("div");
+    row.className = "sa-products";
+    row.setAttribute("role", "list");
+    products.forEach(function (product) {
+      var item = document.createElement("article");
+      item.className = "sa-product";
+      item.setAttribute("role", "listitem");
+      var img = document.createElement("img");
+      img.alt = "";
+      img.src = product.image_url || PLACEHOLDER_IMG;
+      img.addEventListener("error", function () { img.src = PLACEHOLDER_IMG; });
+      item.appendChild(img);
+      if (product.brand) {
+        var badge = document.createElement("span");
+        badge.className = "sa-badge";
+        badge.textContent = product.brand;
+        item.appendChild(badge);
+      }
+      var heading = document.createElement("h3");
+      heading.textContent = product.title || "";
+      item.appendChild(heading);
+      var spec = document.createElement("p");
+      spec.className = "sa-spec";
+      spec.textContent = product.spec || "";
+      item.appendChild(spec);
+      var price = document.createElement("p");
+      price.className = "sa-rupee";
+      price.textContent = product.price_label || "";
+      item.appendChild(price);
+      var actions = document.createElement("div");
+      actions.className = "sa-actions";
+      function act(label, className, click) {
+        var button = document.createElement("button");
+        button.type = "button";
+        button.textContent = label;
+        if (className) button.className = className;
+        button.addEventListener("click", click);
+        actions.appendChild(button);
+      }
+      var title = product.title || "this product";
+      act("View Details", "", function () {
+        send("Tell me the full specs, current offers, and store availability for " + title + ".");
+      });
+      act("Show Similar", "", function () {
+        send("Show similar alternatives to " + title + " in the same budget.");
+      });
+      act("View", "sa-view", function () { viewProduct(product); });
+      item.appendChild(actions);
+      row.appendChild(item);
+    });
+    var wrap = messageNode.parentNode;
+    var time = wrap && wrap.querySelector("time");
+    if (wrap && time) wrap.insertBefore(row, time);
+    else if (wrap) wrap.appendChild(row);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function renderCards(cards) {
+    var nodes = logEl.querySelectorAll(".sa-msg.assistant");
+    var last = nodes[nodes.length - 1];
+    renderProducts(last, fromCards(cards));
   }
 
   function renderSuggestions(list) {
@@ -211,7 +321,7 @@
       return;
     }
     if (socket && socket.readyState === WebSocket.CONNECTING) return;
-    var url = (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws/chat";
+    var url = (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws/chat?v=2";
     var current = new WebSocket(url);
     socket = current;
     current.onopen = function () {
@@ -224,7 +334,7 @@
         token: token || null,
         last_seq: lastSeq,
         context: {
-          host_origin: parentOrigin,
+          host_origin: pageHost(),
           host_session: sessionHost(),
           pincode: (config.pincode || undefined),
           product: product || undefined
@@ -277,6 +387,7 @@
     }
     if (message.type === "ack") {
       setStatus("Checking…");
+      showTyping(true);
       clearTimeout(slowTimer);
       slowTimer = window.setTimeout(function () {
         setStatus("Still checking live prices and stock…");
@@ -286,15 +397,18 @@
     if (message.type === "delta") return;
     if (message.type === "final") {
       clearTimeout(slowTimer);
+      showTyping(false);
       setStatus("");
       var text = message.display && message.display.text;
-      if (text) addBubble(text, false);
-      renderCards(message.cards || []);
+      var node = text ? addBubble(text, false) : null;
+      var products = (message.products && message.products.length) ? message.products : fromCards(message.cards);
+      if (node) renderProducts(node, products);
       if (message.suggestions && message.suggestions.length) renderSuggestions(message.suggestions);
       return;
     }
     if (message.type === "done") {
       clearTimeout(slowTimer);
+      showTyping(false);
       setStatus("");
       enableComposer();
       if (outbox) { outbox.status = "done"; saveOutbox(); outbox = null; }
@@ -303,6 +417,7 @@
     }
     if (message.type === "error") {
       clearTimeout(slowTimer);
+      showTyping(false);
       enableComposer();
       setAlert(message.message || "Sorry, something went wrong on our side. You weren't charged.");
     }
@@ -339,8 +454,9 @@
   function redraw(messages) {
     messages.forEach(function (item) {
       if (!item.text) return;
-      addBubble(item.text, item.role === "user");
-      if (item.cards) renderCards(item.cards);
+      var node = addBubble(item.text, item.role === "user");
+      var products = (item.products && item.products.length) ? item.products : fromCards(item.cards);
+      if (item.role !== "user") renderProducts(node, products);
     });
   }
 
@@ -423,6 +539,75 @@
   handle.addEventListener("touchend", function (event) {
     if (event.changedTouches[0].clientY - startY > 40) post({ type: "sa.close" });
   });
+
+  function freshChat() {
+    token = "";
+    lastSeq = 0;
+    outbox = null;
+    try { sessionStorage.removeItem("sa_outbox"); } catch (err) { /* ignore */ }
+    if (socket && socket.readyState !== WebSocket.CLOSED) {
+      try { socket.close(1000, "new chat"); } catch (err2) { /* ignore */ }
+    }
+    socket = null;
+    var turns = logEl.querySelectorAll(".sa-turn, .sa-typing");
+    for (var i = 0; i < turns.length; i++) turns[i].remove();
+    cardsEl.innerHTML = "";
+    setStatus("");
+    setAlert("");
+    enableComposer();
+    post({ type: "sa.persist", token: "" });
+  }
+
+  var menu = document.getElementById("sa-menu");
+  var menuPop = document.getElementById("sa-menu-pop");
+  if (menu && menuPop) {
+    menu.addEventListener("click", function () {
+      var open = menuPop.hidden;
+      menuPop.hidden = !open;
+      menu.setAttribute("aria-expanded", open ? "true" : "false");
+    });
+    document.getElementById("sa-new").addEventListener("click", function () {
+      menuPop.hidden = true;
+      menu.setAttribute("aria-expanded", "false");
+      freshChat();
+    });
+    document.getElementById("sa-clear").addEventListener("click", function () {
+      menuPop.hidden = true;
+      menu.setAttribute("aria-expanded", "false");
+      freshChat();
+    });
+  }
+
+  var tabs = document.getElementById("sa-tabs");
+  var stage = document.getElementById("sa-stage");
+  var chatRoot = document.getElementById("sa-chat-root");
+  if (tabs && stage && surfaces.indexOf("guided") >= 0 && surfaces.indexOf("voice") >= 0) {
+    tabs.hidden = false;
+    tabs.addEventListener("click", function (event) {
+      var button = event.target.closest ? event.target.closest("button") : null;
+      if (!button || !tabs.contains(button)) return;
+      var name = button.getAttribute("data-surface");
+      var all = tabs.querySelectorAll("button");
+      for (var i = 0; i < all.length; i++) {
+        all[i].setAttribute("aria-selected", all[i] === button ? "true" : "false");
+      }
+      if (name === "chat") {
+        stage.hidden = true;
+        if (chatRoot) chatRoot.hidden = false;
+        return;
+      }
+      if (chatRoot) chatRoot.hidden = true;
+      stage.hidden = false;
+      var frame = stage.querySelector("iframe");
+      if (!frame) {
+        frame = document.createElement("iframe");
+        frame.title = "Shopping Assistant";
+        stage.appendChild(frame);
+      }
+      var next = location.origin + "/?embed=1&panel=" + encodeURIComponent(name || "chat");
+      if (frame.getAttribute("src") !== next) frame.src = next;
+    });
+  }
 
   nonce = uuid();
   applyMode();

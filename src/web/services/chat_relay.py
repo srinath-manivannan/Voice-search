@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -50,9 +51,13 @@ class ChatRelay:
             tools=dependencies.tool_session(settings),
         )
 
-    async def run(self) -> None:
+    async def run(self, first: dict[str, Any] | None = None) -> None:
         try:
             await self._socket.send_json({"type": "ready", "greeting": GREETING})
+            if isinstance(first, dict):
+                opened = str(first.get("text") or "").strip()
+                if opened:
+                    await self._answer(opened)
             while True:
                 message = await self._socket.receive_json()
                 text = (message.get("text") or "").strip()
