@@ -253,14 +253,15 @@ class WidgetRelay:
         fanout = getattr(websocket.app.state, "widget_fanout", None)
         self._fanout = fanout if isinstance(fanout, SocketFanout) else SocketFanout()
 
-    async def run(self) -> None:
-        try:
-            hello = await self._socket.receive_json()
-        except WebSocketDisconnect:
-            return
-        except Exception:
-            await self._close(1008)
-            return
+    async def run(self, hello: dict[str, Any] | None = None) -> None:
+        if hello is None:
+            try:
+                hello = await self._socket.receive_json()
+            except WebSocketDisconnect:
+                return
+            except Exception:
+                await self._close(1008)
+                return
         if parse_hello(hello) is None:
             await self._close(1008)
             return
@@ -508,6 +509,7 @@ class WidgetRelay:
         await self._store.save(conv)
         spent = paise_to_inr(await self._store.spent_paise(conv))
         remaining = round(max(0.0, self._settings.chat_session_cap_inr - spent), 2)
+        products = products_from_cards(cards)
         await self._emit(
             conv.id,
             {
@@ -516,6 +518,7 @@ class WidgetRelay:
                 "display": {"lang": "en", "text": text},
                 "speech": None,
                 "cards": cards,
+                "products": products,
                 "suggestions": suggestions,
             },
         )
@@ -574,6 +577,33 @@ class WidgetRelay:
             await self._socket.send_json(body)
         except Exception:
             return
+
+
+def products_from_cards(cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Retailer-neutral product rows the chat can render inside the thread."""
+    products: list[dict[str, Any]] = []
+    for card in cards:
+        if not isinstance(card, dict):
+            continue
+        raw_price = card.get("price")
+        price = raw_price if isinstance(raw_price, dict) else {}
+        selling = price.get("selling_inr")
+        amount = selling if isinstance(selling, int) else None
+        spec = card.get("benefit") or card.get("variant_label") or ""
+        products.append(
+            {
+                "brand": str(card.get("brand") or ""),
+                "image_url": str(card.get("image_url") or ""),
+                "title": str(card.get("model_name") or ""),
+                "spec": str(spec),
+                "price_inr": amount,
+                "price_label": f"₹{amount:,}" if amount is not None else "",
+                "url": str(card.get("url") or ""),
+                "product_id": str(card.get("sku_id") or ""),
+                "variant_id": str(card.get("variant_id") or ""),
+            }
+        )
+    return products
 
 
 def _card_tokens(cards: list[dict[str, Any]]) -> tuple[str, ...]:

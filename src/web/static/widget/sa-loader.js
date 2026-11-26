@@ -17,8 +17,8 @@
     "<style>",
     ":host{all:initial;}",
     ".sa-wrap{position:fixed;right:20px;bottom:20px;right:max(20px,env(safe-area-inset-right));bottom:max(20px,env(safe-area-inset-bottom));z-index:2147483000;display:flex;align-items:center;gap:8px;}",
-    ".sa-ask{background:#0F5257;color:#fff;border-radius:999px;padding:8px 12px;font:600 14px/1.2 'Segoe UI',sans-serif;}",
-    "button{width:56px;height:56px;border-radius:999px;border:0;background:var(--sa-accent,#0F5257);box-shadow:0 8px 24px rgba(15,82,87,.28);cursor:pointer;}",
+    ".sa-ask{background:#F36F21;color:#fff;border-radius:999px;padding:8px 12px;font:600 14px/1.2 'Segoe UI',sans-serif;}",
+    "button{width:56px;height:56px;border-radius:999px;border:0;background:var(--sa-accent,#F36F21);box-shadow:0 8px 24px rgba(243,111,33,.28);cursor:pointer;}",
     "button:focus-visible{outline:3px solid var(--sa-focus,#F2A541);outline-offset:2px;}",
     "iframe{border:0;background:#fff;}",
     "@media (prefers-reduced-motion: reduce){* {animation:none !important;transition:none !important;}}",
@@ -28,7 +28,7 @@
     "<button type='button' aria-label='Open Shopping Assistant chat' aria-expanded='false'>",
     "<svg viewBox='0 0 32 32' width='28' height='28' aria-hidden='true'>",
     "<path fill='#fff' d='M7 6h14a5 5 0 0 1 5 5v7a5 5 0 0 1-5 5h-5.2l-3.2 3.4a1 1 0 0 1-1.7-.7V23H7a5 5 0 0 1-5-5v-7a5 5 0 0 1 5-5z'/>",
-    "<circle cx='12' cy='14.5' r='1.3' fill='#0F5257'/>",
+    "<circle cx='12' cy='14.5' r='1.3' fill='#F36F21'/>",
     "</svg></button></div>"
   ].join("");
   var button = shadow.querySelector("button");
@@ -174,7 +174,10 @@
     } else if (nonce && data.nonce && data.nonce !== nonce) {
       return;
     } else if (data.type === "sa.persist" && typeof data.token === "string" && data.token.length <= 512) {
-      try { sessionStorage.setItem(HOST_KEY, data.token); } catch (err) { /* partitioned */ }
+      try {
+        if (!data.token) sessionStorage.removeItem(HOST_KEY);
+        else sessionStorage.setItem(HOST_KEY, data.token);
+      } catch (err) { /* partitioned */ }
     } else if (data.type === "sa.layout") {
       setInert(!!data.modal);
       if (data.mode === "closed" && frame) frame.hidden = true;

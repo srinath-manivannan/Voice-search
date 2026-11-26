@@ -210,13 +210,15 @@ def test_saying_english_into_a_tamil_recogniser_still_means_english(monkeypatch)
 
 
 def test_the_voice_call_tab_starts_the_guided_voice():
-    """The page wiring, checked as text: the tab's button falls through to
-    the guided voice whenever the server says Live is off."""
+    """Start Call stays on the Voice Call tab when live voice is off."""
     app = Path("src/web/static/app.js").read_text()
     guided = Path("src/web/static/guided.js").read_text()
-    assert "!state.config?.live_voice" in app and "startGuidedVoice()" in app
-    assert "function startGuidedVoice()" in guided
-    assert "showTab('guided', true)" in guided
+    assert "!state.config?.live_voice" in app
+    assert "voice-notice" in app
+    assert "LIVE_VOICE=1" in app and "VOICE_ROUTE_B=1" in app
+    assert "startGuidedVoice" not in app
+    assert "function startGuidedVoice" not in guided
+    assert "showTab('guided', true)" not in guided
 
 
 def test_a_sentence_that_chooses_english_is_said_back_in_english(monkeypatch):

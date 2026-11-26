@@ -194,7 +194,7 @@ def test_widget_csp_allowlists_the_host_and_denies_the_microphone(monkeypatch):
         assert banned not in loader
     for banned in ("getUserMedia", "AudioContext", "new Audio", "speechSynthesis"):
         assert banned not in widget
-    assert "56px" in loader and "#0F5257" in loader and "Ask" in loader
+    assert "56px" in loader and "#F36F21" in loader and "Ask" in loader
     assert 'role="dialog"' in page.text or "role" in widget
     assert "aria-modal" in widget
     assert "You're offline." in widget

@@ -12,6 +12,7 @@ place and makes tests able to construct a Config without touching the process.
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 
 
@@ -205,6 +206,10 @@ class Config:
     # so a widget deployment cannot reach the paid live model.
     app_mode: str = "full"
     assistant_name: str = "Shopping Assistant"
+    brand_name: str = "Shopping Assistant"
+    brand_subtitle: str = "Your smart shopping guide"
+    brand_primary_color: str = "#F36F21"
+    brand_logo_url: str = ""
     # Exact scheme, host and port. No wildcards. Empty refuses every embed.
     widget_host_origins: tuple[str, ...] = ()
     # The origin of this process. /ws/chat accepts a socket only from it.
@@ -264,6 +269,49 @@ class Config:
         from src.agent.persona import widget_instruction
 
         return widget_instruction(self.assistant_name, self.chat_word_cap)
+
+
+_HEX = re.compile(r"^#[0-9A-Fa-f]{6}$")
+
+
+def brand_color(raw: str | None) -> str:
+    """A CSS colour from config. Anything else stays the storefront orange."""
+    value = (raw or "").strip()
+    if _HEX.match(value):
+        return value
+    return "#F36F21"
+
+
+def accent_hover(color: str) -> str:
+    """A slightly deeper orange for hover, fixed for the default accent."""
+    if color.upper() == "#F36F21":
+        return "#D95B12"
+    red = int(color[1:3], 16)
+    green = int(color[3:5], 16)
+    blue = int(color[5:7], 16)
+
+    def deeper(channel: int) -> int:
+        return max(0, int(channel * 0.85))
+
+    return f"#{deeper(red):02X}{deeper(green):02X}{deeper(blue):02X}"
+
+
+def brand_logo(raw: str | None) -> str:
+    """An optional http(s) logo. Anything else is ignored."""
+    value = (raw or "").strip()
+    if len(value) > 500 or " " in value:
+        return ""
+    if value.startswith("https://") or value.startswith("http://"):
+        return value
+    return ""
+
+
+def _brand_name() -> str:
+    named = os.environ.get("BRAND_NAME", "").strip()
+    if named:
+        return named
+    fallback = os.environ.get("ASSISTANT_NAME", "Shopping Assistant").strip()
+    return fallback or "Shopping Assistant"
 
 
 def _flag(name: str) -> bool:
@@ -457,8 +505,14 @@ def load(env: str | None = None) -> Config:
         guided_shelf_dir=os.environ.get("GUIDED_SHELF_DIR", "out/guided-shelves"),
         guided_mic_enabled=_flag("GUIDED_MIC"),
         app_mode=app_mode,
-        assistant_name=os.environ.get("ASSISTANT_NAME", "Shopping Assistant").strip()
-        or "Shopping Assistant",
+        assistant_name=_brand_name(),
+        brand_name=_brand_name(),
+        brand_subtitle=os.environ.get(
+            "BRAND_SUBTITLE", "Your smart shopping guide"
+        ).strip()
+        or "Your smart shopping guide",
+        brand_primary_color=brand_color(os.environ.get("BRAND_PRIMARY_COLOR")),
+        brand_logo_url=brand_logo(os.environ.get("BRAND_LOGO_URL")),
         widget_host_origins=tuple(
             origin.strip()
             for origin in os.environ.get("WIDGET_HOST_ORIGINS", "").split(",")

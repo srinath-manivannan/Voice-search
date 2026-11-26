@@ -1,0 +1,69 @@
+"""Voice Call stays put when live voice is off, and Route B speaks over /ws."""
+
+from __future__ import annotations
+
+from fastapi.testclient import TestClient
+
+from src.config import load
+from src.voice.cascade import CascadeSession
+from src.web.app import create_app
+from tests.test_cascade import RATE, FakeBrain, FakeEar, FakeMouth
+
+
+def _settings(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key-not-real")
+    monkeypatch.setenv("APP_MODE", "full")
+    monkeypatch.setenv("LIVE_VOICE", "1")
+    monkeypatch.setenv("VOICE_ROUTE_B", "1")
+    monkeypatch.setenv("VOICE_ROUTE_A", "0")
+    return load("development")
+
+
+def test_route_b_without_route_a_serves_a_cascade_turn(monkeypatch):
+    monkeypatch.setattr(
+        "src.web.services.voice_call.load_recording", lambda *_args, **_kwargs: None
+    )
+    app = create_app(_settings(monkeypatch))
+    mouth = FakeMouth()
+
+    async def say(text: str) -> None:
+        mouth.said.append(text)
+        mouth.speak_back(b"\x01\x00" * 40)
+
+    mouth.say = say  # type: ignore[method-assign]
+
+    def factory(_tools, _listener):
+        return CascadeSession(
+            FakeEar("a phone under twenty thousand"),
+            FakeBrain("Two options are on screen."),
+            mouth,
+            rate=RATE,
+            ear_timeout_s=1.0,
+        )
+
+    app.state.cascade_factory = factory
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as ws:
+            assert _next_text(ws, "ready")
+            # The greeting holds the floor. Speech sent during it is dropped.
+            _next_text(ws, '"type":"turn"')
+            # A steady tone. The stock speech helper dips under the VAD
+            # threshold every few frames, so a turn is never opened.
+            loud = (8000).to_bytes(2, "little", signed=True) * int(0.5 * RATE)
+            for start in range(0, len(loud), 640):
+                ws.send_bytes(loud[start : start + 640])
+            for _ in range(40):
+                ws.send_bytes(bytes(640))
+            heard = _next_text(ws, "Two options are on screen")
+    assert "Two options are on screen" in heard
+    assert any("two options" in line.lower() for line in mouth.said)
+
+
+def _next_text(ws, needle: str, limit: int = 80) -> str:  # noqa: ANN001
+    for _ in range(limit):
+        message = ws.receive()
+        text = str(message.get("text") or "")
+        if needle in text:
+            return text
+    raise AssertionError(f"never saw {needle}")

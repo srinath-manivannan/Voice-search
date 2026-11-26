@@ -15,7 +15,7 @@ from tests.e2e.conftest import Stack
 
 pytestmark = pytest.mark.e2e
 
-WELCOME = "Hi! I'm the Shopping Assistant."
+WELCOME = "Hi! I'm Shopping Assistant."
 STATIC = {
     "/widget/v1",
     "/widget/v1/",
