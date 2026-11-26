@@ -19,7 +19,7 @@ function bubble(text, mine) {
   if (!mine) {
     const av = document.createElement('div');
     av.className = 'av';
-    av.setAttribute('aria-label', 'Poorvika');
+    av.setAttribute('aria-label', 'Shopping Assistant');
     row.appendChild(av);
   }
   const body = document.createElement('div');

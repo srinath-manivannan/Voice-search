@@ -150,7 +150,7 @@ class Emi:
 class Offer:
     """One card offer, with the condition that makes it apply.
 
-    `condition` is not decoration. "HDFC card-la 2,000 off irukku" is true and
+    `condition` is not decoration. "Bank A card-la 2,000 off irukku" is true and
     "2,000 off irukku" is not, and a customer who hears the second quotes it
     back at the counter.
     """

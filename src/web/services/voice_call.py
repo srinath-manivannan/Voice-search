@@ -69,9 +69,8 @@ CallModel = RotatingLiveSession | CascadeSession
 
 # Brand names the catalogue carries, handed to the ear as bias. These are the
 # words a mis-hearing costs most on: a phone nobody stocks cannot be searched
-# for, and "Poorvika" itself is the first word of every call.
+# for. The assistant's own name is not one of them.
 CATALOGUE_TERMS = (
-    "Poorvika",
     "Redmi",
     "Xiaomi",
     "Poco",

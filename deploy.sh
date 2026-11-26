@@ -31,7 +31,7 @@ done
 # running can always be traced back to a commit that still exists.
 RELEASE="${CI_COMMIT_SHA:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
 SHORT="${CI_COMMIT_SHORT_SHA:-${RELEASE:0:8}}"
-TAG="${REGISTRY_URL}/poorvika-voice:${ENV}-${SHORT}"
+TAG="${REGISTRY_URL}/shopping-assistant:${ENV}-${SHORT}"
 
 # What a rollback would go back to. Printed BEFORE the build, because after a
 # bad deploy the useful question is "what was it before?" and nobody wants to
@@ -40,7 +40,7 @@ PREVIOUS="$(git rev-parse --short "HEAD~1" 2>/dev/null || echo unknown)"
 echo "Deploying   $ENV"
 echo "  release   $SHORT"
 echo "  tag       $TAG"
-echo "  previous  ${REGISTRY_URL}/poorvika-voice:${ENV}-${PREVIOUS}"
+echo "  previous  ${REGISTRY_URL}/shopping-assistant:${ENV}-${PREVIOUS}"
 echo "  rollback  docs/ROLLBACK.md"
 echo
 

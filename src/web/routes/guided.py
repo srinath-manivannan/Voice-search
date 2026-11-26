@@ -12,15 +12,16 @@ surface at all, which is most of why it cannot be made to spend money.
 
 Three limits, per client, loosest to tightest: taps, sessions, thinks. The
 governor inside the flow is what holds the rupees; these hold the load on
-the catalogue and the estate, which are Poorvika's own and not free to them.
+the catalogue and the estate, which are the store's own and not free to them.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-import re
 import logging
+import re
+from pathlib import Path as SpeechPath
 from urllib.parse import urlsplit
 
 import httpx
@@ -28,6 +29,7 @@ from collections.abc import Awaitable
 from typing import Annotated, Any
 
 from fastapi import FastAPI, HTTPException, Path, Query, Request, Response
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -129,6 +131,9 @@ def install(app: FastAPI, settings: Config) -> None:
             if app.state.guided is not None:
                 app.state.guided.ledger = app.state.ledger
         flow: Flow | None = app.state.guided
+        directory = getattr(app.state, "guided_directory", None)
+        if directory is not None and not directory.claim_warm():
+            return
         if flow is not None:
             flow.warm()
 
@@ -146,8 +151,15 @@ def install(app: FastAPI, settings: Config) -> None:
         flow: Flow = state.guided
         return flow
 
+    def client_of(request: Request) -> str:
+        if settings.trust_proxy:
+            forwarded = request.headers.get("x-forwarded-for", "")
+            if forwarded:
+                return forwarded.split(",")[0].strip()
+        return request.client.host if request.client else "unknown"
+
     def admit(limiter: RateLimiter, request: Request) -> None:
-        client = request.client.host if request.client else "unknown"
+        client = client_of(request)
         if not limiter.allow(client):
             log.warning("guided refused: %s is over the limit", client)
             raise HTTPException(status_code=429, detail=line("say_slow_down"))
@@ -169,7 +181,9 @@ def install(app: FastAPI, settings: Config) -> None:
         if view.get("how", {}).get("inr"):
             # The only step that can cost anything, counted when it did.
             METRICS.count("guided_paid_thinks_total", "Guided recommendations paid for")
-        return view
+        from src.guided.bilingual import annotate
+
+        return annotate(view)
 
     def journey_turn(
         request: Request, method: str, sid: str, *args: Any
@@ -289,6 +303,16 @@ def install(app: FastAPI, settings: Config) -> None:
                 spoken_words.kind,
             )
         )
+
+    @app.get("/api/v1/guided/speech/{key}.wav", include_in_schema=False)
+    async def cached_speech(key: str) -> FileResponse:
+        """A clip synthesised earlier, addressed by sha256(voice + text)."""
+        if not re.fullmatch(r"[a-f0-9]{64}", key):
+            raise HTTPException(status_code=404, detail="Not Found")
+        path = SpeechPath(settings.guided_speech_dir) / f"{key}.wav"
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="Not Found")
+        return FileResponse(path, media_type="audio/wav")
 
     @app.post("/api/v1/guided/transcribe")
     async def transcribe(

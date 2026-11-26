@@ -1,4 +1,4 @@
-// Record on this device. Only a completed turn is sent to Poorvika's own worker.
+// Record on this device. Only a completed turn is sent to the store's own worker.
 class GuidedMicrophone {
   constructor({language, interrupted, text, failed}) {
     Object.assign(this, {language, interrupted, text, failed});

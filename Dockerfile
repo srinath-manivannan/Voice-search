@@ -32,7 +32,7 @@ ARG APP_RELEASE=unknown
 
 # Not root. A voice session parses audio off the network; if anything in that
 # path is ever exploitable, it should not be exploitable as uid 0.
-RUN useradd --create-home --uid 10001 poorvika
+RUN useradd --create-home --uid 10001 assistant
 
 WORKDIR /app
 
@@ -45,9 +45,9 @@ COPY vendor ./vendor
 
 # Where traces are written. Owned by the runtime user, and a volume in any
 # real deployment: they are call records and do not belong in the image.
-RUN mkdir -p /app/out/traces && chown -R poorvika:poorvika /app
+RUN mkdir -p /app/out/traces && chown -R assistant:assistant /app
 
-USER poorvika
+USER assistant
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -59,8 +59,8 @@ ENV PYTHONUNBUFFERED=1 \
 # are holding is an image and the question is whether it is the one to roll
 # back to.
 LABEL org.opencontainers.image.revision=$APP_RELEASE \
-      org.opencontainers.image.title="poorvika-voice" \
-      org.opencontainers.image.source="https://gitlab.com/poorvika/poorvika-voice" 
+      org.opencontainers.image.title="shopping-assistant" \
+      org.opencontainers.image.source="https://gitlab.com/shopping-assistant/shopping-assistant" 
 
 EXPOSE 8080
 

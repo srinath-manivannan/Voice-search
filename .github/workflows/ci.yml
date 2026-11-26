@@ -28,6 +28,19 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
+    # The Lua money tests open a real Redis. Port 6379 on the runner is this
+    # container; GitHub sets CI=true, so a missing server fails those tests
+    # instead of skipping them.
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -66,6 +79,9 @@ jobs:
       - name: Tests
         run: pytest
 
+      - name: Neutrality
+        run: python -m src.tools.neutrality_scan
+
       - name: Secrets
         run: detect-secrets scan --baseline .secrets.baseline
 
@@ -91,13 +107,13 @@ jobs:
         run: |
           docker build \
             --build-arg APP_RELEASE=${GITHUB_SHA::8} \
-            -t poorvika-voice:${{ github.sha }} .
+            -t shopping-assistant:${{ github.sha }} .
 
       - name: It starts, answers its health check, and knows what it is
         run: |
           docker run -d --name probe -p 8080:8080 \
             -e GEMINI_API_KEY=not-a-real-key \
-            poorvika-voice:${{ github.sha }}
+            shopping-assistant:${{ github.sha }}
           for _ in $(seq 1 30); do
             if curl -fs http://127.0.0.1:8080/healthz > health.json; then
               cat health.json

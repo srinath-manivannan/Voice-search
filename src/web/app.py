@@ -37,6 +37,8 @@ from src.config import Config, load
 from src.observability.reporting import build as build_reporter
 from src.web import errors, middleware, routes
 from src.web.routes.pages import STATIC
+from src.guided.directory import MemoryDirectory
+from src.web.services.conversation_store import build_store
 
 log = logging.getLogger(__name__)
 
@@ -52,7 +54,7 @@ def create_app(config: Config | None = None) -> FastAPI:
     )
 
     app = FastAPI(
-        title="Poorvika voice agent",
+        title=settings.assistant_name,
         version="1.0.0",
         # The schema describes one internal tool. Publishing it from a public
         # host advertises the shape of every endpoint for nothing in return.
@@ -78,9 +80,15 @@ def create_app(config: Config | None = None) -> FastAPI:
     # One ceiling on everything paid, per day, for the whole process.
     app.state.ledger = DailyLedger(settings.daily_spend_cap_inr)
 
+    app.state.settings = settings
+    app.state.conversations = build_store(settings)
+    app.state.guided_directory = MemoryDirectory()
     middleware.install(app)
     errors.install(app, reporter)
 
-    app.mount("/static", StaticFiles(directory=STATIC), name="static")
+    # The developer page. A widget deployment does not ship it, so opening
+    # that origin cannot start Guided, voice, or a microphone prompt.
+    if settings.app_mode != "widget":
+        app.mount("/static", StaticFiles(directory=STATIC), name="static")
     routes.install(app, settings)
     return app

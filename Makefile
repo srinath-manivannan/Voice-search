@@ -7,7 +7,7 @@
 VENV := .venv/bin
 PY   := $(VENV)/python
 
-.PHONY: help install hooks lock ui talk test audio live check audit fmt mic image alerts greeting profile guided-voice
+.PHONY: help install hooks lock ui talk test audio live check audit fmt mic image alerts greeting profile guided-voice neutrality-scan
 
 # The exception list for the dev lockfile scan, turned into flags. Comments
 # and blank lines dropped; see .pip-audit-ignore for what is in it and why.
@@ -68,6 +68,9 @@ audio:                   ## device tests - needs a microphone and speaker
 live:                    ## real Gemini Live calls - spends a few cents
 	$(PY) -m pytest -m live
 
+neutrality-scan:         ## retailer deny-list and widget media APIs
+	$(PY) -m src.tools.neutrality_scan
+
 check:                   ## everything CI runs, in the same order
 	$(VENV)/ruff check src tests
 	$(VENV)/ruff format --check src tests
@@ -108,13 +111,13 @@ vendor-estate:           ## refresh vendor/estate from the Search-proxy checkout
 
 image:                   ## build the container and check it answers /healthz
 	docker build --build-arg APP_RELEASE=$$(git rev-parse --short HEAD) \
-	  -t poorvika-voice:local .
-	docker run -d --rm --name poorvika-voice-check -p 8081:8080 \
-	  -e GEMINI_API_KEY=not-a-real-key poorvika-voice:local
+	  -t shopping-assistant:local .
+	docker run -d --rm --name shopping-assistant-check -p 8081:8080 \
+	  -e GEMINI_API_KEY=not-a-real-key shopping-assistant:local
 	@for i in $$(seq 1 30); do \
 	  curl -fs http://127.0.0.1:8081/healthz && break || sleep 1; \
 	done; echo
-	docker rm -f poorvika-voice-check
+	docker rm -f shopping-assistant-check
 
 greeting:                ## record the opening line once - costs a few paise
 	# Run after changing GREETING in persona.py, the Live model, or the

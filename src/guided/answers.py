@@ -8,7 +8,7 @@ it may spend money.
 
 ## What it is answered from
 
-Only what Poorvika's own services say about that product, asked when it was
+Only what the store's own services say about that product, asked when it was
 picked: the price in force, live stock and the branches holding it, the spec
 sheet, the other colours and sizes of the model, the EMI plans, card offers,
 the replacement and warranty terms, and delivery to one stated pincode.
@@ -85,7 +85,7 @@ POLICY = "policy"
 DELIVERY = "delivery"
 
 INSTRUCTION = """\
-You are a shop assistant at Poorvika, an electronics retailer, answering ONE \
+You are the Shopping Assistant, an AI helping in an electronics shop, answering ONE \
 question from a shopper about ONE product. You are given a page of facts \
 about that product and the shopper's question.
 

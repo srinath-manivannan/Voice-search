@@ -11,7 +11,7 @@ button does nothing, however it got there.
 
 The one exception is a question about the product on the card that is not
 one of its buttons ("is the camera good in low light?"). That goes to the
-answerer, which answers only from Poorvika's own facts, checks every figure,
+answerer, which answers only from the store's own facts, checks every figure,
 and is capped at six a session - the same limits the buttons have.
 
 One request does the hearing and the pressing: audio in, ids out. Measured
@@ -51,7 +51,7 @@ BACK, RESTART, CHEAPER, MORE = "back", "restart", "cheaper", "more"
 NEXT, LIST = "next", "list"
 
 INSTRUCTION = """\
-You are the ears of a shop's touch-screen menu at Poorvika, an electronics \
+You are the ears of a shop's touch-screen menu, an electronics \
 retailer. The recording is a shopper speaking, in Tamil, English or a mix. \
 You are given the menu as JSON. Every item in it is a button, and carries \
 the "question" and "id" that press it.
@@ -174,6 +174,10 @@ def read(reply: dict[str, Any]) -> tuple[str, tuple[Press, ...], str] | None:
 
 
 class Listener:
+    # A real ear spends money. Tests use a fake whose ``paid`` is false, so
+    # the button-pressing checks keep running without a verified account.
+    paid = True
+
     def __init__(self, ear: Calls) -> None:
         self._ear = ear
 

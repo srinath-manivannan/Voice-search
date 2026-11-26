@@ -30,6 +30,8 @@ PCM = b"\x10\x00" * 16_000  # one second
 
 
 class FakeListener:
+    paid = False
+
     def __init__(self, *heard: Heard) -> None:
         self.heard = list(heard)
         self.menus: list[dict] = []
@@ -220,6 +222,7 @@ def test_a_question_no_button_covers_goes_to_the_answerer_in_their_words(monkeyp
     from tests.test_guided_flow import NARROW
 
     view = rig.walk(*NARROW)
+    rig.verify(view["session"])
     rig.post("recommend", session=view["session"])
     rig.post("pick", session=view["session"], ref="1")
     rig.now[0] += 120

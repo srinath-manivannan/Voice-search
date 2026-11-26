@@ -1,4 +1,4 @@
-# poorvika-voice
+# shopping-assistant
 
 Inbound telephone voice agent for Poorvika. Tamil, English and Tanglish, over a
 real phone call, under ₹2.50 per connected minute all-in.

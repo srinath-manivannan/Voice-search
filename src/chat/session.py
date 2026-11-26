@@ -14,10 +14,10 @@ optimisation.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 import logging
-from typing import Any
+from typing import Any, Protocol
 
 from src.agent.tools.runner import ToolSession
 from src.chat.gemini_text import GeminiTextModel
@@ -65,6 +65,19 @@ READING_TEMPERATURE = 0.2
 QUOTING_TEMPERATURE = 0.0
 
 
+class RoundHooks(Protocol):
+    """Reserve before a generation and settle after it, including tool rounds."""
+
+    async def before(self, round_index: int) -> bool: ...
+
+    async def after(self, round_index: int, usage: dict[str, Any]) -> None: ...
+
+    async def failed(self, round_index: int) -> None: ...
+
+
+Sanitise = Callable[[dict[str, Any]], dict[str, Any]]
+
+
 class ChatSession:
     # Two rounds, because one question can genuinely need two lookups:
     # "20,000-30,000 kulla phone, stock irukka?" is a search and then a stock
@@ -78,6 +91,8 @@ class ChatSession:
         model: GeminiTextModel,
         tools: ToolSession | None = None,
         max_history_messages: int = 12,
+        sanitise: Sanitise | None = None,
+        hooks: RoundHooks | None = None,
     ) -> None:
         self._model = model
         self._tools = tools
@@ -85,8 +100,12 @@ class ChatSession:
         # one" still resolves, short enough that the prompt stops growing.
         self._max_history = max_history_messages
         self._history: list[dict[str, Any]] = []
+        self._sanitise = sanitise
+        self._hooks = hooks
         self.usage = SessionUsage(rates=FLASH_LITE)
         self.result = ChatResult()
+        # "cap" when a reservation was refused before a generation.
+        self.stopped: str | None = None
 
     @property
     def history(self) -> list[dict[str, Any]]:
@@ -146,16 +165,40 @@ class ChatSession:
         reply = ""
         turn = None
         for _round in range(self.MAX_TOOL_ROUNDS + 1):
+            if self._hooks is not None and not await self._hooks.before(_round):
+                self.stopped = "cap"
+                break
             reply = ""
             turn = None
             # The round IS the router, and it costs nothing to ask: round
             # zero is the model reading the caller, every round after it is
             # the model quoting something a tool returned.
             temperature = READING_TEMPERATURE if _round == 0 else QUOTING_TEMPERATURE
-            async for delta, streamed in self._model.stream(self._history, temperature):
-                turn = streamed
-                reply += delta
-                yield delta
+            try:
+                async for delta, streamed in self._model.stream(
+                    self._history, temperature
+                ):
+                    turn = streamed
+                    reply += delta
+                    yield delta
+            except Exception:
+                if self._hooks is not None:
+                    await self._hooks.failed(_round)
+                raise
+
+            usage = turn.usage if turn is not None and turn.usage else {}
+            if turn is not None and turn.usage:
+                recorded = self.usage.record_text(turn.usage)
+                self.result.turns.append(
+                    ChatRecord(
+                        turn=len(self.result.turns) + 1,
+                        prompt_tokens=recorded.prompt_text,
+                        response_tokens=recorded.response_text,
+                        thinking_tokens=recorded.thoughts,
+                    )
+                )
+            if self._hooks is not None:
+                await self._hooks.after(_round, usage)
 
             if turn is None or not (call := turn.function_call):
                 break
@@ -176,6 +219,12 @@ class ChatSession:
                 if self._tools is not None
                 else {"error": "catalogue_not_configured"}
             )
+            if self._sanitise is not None:
+                result = self._sanitise(
+                    result
+                    if isinstance(result, dict)
+                    else {"error": "details_unavailable"}
+                )
             self._history.append(
                 {
                     "role": "user",
@@ -191,14 +240,3 @@ class ChatSession:
             )
 
         self._history.append({"role": "model", "parts": [{"text": reply}]})
-
-        if turn is not None and turn.usage:
-            recorded = self.usage.record_text(turn.usage)
-            self.result.turns.append(
-                ChatRecord(
-                    turn=len(self.result.turns) + 1,
-                    prompt_tokens=recorded.prompt_text,
-                    response_tokens=recorded.response_text,
-                    thinking_tokens=recorded.thoughts,
-                )
-            )
