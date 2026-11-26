@@ -303,6 +303,14 @@ def stock_label(stock: StockFact, pincode: str = "") -> str:
         return "Out of stock"
     if stock.state != "in_stock":
         return "Stock not confirmed right now"
+    if stock.channel == "catalogue":
+        return "Listed in stock · store availability unconfirmed"
+    if stock.channel == "stores":
+        return (
+            f"In stock at {stock.stores_nearby} stores"
+            if stock.stores_nearby
+            else "In stock"
+        )
     if stock.channel == "online" or stock.stores_nearby == 0:
         return "Available online"
     if stock.stores_nearby:

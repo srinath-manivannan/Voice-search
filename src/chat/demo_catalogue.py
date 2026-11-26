@@ -58,7 +58,12 @@ _ITEMS: tuple[ModelProduct, ...] = (
 
 class DemoCatalogue:
     async def search(
-        self, *, brand: str | None, max_price: int | None
+        self,
+        *,
+        brand: str | None,
+        max_price: int | None,
+        category: str = "phone",
+        min_price: int | None = None,
     ) -> list[ModelProduct]:
         del max_price
         if brand and brand.casefold() != "samsung":

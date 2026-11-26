@@ -126,7 +126,8 @@ def _worker_modules(src_path: str) -> tuple[Any, Any]:
         # calls) and a customer's card must not queue behind it. 48 at once
         # drew no errors from the gateways when measured, 2026-11-24.
         limits=httpx.Limits(max_connections=24, max_keepalive_connections=24),
-        follow_redirects=True,
+        headers={"User-Agent": "shopping-assistant/1.0"},
+        follow_redirects=False,
     )
 
     async def fetch(url: str, options: Any) -> Any:

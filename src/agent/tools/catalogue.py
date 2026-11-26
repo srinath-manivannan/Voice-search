@@ -32,9 +32,14 @@ that band.
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Protocol
+
+import httpx
+
+log = logging.getLogger(__name__)
 
 COLLECTION = "productsnew"
 SHORTLIST = 3  # nobody can hold a longer list read aloud
@@ -86,18 +91,42 @@ class Poster(Protocol):
     async def post(self, url: str, *, json: Any = ..., headers: Any = ...) -> Any: ...
 
 
-def _default_poster() -> Poster:
-    import httpx
-
-    return httpx.AsyncClient(timeout=10.0)
-
-
 class CatalogueUnavailable(RuntimeError):
     """The search could not be reached or refused us.
 
     Distinct from finding nothing: "we have nothing matching" and "the
     catalogue is down" are different sentences to say to a customer.
     """
+
+
+class FilterRejected(CatalogueUnavailable):
+    """An unsupported field or expression can be retried with a simpler query."""
+
+
+def _amount(value: Any) -> int | None:
+    if isinstance(value, list):
+        return next((n for row in value if (n := _amount(row))), None)
+    if isinstance(value, dict):
+        return _amount(value.get("price"))
+    if isinstance(value, (int, float, str)) and re.fullmatch(
+        r"[0-9]+(?:\.0+)?", str(value)
+    ):
+        return int(str(value).split(".")[0]) or None
+    return None
+
+
+def selling_price(doc: dict[str, Any]) -> int | None:
+    for field_name in ("special_price", "selling_price", "price"):
+        if amount := _amount(doc.get(field_name)):
+            return amount
+    for tier in doc.get("prices") or []:
+        if isinstance(tier, dict) and (amount := _amount(tier.get("min"))):
+            return amount
+    return None
+
+
+def list_price(doc: dict[str, Any]) -> int | None:
+    return _amount(doc.get("mrp"))
 
 
 # A rating is worth quoting when enough people left one. 4.5 from two reviews
@@ -139,14 +168,23 @@ class Catalogue:
         origin: str = "bot",
         poster_factory: Callable[[], Poster] | None = None,
         key_header: str = "access-token",
+        collection: str = COLLECTION,
+        access_id: str = "",
+        access_secret: str | None = None,
     ) -> None:
+        self.collection = collection
+        self._access_headers = (
+            {"CF-Access-Client-Id": access_id, "CF-Access-Client-Secret": access_secret}
+            if access_id and access_secret
+            else {}
+        )
         self._url = url
         self._token = token
         self._origin = origin
         # The staging proxy reads the key from "access-token"; production
         # Typesense behind proxy.poorvika.com reads "X-TYPESENSE-API-KEY".
         self._key_header = key_header
-        self._poster_factory = poster_factory or _default_poster
+        self._poster_factory = poster_factory
 
     @staticmethod
     def _filter(
@@ -193,7 +231,7 @@ class Catalogue:
 
     @staticmethod
     def _product(document: dict[str, Any]) -> Product:
-        price = document.get("price")
+        price = selling_price(document)
         both_agree = (
             str(document.get("availability") or "").lower() == "in stock"
             and str(document.get("stock_status") or "").lower() == "in stock"
@@ -226,7 +264,7 @@ class Catalogue:
         limit: int = SHORTLIST,
     ) -> SearchResult:
         search: dict[str, Any] = {
-            "collection": COLLECTION,
+            "collection": self.collection,
             "q": (query or "*").strip() or "*",
             "query_by": QUERY_BY,
             "query_by_weights": QUERY_WEIGHTS,
@@ -271,7 +309,7 @@ class Catalogue:
         if page_size <= 0:
             return []
         query = {
-            "collection": COLLECTION,
+            "collection": self.collection,
             "q": "*",
             "query_by": "name",
             "filter_by": self._filter(category, None, None, True),
@@ -307,11 +345,18 @@ class Catalogue:
         nothing" is how a customer gets told Poorvika does not sell
         televisions.
         """
-        client = self._poster_factory()
+        owned = None
+        client: Poster
+        if self._poster_factory is None:
+            owned = httpx.AsyncClient(timeout=10.0)
+            client = owned
+        else:
+            client = self._poster_factory()
         try:
             response = await client.post(
                 self._url,
                 headers={
+                    **self._access_headers,
                     "Content-Type": "application/json",
                     "Origin": self._origin,
                     self._key_header: self._token,
@@ -322,9 +367,16 @@ class Catalogue:
                 json={"searches": searches},
             )
         except Exception as exc:  # noqa: BLE001 - every transport failure is the same here
-            raise CatalogueUnavailable(str(exc)[:200]) from exc
+            log.warning("Catalogue transport failed (%s)", type(exc).__name__)
+            raise CatalogueUnavailable("catalogue transport failed") from exc
+        finally:
+            if owned is not None:
+                await owned.aclose()
 
         if response.status_code != 200:
+            log.warning("Catalogue returned HTTP %s", response.status_code)
+            if response.status_code in (400, 422):
+                raise FilterRejected("search rejected the query")
             raise CatalogueUnavailable(f"search returned {response.status_code}")
 
         results = response.json().get("results") or []
@@ -334,7 +386,13 @@ class Catalogue:
             )
         for result in results:
             if error := result.get("error"):
-                raise CatalogueUnavailable(f"search rejected the query: {error[:160]}")
+                code = result.get("code")
+                log.warning("Catalogue rejected a search (code %s)", code)
+                if code in (400, 404, 422) and (
+                    code != 404 or "field" in str(error).lower()
+                ):
+                    raise FilterRejected("search rejected the query")
+                raise CatalogueUnavailable("search rejected the query")
         return list(results)
 
 

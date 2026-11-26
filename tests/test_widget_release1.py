@@ -67,7 +67,14 @@ class Shelf:
     def __init__(self, items: list) -> None:
         self.items = items
 
-    async def search(self, *, brand: str | None, max_price: int | None) -> list:
+    async def search(
+        self,
+        *,
+        brand: str | None,
+        max_price: int | None,
+        category: str = "phone",
+        min_price: int | None = None,
+    ) -> list:
         return list(self.items)
 
     async def lookup(self, product_id: str, variant_id: str):

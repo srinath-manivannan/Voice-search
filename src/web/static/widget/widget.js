@@ -641,6 +641,7 @@
       nonce = data.nonce || nonce;
       if (data.embed === "panel" || data.embed === "sheet") hostEmbed = data.embed;
       product = data.product || null;
+      document.querySelector(".sa-context").hidden = !product;
       if (data.pincode) config.pincode = data.pincode;
       try { sessionStorage.setItem("sa_host_session", data.host_session || ""); } catch (err) { /* ignore */ }
       if (data.restore_token) {
@@ -659,7 +660,8 @@
       hostEmbed = data.embed;
       applyMode();
     } else if (data.type === "sa.context") {
-      product = data.product || product;
+      product = data.product || null;
+      document.querySelector(".sa-context").hidden = !product;
       if (product && product.variant_id) {
         document.documentElement.setAttribute("data-variant", product.variant_id);
       }

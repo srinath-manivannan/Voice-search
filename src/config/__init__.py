@@ -245,6 +245,9 @@ class Config:
     widget_stub_delay_ms: int = 0
     # A fixed two-variant handset so "Is this available?" works with no feed.
     widget_demo_catalogue: bool = False
+    catalogue_collection: str = "productsnew"
+    cf_access_client_id: str = ""
+    cf_access_client_secret: str = ""
 
     @property
     def system_instruction(self) -> str:
@@ -360,6 +363,21 @@ def load(env: str | None = None) -> Config:
     from src.config import devconfig, prodconfig
 
     defaults = prodconfig if env == "main" else devconfig
+    typesense_host = os.getenv("TYPESENSE_API_HOST", "").strip()
+    api_env = (
+        os.getenv("API_ENV") or os.getenv("ESTATE_API_ENV") or defaults.ESTATE_API_ENV
+    )
+
+    def estate_setting(name: str) -> str:
+        if api_env == "production":
+            production = os.getenv("PROD_" + name)
+            if production is not None:
+                return production
+            # In the API_ENV layout unprefixed hosts and credentials belong to staging.
+            if os.getenv("API_ENV") and name not in {"CI_MODE", "OFFERS_MODE"}:
+                return ""
+        return os.getenv(name, "")
+
     app_mode = os.environ.get("APP_MODE", "full").strip().lower() or "full"
     if app_mode not in ("full", "widget"):
         app_mode = "full"
@@ -409,17 +427,32 @@ def load(env: str | None = None) -> Config:
         target_inr_per_minute=float(os.environ.get("TARGET_INR_PER_MINUTE", "1.50")),
         max_inr_per_minute=float(os.environ.get("MAX_INR_PER_MINUTE", "8.00")),
         gst_rate=float(os.environ.get("GST_RATE", "0.18")),
-        catalogue_url=os.environ.get("CATALOGUE_URL", defaults.CATALOGUE_URL),
-        catalogue_token=os.environ.get("CATALOGUE_TOKEN", ""),
-        catalogue_origin=os.environ.get("CATALOGUE_ORIGIN", "bot"),
-        catalogue_key_header=os.environ.get("CATALOGUE_KEY_HEADER", "access-token"),
+        catalogue_url=typesense_host
+        or os.environ.get("CATALOGUE_URL", defaults.CATALOGUE_URL),
+        catalogue_collection=os.getenv("TYPESENSE_COLLECTION") or "productsnew",
+        cf_access_client_id=os.getenv("CF_ACCESS_CLIENT_ID", ""),
+        cf_access_client_secret=os.getenv("CF_ACCESS_CLIENT_SECRET", ""),
+        catalogue_token=os.getenv("TYPESENSE_API_KEY", "")
+        if typesense_host
+        else os.getenv("CATALOGUE_TOKEN", ""),
+        catalogue_origin=(
+            os.getenv("TYPESENSE_ORIGIN")
+            if typesense_host
+            else os.getenv("CATALOGUE_ORIGIN")
+        )
+        or "bot",
+        catalogue_key_header=(
+            os.getenv("TYPESENSE_KEY_HEADER", "X-TYPESENSE-API-KEY")
+            if typesense_host
+            else os.getenv("CATALOGUE_KEY_HEADER", "access-token")
+        ),
         estate_backend=os.environ.get("ESTATE_BACKEND", defaults.ESTATE_BACKEND),
-        estate_api_env=os.environ.get("ESTATE_API_ENV", defaults.ESTATE_API_ENV),
+        estate_api_env=api_env,
         estate_src_path=os.environ.get("ESTATE_SRC_PATH", defaults.ESTATE_SRC_PATH),
         estate_worker_url=os.environ.get("ESTATE_WORKER_URL", ""),
         estate_worker_token=os.environ.get("ESTATE_WORKER_TOKEN", ""),
         estate_secrets={
-            name: os.environ.get(name, "")
+            name: estate_setting(name)
             for name in (
                 "PIM_ACCESS_TOKEN",
                 "OFFERS_API_KEY",

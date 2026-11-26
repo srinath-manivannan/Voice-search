@@ -96,6 +96,8 @@ def build(settings: Config) -> Reporter:
     scrub.register(
         settings.gemini_api_key,
         settings.catalogue_token,
+        settings.cf_access_client_id,
+        settings.cf_access_client_secret,
         settings.estate_worker_token,
         *settings.estate_secrets.values(),
     )

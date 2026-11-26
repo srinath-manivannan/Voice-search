@@ -63,7 +63,7 @@ _COMPARE = ("compare",)
 _SIMILAR = ("similar", "alternatives")
 _DETAILS = ("full spec", "store availability")
 _CATEGORY = re.compile(
-    r"\b(phones?|laptops?|acs?|fridge|fridges|tv|tvs|tablet|tablets)\b",
+    r"\b(smartphones?|mobiles?|phones?|laptops?|acs?|fridge|fridges|tv|tvs|tablet|tablets)\b",
     re.IGNORECASE,
 )
 _YES = {"yes", "yeah", "yep", "ok", "okay", "sure", "haan", "ஆமா", "ஆம்"}
@@ -77,6 +77,8 @@ class Catalogue(Protocol):
         *,
         brand: str | None,
         max_price: int | None,
+        category: str = "phone",
+        min_price: int | None = None,
     ) -> list[ModelProduct]: ...
 
     async def lookup(self, product_id: str, variant_id: str) -> ModelProduct | None: ...
@@ -84,6 +86,7 @@ class Catalogue(Protocol):
 
 @dataclass
 class Slots:
+    category: str = "phone"
     budget: int | None = None
     budget_hard: bool = False
     brand: str | None = None
@@ -99,6 +102,7 @@ class Slots:
 
     def as_dict(self) -> dict[str, Any]:
         return {
+            "category": self.category,
             "budget": self.budget,
             "budget_hard": self.budget_hard,
             "brand": self.brand,
@@ -117,6 +121,7 @@ class Slots:
     def from_dict(cls, raw: dict[str, Any] | None) -> Slots:
         raw = raw or {}
         return cls(
+            category=raw.get("category") or "phone",
             budget=raw.get("budget"),
             budget_hard=bool(raw.get("budget_hard")),
             brand=raw.get("brand"),
@@ -212,6 +217,32 @@ class ShopperGuide:
             return self._turn(
                 slots, "Tell me what you are looking for, in your own words.", []
             )
+
+        if _has(cleaned, _DETAILS) and slots.visible:
+            selected = next(
+                (
+                    card
+                    for card in slots.visible
+                    if str(card.get("model_name", "")).casefold() in folded
+                ),
+                slots.visible[0],
+            )
+            letter = str(selected.get("ref") or "A")
+            fresh = await self._safe_lookup(
+                str(selected.get("sku_id") or ""), str(selected.get("variant_id") or "")
+            )
+            if fresh:
+                selected.update(for_card(replace(fresh, ref=letter), self._pincode))
+            turn = self._about(slots, letter, None, folded)
+            extras = [selected.get("offer_line"), selected.get("emi_line")]
+            turn.text = " ".join([turn.text, *(str(x) for x in extras if x)])
+            turn.cards = [selected]
+            return turn
+
+        category = _CATEGORY.search(cleaned)
+        if category:
+            name = category.group(0).casefold().rstrip("s")
+            slots.category = "phone" if name in {"mobile", "smartphone"} else name
 
         if slots.pending == "relax" and self._accepts_relax(folded, slots):
             stated, hard = _find_budget(cleaned)
@@ -322,10 +353,6 @@ class ShopperGuide:
 
         if _has(cleaned, _SIMILAR):
             return await self._show(slots, intro="Similar options in the same budget")
-        if _has(cleaned, _DETAILS) and slots.visible:
-            letter = str(slots.visible[0].get("ref") or "A")
-            return self._about(slots, letter, None, folded)
-
         if slots.budget or slots.brand:
             intro = self._kept(slots) if brand and slots.previous_brand else ""
             return await self._show(slots, intro=intro)
@@ -357,7 +384,9 @@ class ShopperGuide:
         self, slots: Slots, *, intro: str = "", limit: int = 4
     ) -> GuideTurn:
         try:
-            found = await self._catalogue.search(brand=slots.brand, max_price=None)
+            found = await self._catalogue.search(
+                brand=slots.brand, category=slots.category, max_price=slots.budget
+            )
         except Exception:
             return self._turn(slots, SEARCH_DOWN, ["Try again"])
         if found is None:
@@ -416,11 +445,14 @@ class ShopperGuide:
                 "Does the stabilisation need to be optical, or is electronic OK?"
             )
         else:
-            more = " Want me to compare these for low-light video, or show all matching phones?"
+            more = " Want me to compare these or show all matching options?"
+        noun = {"tv": "TVs", "ac": "air conditioners"}.get(
+            slots.category, slots.category + "s"
+        )
         text = (
-            f"{lead}Here are {count} {brand} phones{ceiling}{detail}.{more}"
+            f"{lead}Here are {count} {brand} {noun}{ceiling}{detail}.{more}"
         ).replace("  ", " ")
-        suggestions = ["Show all matching phones", "Compare these"]
+        suggestions = [f"Show all matching {noun}", "Compare these"]
         if any(card.get("partial") for card in cards):
             suggestions = ["Optical only", "Electronic is OK"]
         return self._turn(slots, text.strip(), suggestions, cards)
@@ -434,7 +466,12 @@ class ShopperGuide:
         proposal = (slots.budget or 0) + 2000 if slots.budget else None
         if slots.budget:
             try:
-                found = await self._catalogue.search(brand=slots.brand, max_price=None)
+                found = await self._catalogue.search(
+                    brand=slots.brand,
+                    category=slots.category,
+                    min_price=slots.budget + 1,
+                    max_price=slots.budget + 5000,
+                )
             except Exception:
                 found = []
             higher = [
@@ -542,6 +579,17 @@ class ShopperGuide:
         card = None
         if slots.visible:
             card = slots.visible[0]
+            if not (card.get("offer_line") or card.get("emi_line")):
+                fresh = await self._safe_lookup(
+                    str(card.get("sku_id") or ""), str(card.get("variant_id") or "")
+                )
+                if fresh:
+                    card.update(
+                        for_card(
+                            replace(fresh, ref=str(card.get("ref") or "A")),
+                            self._pincode,
+                        )
+                    )
         if product and not card:
             found = await self._safe_lookup(
                 str(product.get("product_id") or ""),
@@ -713,7 +761,12 @@ class ShopperGuide:
     async def _next_ceiling(self, slots: Slots) -> int | None:
         """The cheapest known price above the current ceiling, if one exists."""
         try:
-            found = await self._catalogue.search(brand=slots.brand, max_price=None)
+            found = await self._catalogue.search(
+                brand=slots.brand,
+                category=slots.category,
+                min_price=(slots.budget or 0) + 1,
+                max_price=None,
+            )
         except Exception:
             return None
         floor = slots.budget or 0
@@ -744,7 +797,9 @@ class ShopperGuide:
 
     async def _in_stock_sibling(self, product: ModelProduct) -> ModelProduct | None:
         try:
-            found = await self._catalogue.search(brand=product.brand, max_price=None)
+            found = await self._catalogue.search(
+                brand=product.brand, category=product.category, max_price=None
+            )
         except Exception:
             return None
         for item in found or []:

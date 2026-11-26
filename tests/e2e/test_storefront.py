@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import threading
 import time
+from secrets import token_hex
 
 import pytest
 import uvicorn
@@ -25,6 +26,7 @@ def test_orange_tokens_and_product_actions(watched, stack: Stack) -> None:
     page.locator("iframe[title='Shopping Assistant chat']").wait_for(state="attached")
     frame = next(item for item in page.frames if "/widget/v1" in (item.url or ""))
     frame.locator("#sa-welcome").wait_for(state="visible")
+    expect(frame.locator(".sa-context")).to_be_visible()
     color = frame.locator(".sa-header").evaluate(
         "el => getComputedStyle(el).backgroundColor"
     )
@@ -61,15 +63,23 @@ def test_direct_widget_is_a_narrow_shell(page, stack: Stack) -> None:  # noqa: A
     width = page.locator("body").evaluate("el => el.getBoundingClientRect().width")
     assert width <= 420
     assert page.locator("html").get_attribute("data-standalone") == "1"
+    expect(page.locator(".sa-context")).to_be_hidden()
+    page.locator("#sa-input").fill("Help me find the right phone")
+    page.locator(".sa-send").click()
+    timestamp = page.locator(".sa-turn.mine time").first
+    expect(timestamp).to_be_visible()
+    assert timestamp.evaluate("el => getComputedStyle(el).color") == "rgb(95, 102, 115)"
+    expect(page.locator("#sa-log")).to_contain_text("What budget", timeout=10000)
+    expect(page.locator(".sa-context")).to_be_hidden()
 
 
 @pytest.fixture(scope="module")
 def full_app() -> str:
     port = _free_port()
     keys = {
-        "GEMINI_API_KEY": "test-key-not-real",
+        "GEMINI_API_KEY": token_hex(16),
         "APP_MODE": "full",
-        "CONVERSATION_TOKEN_SECRET": "test-conversation-secret",
+        "CONVERSATION_TOKEN_SECRET": token_hex(32),
         "WIDGET_DEMO_CATALOGUE": "1",
         "WIDGET_STUB_MODEL": "1",
         "WIDGET_STUB_DELAY_MS": "0",
