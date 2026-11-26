@@ -75,6 +75,7 @@ def guided_flow(settings: Config) -> Flow | None:
         estate,
         recordings=Recordings(voice=settings.guided_voice),
         store=JourneyStore(settings.guided_database_url),
+        map_prefix=settings.store_map_query_prefix,
     )
 
 

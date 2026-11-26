@@ -467,6 +467,30 @@ function drawFailure(message, again) {
   el('g-restart').hidden = !guided.session;
 }
 
+function directionsFor(shop) {
+  // The server builds this when it can. A full link is used as-is.
+  if (shop.directions && /^https?:\/\//.test(shop.directions)) return shop.directions;
+  const geo = shop.geo || {};
+  const lat = geo.lat != null ? geo.lat : (shop.lat != null ? shop.lat : shop.latitude);
+  const lng = geo.lng != null ? geo.lng : (shop.lng != null ? shop.lng : shop.longitude);
+  if (lat != null && lng != null && lat !== '' && lng !== '') {
+    return 'https://www.google.com/maps/search/?api=1&query=' +
+      encodeURIComponent(lat + ',' + lng);
+  }
+  // Branch and city are often the same word. Write each token once.
+  const seen = {};
+  const tokens = [];
+  [shop.name, shop.address, shop.area, shop.city, shop.state, shop.pincode]
+    .filter(Boolean).join(' ').split(/\s+/).forEach((token) => {
+      const key = token.toLowerCase().replace(/[^\w]+/g, '');
+      if (!key || seen[key]) return;
+      seen[key] = 1;
+      tokens.push(token);
+    });
+  return 'https://www.google.com/maps/search/?api=1&query=' +
+    encodeURIComponent(tokens.join(' '));
+}
+
 function draw(view, quietly) {
   guided.session = view.session;
   // The clock begins with the first answer. A page sitting open on the
@@ -508,11 +532,8 @@ function draw(view, quietly) {
       row.appendChild(document.createTextNode('\u2022 ' + shop.name
         + (shop.state ? ' \u2014 ' + shop.state : '')
         + (shop.quantity ? ' (' + shop.quantity + ')' : '') + ' '));
-      const where = shop.geo
-        ? shop.geo.lat + ',' + shop.geo.lng
-        : [shop.name, shop.address, shop.area, shop.city].filter(Boolean).join(' ');
       const link = node('a', 'g-way', SAYS.directions);
-      link.href = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(where);
+      link.href = directionsFor(shop);
       link.target = '_blank';
       link.rel = 'noopener noreferrer';
       row.appendChild(link);
