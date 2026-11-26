@@ -51,6 +51,39 @@ _PIN = re.compile(r"^\d{6}$")
 _SESSION = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 
+class SocketFanout:
+    """One conversation, every socket that is currently attached to it.
+
+    The generation keeps running after the shopper's first socket drops.
+    The socket they open to reconnect has to see the rest of the reply,
+    or the screen stays on "Checking…" and a retry looks like a second answer.
+    """
+
+    def __init__(self) -> None:
+        self._sockets: dict[str, list[WebSocket]] = {}
+
+    def add(self, conv_id: str, socket: WebSocket) -> None:
+        current = self._sockets.setdefault(conv_id, [])
+        if socket not in current:
+            current.append(socket)
+
+    def discard(self, conv_id: str, socket: WebSocket) -> None:
+        current = self._sockets.get(conv_id)
+        if not current:
+            return
+        self._sockets[conv_id] = [item for item in current if item is not socket]
+
+    async def send(self, conv_id: str, body: dict[str, Any]) -> None:
+        dead: list[WebSocket] = []
+        for socket in list(self._sockets.get(conv_id, ())):
+            try:
+                await socket.send_json(body)
+            except Exception:
+                dead.append(socket)
+        for socket in dead:
+            self.discard(conv_id, socket)
+
+
 class EmptyCatalogue:
     async def search(self, *, brand: str | None, max_price: int | None) -> list[Any]:
         return []
@@ -217,6 +250,8 @@ class WidgetRelay:
         self._reporter = reporter
         self._client = client
         self._denylist = settings.neutrality_denylist
+        fanout = getattr(websocket.app.state, "widget_fanout", None)
+        self._fanout = fanout if isinstance(fanout, SocketFanout) else SocketFanout()
 
     async def run(self) -> None:
         try:
@@ -248,6 +283,7 @@ class WidgetRelay:
                 "context_label": conv.context_label,
             }
         )
+        self._fanout.add(conv.id, self._socket)
         try:
             while True:
                 incoming = await self._socket.receive_json()
@@ -268,6 +304,8 @@ class WidgetRelay:
             await self._send_quiet(
                 {"type": "error", "code": "upstream", "message": SERVICE_ERROR}
             )
+        finally:
+            self._fanout.discard(conv.id, self._socket)
 
     async def _open(
         self, hello: dict[str, Any], host_origin: str
@@ -493,9 +531,11 @@ class WidgetRelay:
 
     async def _emit(self, conv_id: str, body: dict[str, Any]) -> None:
         seq = await self._store.append_event(conv_id, body)
-        body = dict(body)
-        body["seq"] = seq
-        await self._socket.send_json(body)
+        outgoing = dict(body)
+        outgoing["seq"] = seq
+        # A closed socket must not abort the generation. The event is already
+        # stored, and any socket that reconnected is on the fan-out.
+        await self._fanout.send(conv_id, outgoing)
 
     def _catalogue(self) -> Catalogue:
         override = getattr(self._socket.app.state, "widget_catalogue", None)

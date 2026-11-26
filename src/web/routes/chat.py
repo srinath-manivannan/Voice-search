@@ -45,8 +45,18 @@ def _install_v2(app: FastAPI, settings: Config) -> None:
     async def chat(websocket: WebSocket) -> None:
         origin = websocket.headers.get("origin")
         if not socket_origin_allowed(origin, settings):
+            # Accept, then close. A close before the handshake completes
+            # leaves uvicorn answering HTTP 403, and the 1008 never reaches
+            # the client. The code is the part a canary can check.
             log.warning("widget chat refused: origin is not this service")
+            await websocket.accept()
             await websocket.close(code=POLICY_VIOLATION)
+            return
+        if not settings.widget_enabled:
+            # widget.enabled is off. 1013 tells the client to try later
+            # without accepting a conversation.
+            log.warning("widget chat refused: widget is switched off")
+            await websocket.close(code=1013)
             return
         fallback = websocket.client.host if websocket.client else "unknown"
         client = client_ip(websocket.headers, fallback, settings.trust_proxy)

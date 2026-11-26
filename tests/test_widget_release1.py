@@ -205,11 +205,11 @@ def test_widget_csp_allowlists_the_host_and_denies_the_microphone(monkeypatch):
 def test_a_disallowed_origin_is_refused_with_1008(monkeypatch):
     app = create_app(settings(monkeypatch))
     with TestClient(app) as client:
-        with pytest.raises(WebSocketDisconnect) as refused:
-            with client.websocket_connect(
-                "/ws/chat", headers={"origin": "https://evil.example"}
-            ):
-                pass
+        with client.websocket_connect(
+            "/ws/chat", headers={"origin": "https://evil.example"}
+        ) as ws:
+            with pytest.raises(WebSocketDisconnect) as refused:
+                ws.receive_text()
     assert refused.value.code == 1008
 
 

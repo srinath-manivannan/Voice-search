@@ -87,7 +87,7 @@ button:focus-visible, textarea:focus-visible {
   opacity: 0.9;
 }
 
-.sa-header button { color: var(--sa-accent-ink); font-size: 20px; }
+.sa-header button { color: var(--sa-accent-ink); font-size: 20px; flex: 0 0 auto; }
 
 .sa-context {
   display: flex;

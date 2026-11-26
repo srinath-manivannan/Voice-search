@@ -6,19 +6,23 @@ a retailer name. With no list configured the text scan has nothing to find
 and still checks that the Release 1 widget cannot ask for a microphone,
 camera, speaker or speech synthesis.
 
-Audio transcription and image OCR are not run here: they need models this
-process does not ship. The text, SVG and widget-script checks are the ones
-that can fail a commit.
+Raster images are read with tesseract when that binary is installed. CI
+installs it, so a word painted into a PNG fails the build the same way a
+word in a source file does. Without the binary the scan says it skipped
+OCR instead of pretending it looked.
 """
 
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess  # nosec B404
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-TEXT_ROOTS = ("src", "docs", "tests", ".env.example")
+TEXT_ROOTS = ("src", "docs", "tests", "deploy", "scripts", ".env.example")
+_RASTER = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".tif", ".tiff"}
 WIDGET = ROOT / "src" / "web" / "static" / "widget"
 # Release 1 must not be able to play or record, even if a later edit tries.
 FORBIDDEN_WIDGET = (
@@ -143,14 +147,74 @@ def scan_audio_metadata(root: Path) -> list[str]:
     return hits
 
 
-def optional_tools() -> list[str]:
-    """OCR and audio decode are used when the binary is installed, and named when it is not."""
-    import shutil
+def _raster_files(root: Path) -> list[Path]:
+    found: list[Path] = []
+    for name in TEXT_ROOTS:
+        target = root / name
+        if not target.exists():
+            continue
+        paths = [target] if target.is_file() else list(target.rglob("*"))
+        for path in paths:
+            if not path.is_file() or path.suffix.lower() not in _RASTER:
+                continue
+            if any(part in {".git", ".venv", "__pycache__"} for part in path.parts):
+                continue
+            found.append(path)
+    return found
 
+
+def _ocr(path: Path) -> tuple[str, str | None]:
+    """Read one raster. The second value is set when tesseract itself failed."""
+    # Absolute path from PATH, and a fixed argument list. No shell.
+    binary = shutil.which("tesseract")
+    if binary is None:
+        return "", "tesseract is not installed"
+    try:
+        completed = subprocess.run(  # nosec B603
+            [binary, str(path), "stdout", "-l", "eng"],
+            check=False,
+            capture_output=True,
+            timeout=30,
+            text=True,
+        )
+    except (OSError, subprocess.TimeoutExpired) as failed:
+        return "", str(failed)
+    if completed.returncode != 0 and not (completed.stdout or "").strip():
+        err = (completed.stderr or "").strip().splitlines()
+        return "", err[0] if err else f"tesseract exited {completed.returncode}"
+    return completed.stdout or "", None
+
+
+def scan_images(root: Path, denylist: tuple[str, ...]) -> list[str]:
+    """OCR every raster under the scanned roots. No binary means no hits and a skip note."""
+    if shutil.which("tesseract") is None:
+        return []
+    hits: list[str] = []
+    for path in _raster_files(root):
+        text, failed = _ocr(path)
+        if failed:
+            hits.append(f"{path}: ocr failed ({failed})")
+            continue
+        if not denylist:
+            continue
+        folded = text.casefold()
+        for token in denylist:
+            if token in folded:
+                hits.append(f"{path}: ocr {token}")
+    return hits
+
+
+def optional_tools(root: Path = ROOT) -> list[str]:
+    """OCR and audio decode are used when the binary is installed, and named when it is not."""
     notes = []
-    for binary, purpose in (("tesseract", "image OCR"), ("ffmpeg", "audio decode")):
-        if shutil.which(binary) is None:
-            notes.append(f"skipped: {binary} is not installed ({purpose})")
+    if shutil.which("tesseract") is None:
+        notes.append("skipped: tesseract is not installed (image OCR)")
+    else:
+        count = len(_raster_files(root))
+        noun = "file" if count == 1 else "files"
+        notes.append(f"ran: tesseract (image OCR, {count} raster {noun})")
+    if shutil.which("ffmpeg") is None:
+        notes.append("skipped: ffmpeg is not installed (audio decode)")
     return notes
 
 
@@ -166,6 +230,7 @@ def collect(root: Path = ROOT, denylist: tuple[str, ...] | None = None) -> list[
         + scan_widget(root / "src" / "web" / "static" / "widget")
         + scan_svg(root / "src")
         + scan_audio_metadata(root / "src")
+        + scan_images(root, tokens)
     )
 
 

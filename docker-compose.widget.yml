@@ -1,0 +1,52 @@
+# Local and staging stack for the Release 1 chat widget.
+#
+#   docker compose -f docker-compose.widget.yml up --build
+#
+# Then open http://localhost:8088 . The assistant is http://localhost:8080 .
+# Voice and Guided are not mounted. The demo catalogue answers
+# "Is this available?" without a live product feed, and the stub model
+# answers any other question without calling a provider.
+#
+# Set GEMINI_API_KEY only if you turn WIDGET_STUB_MODEL off. The process
+# still requires the variable to be present; the default is not a real key.
+
+services:
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  shopping-assistant:
+    build: .
+    image: shopping-assistant:widget
+    environment:
+      APP_MODE: widget
+      APP_ENV: development
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-not-a-real-key}
+      WIDGET_ENABLED: ${WIDGET_ENABLED:-1}
+      CHAT_PAID_ENABLED: ${CHAT_PAID_ENABLED:-1}
+      WIDGET_HOST_ORIGINS: http://localhost:8088
+      WIDGET_PUBLIC_ORIGIN: http://localhost:8080
+      WIDGET_DEMO_CATALOGUE: "1"
+      WIDGET_STUB_MODEL: "1"
+      CONVERSATION_TOKEN_SECRET: ${CONVERSATION_TOKEN_SECRET:-dev-widget-token}
+      REDIS_URL: redis://redis:6379/0
+      ESTATE_BACKEND: "off"
+    ports:
+      - "8080:8080"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  demo-storefront:
+    image: nginx:1.27-alpine
+    ports:
+      - "8088:80"
+    volumes:
+      - ./deploy/demo-storefront:/usr/share/nginx/html:ro
+    depends_on:
+      shopping-assistant:
+        condition: service_healthy

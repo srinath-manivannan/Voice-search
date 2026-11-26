@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Demo storefront</title>
+  <style>
+    :root { color-scheme: light; }
+    body { margin: 0; font: 16px/1.45 "Segoe UI", "Helvetica Neue", sans-serif; color: #142226; background: #f6f8f8; }
+    main { max-width: 720px; margin: 0 auto; padding: 32px 20px 120px; }
+    h1 { font-size: 28px; margin: 0 0 8px; }
+    .price { font-size: 22px; font-weight: 700; margin: 12px 0; }
+    label { display: block; font-weight: 600; margin-top: 16px; }
+    select { min-height: 44px; min-width: 240px; font: inherit; margin-top: 8px; }
+    p.note { color: #3c5356; }
+    #product { scroll-margin-top: 24px; }
+  </style>
+</head>
+<body>
+  <main id="product">
+    <p class="note">Sample storefront. Prices below are illustrative.</p>
+    <h1>Demo Handset A1</h1>
+    <p>8 GB RAM · 5G · USB-C. Ask the assistant whether this colour is in stock.</p>
+    <p class="price" id="price">₹20,499</p>
+    <label for="variant">Variant</label>
+    <select id="variant">
+      <option value="VAR-256-BLK" selected>8 GB + 256 GB, Black</option>
+      <option value="VAR-128-BLK">8 GB + 128 GB, Black</option>
+    </select>
+    <p class="note">Choose a variant, then open the assistant and tap “Is this available?”. “‹ Back to product” returns here.</p>
+  </main>
+  <script>
+    var prices = { "VAR-256-BLK": "₹20,499", "VAR-128-BLK": "₹18,499" };
+    var variant = document.getElementById("variant");
+    variant.addEventListener("change", function () {
+      document.getElementById("price").textContent = prices[variant.value] || "";
+      var loader = document.querySelector("script[data-sa-origin]");
+      if (loader) loader.setAttribute("data-variant-id", variant.value);
+    });
+    document.addEventListener("sa-navigate", function (event) {
+      var product = document.getElementById("product");
+      if (product && product.scrollIntoView) product.scrollIntoView();
+      window.__saNav = event.detail || null;
+    });
+  </script>
+  <script
+    src="http://localhost:8080/widget/v1/sa-loader.js"
+    data-sa-origin="http://localhost:8080"
+    data-product-id="SKU-DEMO-A1"
+    data-variant-id="VAR-256-BLK"
+    data-pincode="600040"></script>
+</body>
+</html>
