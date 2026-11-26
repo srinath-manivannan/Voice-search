@@ -35,6 +35,7 @@ test:
   stage: check
   script:
     - pytest
+    - python -m src.tools.neutrality_scan
 
 secrets:
   stage: check

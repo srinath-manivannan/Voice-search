@@ -19,6 +19,35 @@ def install(app: FastAPI, settings: Config) -> None:
     async def index() -> FileResponse:
         return FileResponse(STATIC / "index.html")
 
+    install_health(app, settings, include_warm=True)
+
+    @app.get("/api/v1/config")
+    async def config_summary() -> dict[str, Any]:
+        """Only what the browser needs to open its audio devices.
+
+        Deliberately no model names, no word caps, no thinking budget. Which
+        vendor and which model runs is commercial information, and a public
+        page has no reason to publish it - this project learned the reference
+        implementation's entire stack by reading exactly such a blob off its
+        page. Not repeating that mistake outward.
+
+        The key is not here and never will be: the browser talks to this
+        server, and only this server talks to the model.
+        """
+        return {
+            "capture_sample_rate": settings.capture_sample_rate,
+            "playback_sample_rate": settings.playback_sample_rate,
+            "greeting": GREETING,
+            # Whether the Voice Call tab may open the paid Live voice. When
+            # not, the tab starts the free Guided conversation with the mic on.
+            "live_voice": settings.live_voice_enabled,
+            # Whether a hosted speech worker exists. Without one the Guided
+            # mic is offered only where the browser can hear itself.
+            "hosted_asr": bool(settings.guided_asr_url),
+        }
+
+
+def install_health(app: FastAPI, settings: Config, *, include_warm: bool) -> None:
     @app.get("/healthz")
     async def healthz() -> dict[str, Any]:
         """Is this process alive? Nothing downstream is contacted.
@@ -47,34 +76,11 @@ def install(app: FastAPI, settings: Config) -> None:
             "catalogue": bool(settings.catalogue_token),
             "estate": settings.estate_backend != "off",
         }
-        # Warm: the phone shelf is checked against the estate and held, so a
-        # recommendation will not wait on the 630-item build. A deploy can
-        # hold traffic until this is true.
-        flow = getattr(request.app.state, "guided", None)
-        warm = bool(flow is not None and flow.warm_enough())
-        return {"ready": all(checks.values()), "checks": checks, "warm": warm}
-
-    @app.get("/api/v1/config")
-    async def config_summary() -> dict[str, Any]:
-        """Only what the browser needs to open its audio devices.
-
-        Deliberately no model names, no word caps, no thinking budget. Which
-        vendor and which model Poorvika runs on is commercial information,
-        and a public page has no reason to publish it - this project learned
-        the reference implementation's entire stack by reading exactly such a
-        blob off its page. Not repeating that mistake outward.
-
-        The key is not here and never will be: the browser talks to this
-        server, and only this server talks to the model.
-        """
-        return {
-            "capture_sample_rate": settings.capture_sample_rate,
-            "playback_sample_rate": settings.playback_sample_rate,
-            "greeting": GREETING,
-            # Whether the Voice Call tab may open the paid Live voice. When
-            # not, the tab starts the free Guided conversation with the mic on.
-            "live_voice": settings.live_voice_enabled,
-            # Whether a Poorvika-hosted speech worker exists. Without one the
-            # Guided mic is offered only where the browser can hear itself.
-            "hosted_asr": bool(settings.guided_asr_url),
-        }
+        body: dict[str, Any] = {"ready": all(checks.values()), "checks": checks}
+        if include_warm:
+            # The phone shelf is checked and held, so a recommendation will
+            # not wait on the build. Widget mode has no shelves, so it does
+            # not report this.
+            flow = getattr(request.app.state, "guided", None)
+            body["warm"] = bool(flow is not None and flow.warm_enough())
+        return body

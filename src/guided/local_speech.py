@@ -1,4 +1,4 @@
-"""Private Poorvika speech worker. Model weights are provisioned before startup."""
+"""Private speech worker. Model weights are provisioned before startup."""
 
 from __future__ import annotations
 

@@ -211,7 +211,7 @@ async function start() {
       case 'barge_in':   flushPlayback(); log('— you interrupted —', 'dim'); break;
       case 'transcript': log(message.text, 'agent'); break;
       case 'state':
-        if (message.agent_speaking) { setStatus('Poorvika is speaking', 'agent'); }
+        if (message.agent_speaking) { setStatus('Shopping Assistant is speaking', 'agent'); }
         else if (message.caller_speaking !== undefined) {
           setStatus(message.caller_speaking ? 'listening to you' : 'listening', 'live');
           setOrb(message.caller_speaking ? 'caller' : 'listening');

@@ -79,6 +79,34 @@ def install(app: FastAPI) -> None:
         )
 
         response.headers[REQUEST_ID_HEADER] = request_id
+        if request.url.path.startswith("/widget"):
+            # The embed is framed by the storefront. X-Frame-Options cannot
+            # name an allowlist, so it is omitted here and only here. Every
+            # other route keeps DENY. The microphone is off for the whole
+            # widget: Release 1 has no voice.
+            settings = getattr(request.app.state, "settings", None)
+            origins = (
+                " ".join(settings.widget_host_origins)
+                if settings is not None and settings.widget_host_origins
+                else "'none'"
+            )
+            policy = SECURITY_HEADERS["Content-Security-Policy"].replace(
+                "frame-ancestors 'none'", f"frame-ancestors {origins}"
+            )
+            response.headers["Content-Security-Policy"] = policy
+            response.headers["Permissions-Policy"] = (
+                "microphone=(), camera=(), geolocation=()"
+            )
+            for header, value in SECURITY_HEADERS.items():
+                if header in {
+                    "X-Frame-Options",
+                    "Content-Security-Policy",
+                    "Permissions-Policy",
+                }:
+                    continue
+                response.headers.setdefault(header, value)
+            response.headers["Cache-Control"] = "public, max-age=60"
+            return response
         for header, value in SECURITY_HEADERS.items():
             response.headers.setdefault(header, value)
         # This is a development tool that is edited while it runs. If it is

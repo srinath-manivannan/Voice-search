@@ -7,7 +7,7 @@
 VENV := .venv/bin
 PY   := $(VENV)/python
 
-.PHONY: help install hooks lock ui talk test audio live check audit fmt mic image alerts greeting profile guided-voice
+.PHONY: help install hooks lock ui talk test audio live check audit fmt mic image alerts greeting profile guided-voice neutrality-scan
 
 # The exception list for the dev lockfile scan, turned into flags. Comments
 # and blank lines dropped; see .pip-audit-ignore for what is in it and why.
@@ -67,6 +67,9 @@ audio:                   ## device tests - needs a microphone and speaker
 
 live:                    ## real Gemini Live calls - spends a few cents
 	$(PY) -m pytest -m live
+
+neutrality-scan:         ## retailer deny-list and widget media APIs
+	$(PY) -m src.tools.neutrality_scan
 
 check:                   ## everything CI runs, in the same order
 	$(VENV)/ruff check src tests

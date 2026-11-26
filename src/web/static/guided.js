@@ -508,7 +508,7 @@ function draw(view, quietly) {
       row.appendChild(document.createTextNode('\u2022 ' + shop.name
         + (shop.state ? ' \u2014 ' + shop.state : '')
         + (shop.quantity ? ' (' + shop.quantity + ')' : '') + ' '));
-      const where = ['Poorvika', shop.name, shop.area, shop.city].filter(Boolean).join(' ');
+      const where = [shop.name, shop.area, shop.city].filter(Boolean).join(' ');
       const link = node('a', 'g-way', SAYS.directions);
       link.href = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(where);
       link.target = '_blank';

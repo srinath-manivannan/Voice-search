@@ -201,6 +201,30 @@ class Config:
     # ஏதோ ஒன்று கிளிக் பண்ணிக்குது". His decision: he taps, it talks. The
     # hearing stack stays built and tested for the phone line.
     guided_mic_enabled: bool = False
+    # Release 1. "full" is the developer app (voice, guided and chat).
+    # "widget" serves only the embeddable chat and forces live voice off,
+    # so a widget deployment cannot reach the paid live model.
+    app_mode: str = "full"
+    assistant_name: str = "Shopping Assistant"
+    # Exact scheme, host and port. No wildcards. Empty refuses every embed.
+    widget_host_origins: tuple[str, ...] = ()
+    # The origin of this process. /ws/chat accepts a socket only from it.
+    widget_public_origin: str = ""
+    # Per browser, per IST day, GST in. A new conversation token does not reset it.
+    chat_client_cap_inr: float = 3.0
+    # Reserved before each generation, including a tool round.
+    chat_max_output_tokens: int = 400
+    # Empty uses the in-memory store (one process, and every offline test).
+    redis_url: str = ""
+    conversation_token_secret: str = ""
+    # When set, the chat limiter reads X-Forwarded-For. Leave off unless the
+    # process is behind a proxy that strips a spoofed header.
+    trust_proxy: bool = False
+    # Kill switch. False answers every new message with the unavailable line
+    # and makes no model call.
+    chat_paid_enabled: bool = True
+    # Retailer names and domains, from the deployment secret. Never committed.
+    neutrality_denylist: tuple[str, ...] = ()
 
     @property
     def system_instruction(self) -> str:
@@ -221,6 +245,13 @@ class Config:
         from src.agent.persona import system_instruction
 
         return system_instruction("chat", self.chat_word_cap)
+
+    @property
+    def widget_instruction(self) -> str:
+        """English on screen. Tamil and Tanglish are understood, not written back."""
+        from src.agent.persona import widget_instruction
+
+        return widget_instruction(self.assistant_name, self.chat_word_cap)
 
 
 def _flag(name: str) -> bool:
@@ -251,6 +282,18 @@ def load(env: str | None = None) -> Config:
     from src.config import devconfig, prodconfig
 
     defaults = prodconfig if env == "main" else devconfig
+    app_mode = os.environ.get("APP_MODE", "full").strip().lower() or "full"
+    if app_mode not in ("full", "widget"):
+        app_mode = "full"
+    live_voice = os.environ.get("LIVE_VOICE", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
+    # A widget deployment has no voice entry point. The flag cannot turn it back on.
+    if app_mode == "widget":
+        live_voice = False
 
     return Config(
         gemini_api_key=_require("GEMINI_API_KEY"),
@@ -357,8 +400,7 @@ def load(env: str | None = None) -> Config:
         whisper_model=os.environ.get("WHISPER_MODEL", "whisper-large-v3-turbo"),
         whisper_timeout_seconds=float(os.environ.get("WHISPER_TIMEOUT_SECONDS", "8")),
         cascade_enabled=_flag("CASCADE"),
-        live_voice_enabled=os.environ.get("LIVE_VOICE", "1").strip().lower()
-        not in ("0", "false", "no", "off"),
+        live_voice_enabled=live_voice,
         # The cascade's mouth: xAI's TTS instead of a second Gemini Live
         # socket. Billed per character rather than per audio token, and it
         # needs no keepalive because a TTS socket is not closed for sitting
@@ -400,4 +442,29 @@ def load(env: str | None = None) -> Config:
         guided_speech_dir=os.environ.get("GUIDED_SPEECH_DIR", "out/guided-speech"),
         guided_shelf_dir=os.environ.get("GUIDED_SHELF_DIR", "out/guided-shelves"),
         guided_mic_enabled=_flag("GUIDED_MIC"),
+        app_mode=app_mode,
+        assistant_name=os.environ.get("ASSISTANT_NAME", "Shopping Assistant").strip()
+        or "Shopping Assistant",
+        widget_host_origins=tuple(
+            origin.strip()
+            for origin in os.environ.get("WIDGET_HOST_ORIGINS", "").split(",")
+            if origin.strip()
+        ),
+        widget_public_origin=os.environ.get("WIDGET_PUBLIC_ORIGIN", "").strip(),
+        chat_client_cap_inr=float(os.environ.get("CHAT_CLIENT_CAP_INR", "3")),
+        chat_max_output_tokens=int(os.environ.get("CHAT_MAX_OUTPUT_TOKENS", "400")),
+        redis_url=os.environ.get("REDIS_URL", "").strip(),
+        conversation_token_secret=os.environ.get("CONVERSATION_TOKEN_SECRET", ""),
+        trust_proxy=_flag("TRUST_PROXY"),
+        chat_paid_enabled=os.environ.get("CHAT_PAID_ENABLED", "1").strip().lower()
+        not in ("0", "false", "no", "off"),
+        neutrality_denylist=tuple(
+            dict.fromkeys(
+                token.strip().casefold()
+                for token in os.environ.get("NEUTRALITY_DENYLIST", "")
+                .replace(",", "\n")
+                .splitlines()
+                if token.strip()
+            )
+        ),
     )

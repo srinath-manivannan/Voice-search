@@ -66,6 +66,9 @@ jobs:
       - name: Tests
         run: pytest
 
+      - name: Neutrality
+        run: python -m src.tools.neutrality_scan
+
       - name: Secrets
         run: detect-secrets scan --baseline .secrets.baseline
 

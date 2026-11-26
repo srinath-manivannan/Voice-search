@@ -33,76 +33,55 @@ through.** That is the whole trade and it should not be read past.
 
 ---
 
-## 1. What the incumbent actually does
+## 1. What a competitor storefront actually does
 
-Driven on reliancedigital.in on 2026-11-15, five exchanges. The customer's
-screenshots show the opening interview; what follows is what the rest of the
-conversation does.
+Watched on a competitor storefront on 2026-11-15, five exchanges. The notes
+below are a neutral summary of the behaviour. They are not a transcript, and
+they do not name the store.
 
 ### The shape of a reply
 
-Asked *"I need a phone between 20000 and 25000"*, EXA did **not** interview.
-It answered, with five products, and closed with one question:
+Asked for a phone between 20,000 and 25,000, it did **not** interview. It
+answered with five products and closed with one question: narrow by brand,
+camera, or battery. Asked for camera, it came back with one strongest pick,
+a reason from the specs, two alternatives, and one more question (selfies or
+rear camera).
 
-> Want me to narrow it down by **brand, camera, or battery/performance**?
-
-Answered *"camera"*, it came back with **one strongest pick, a reason from the
-specs, two alternatives, and one more question**:
-
-> Got it — for **camera** in Rs 20k-25k, this one's the strongest pick
-> - **Redmi 15C 5G (8GB/128GB)** - 50 MP rear + 8 MP front - **Rs 22,499** (34% OFF)
->
-> Other options in this range: [two more]
->
-> Want me to optimize for **selfies** or **rear camera**?
-
-That is the pattern, and it is a good one: **answer first, then narrow by
-one binary question.** The interview only happens when the customer clicks
-the "Help me find the right phone" chip - that is, when they have said
-nothing at all to go on.
+That pattern is worth keeping: **answer first, then narrow by one binary
+question.** The interview only happens when the shopper has said nothing at
+all to go on.
 
 ### Three things it gets right
 
-1. **Never makes you answer before it gives you something.** A customer who
+1. **Never makes you answer before it gives you something.** A shopper who
    said a budget gets products for that budget on the next breath.
-2. **One question at a time, and always a choice of two.** "Selfies or rear
-   camera" is answerable in one word. "What are you looking for" is not.
-3. **It carries context.** Six turns in, Rs 20k-25k was still in force
+2. **One question at a time, and always a choice of two.**
+3. **It carries context.** Six turns in, the budget was still in force
    without being repeated.
 
 ### Three things it gets wrong
 
-1. **It broke the budget.** Asked in Tanglish for a camera phone *under*
-   Rs 20,000, it offered **Rs 20,999 and Rs 21,999** - and then said:
-   *"Rs 20,000 kulla strict-aave vendum-naa sollunga"* - tell me if you
-   really meant under 20,000 and I'll filter. The customer stated a
-   constraint and the agent asked to be let off it. On a phone call, where
-   nothing is on screen to check, this is the failure that loses trust.
-2. **No live store stock.** Asked whether a phone was in stock at the T Nagar
-   Chennai store, it said it could not confirm store stock in chat and sent
-   the customer to the product page to check for themselves.
+1. **It broke the budget.** Asked for a camera phone under 20,000, it offered
+   phones above that and then asked whether the ceiling was serious. The
+   shopper stated a constraint and the agent asked to be let off it.
+2. **No live store stock.** Asked whether a phone was in a named store, it
+   sent the shopper to the product page to check for themselves.
 3. **Five products at once.** Readable on a screen. Unspeakable on a call.
 
 ### What it did with Tamil
 
-Asked in Tanglish - *"enakku 20000 kulla oru nalla camera phone venum"* - it
-replied in **Tamil script with English product terms**:
-
-> sari - Rs 20,000 kulla camera nalla irukkum top picks idhudhaan
-> ... neenga **selfie**-kku mukkiyama, illa **rear camera**-kku mukkiyama?
-
-It switched language per message rather than holding one. That is right for
-chat and wrong for a call, where the voice has to sound like one person.
+Asked in Tanglish, it replied in Tamil script with English product terms, and
+switched language per message. That is workable in chat and wrong for a call,
+where the voice has to sound like one person.
 
 ### And the number that matters
 
-**Five to ten seconds a reply.** Fine in a chat window where the customer can
-look away. On a phone call it is dead air, and it is why none of EXA's
-design can be copied wholesale into a voice agent.
+**Five to ten seconds a reply.** Fine in a chat window. On a phone call it is
+dead air, which is why that design is not copied wholesale into a voice agent.
 
 ### What this is worth to us
 
-| | EXA | us |
+| | competitor storefront | us |
 |---|---|---|
 | live store stock | no | **yes, once `CI_HOST` is wired** |
 | budget honoured | **no** | deterministic filter, not a prompt |
@@ -110,7 +89,8 @@ design can be copied wholesale into a voice agent.
 | Tanglish | Tamil script, switches | one voice, held |
 | reply time | 5-10 s | ~1.8 s on this plan |
 
-The stock line is the one Poorvika already owns and Reliance does not.
+The stock line is the one this catalogue already answers and a chat-only
+competitor does not.
 
 ---
 
@@ -229,7 +209,7 @@ deterministic rules read the numbers out of the text, one Typesense query
 returns the products. Its own README is explicit - *"No database. No
 catalogue file. No embeddings. No second model."*
 
-Measured against poorvika.com: **price 100%, classification 85/85, stock
+Measured against the storefront: **price 100%, classification 85/85, stock
 96.0% with zero false out-of-stocks.**
 
 An embedding store would be slower, would need re-indexing every time a price
@@ -238,21 +218,21 @@ the question is "which phones are under 20,000 and in stock". Deterministic
 beats semantic for a number.
 
 **The budget filter belongs here, in code, not in the prompt.** That is the
-one thing EXA got wrong, and a rule cannot be talked out of it.
+one thing the competitor assistant got wrong, and a rule cannot be talked out of it.
 
 ### Live store stock, which now works
 
 `CI_HOST` and `CI_AUTH_TOKEN` were outstanding since this project started,
 and on 2026-11-15 they stopped being. The API collection's Production folder
-now carries a CI - Stock Check API of its own, at
-`ci-gateway.poorvika.com/central-inv/v1`, with a token signed for production
-rather than the staging one every earlier attempt was refused with.
+now carries a CI - Stock Check API of its own, at the central-inventory
+base URL, with a token signed for production rather than the staging one
+every earlier attempt was refused with.
 
 Measured the same day: item 54486 came back `in stock, 34 across 24 branches`
 in 491 ms, and item 48849 came back a genuine `out of stock`. All four
 sections - price, stock, offers, EMI - answer on production.
 
-So the one thing EXA cannot do, we can. Asked about store stock it sends the
+So the one thing that competitor cannot do, we can. Asked about store stock it sends the
 customer to the product page to look for themselves; we have the number and
 the branch count, in half a second.
 
@@ -379,7 +359,7 @@ itself.
 > **Answer first. Then one question, with two choices in it. Two products,
 > never five.**
 
-The first half is EXA's and it is right: a customer who has said a budget
+The first half is the competitor's and it is right: a customer who has said a budget
 should hear products on the next breath, not a questionnaire. The second half
 is where a call differs from a chat - five products are skimmable on a screen
 and unspeakable down a phone.
@@ -387,7 +367,7 @@ and unspeakable down a phone.
 ### What a call looks like
 
 ```
-agent   Poorvika, sollunga.
+agent   Shopping Assistant, sollunga.
 caller  Enakku 20,000-25,000 kulla oru phone venum.
         -> PREFETCH FIRES while they are still talking
 agent   Rendu nalla option irukku. Redmi 15C 5G, 22,499 - 50MP camera.
@@ -412,7 +392,7 @@ question.** No turn offers more than two products. No turn asks two things.
 
 1. **The budget is a filter, not a suggestion.** Under 20,000 means nothing
    at 20,999. This is a code path in search-proxy, not a line in the prompt,
-   because a prompt can be talked out of it and EXA was.
+   because a prompt can be talked out of it and the competitor's was.
 2. **Every claim comes from a tool result.** Price, stock, offer, EMI, spec.
    Nothing the model knows on its own is said out loud.
 3. **One binary question per turn**, and both options named. "Camera-va,
@@ -503,7 +483,7 @@ of them and never writing the new ones to a file on a developer's machine.
 |---|---|---|
 | 1 | **No key ever reaches a browser.** The page talks to our server; the server holds every credential. | A key in JavaScript is a published key. |
 | 2 | **Secrets live in a secret manager**, injected at boot - GCP Secret Manager or Cloudflare secrets. Never in `.env` on a host, never in an image, never in a repository. | A file gets copied; a manager logs who read it. |
-| 3 | **Central Inventory is server-to-server only** - mTLS or an IP allowlist, and a token scoped to reads. | `CI_AUTH_TOKEN` is the one credential that reaches Poorvika's own systems. |
+| 3 | **Central Inventory is server-to-server only** - mTLS or an IP allowlist, and a token scoped to reads. | `CI_AUTH_TOKEN` is the one credential that reaches the store's own systems. |
 | 4 | **Nothing secret enters a trace.** Traces already go to `out/traces/` and already carry whole conversations; they must never carry a header. | The traces are the most-read artefact in this project. |
 | 5 | **A tool result is data, never an instruction.** A PIM description containing "ignore your instructions" is a product description. | The catalogue is editable by people who are not us. |
 | 6 | **Rate-limit by caller number, not by IP**, and cap the spend per call. `src/web/ratelimit.py` and `MAX_INR_PER_MINUTE` (8.00) already exist. | The failure mode of a voice agent is someone calling it a thousand times. |
