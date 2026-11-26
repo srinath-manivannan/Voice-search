@@ -33,6 +33,13 @@ typecheck:
 test:
   extends: .python
   stage: check
+  # Same live Redis the GitHub job provides. The alias is how this container
+  # reaches it; the tests read REDIS_TEST_URL and refuse to skip when CI is set.
+  services:
+    - name: redis:7-alpine
+      alias: redis
+  variables:
+    REDIS_TEST_URL: redis://redis:6379/0
   script:
     - pytest
     - python -m src.tools.neutrality_scan

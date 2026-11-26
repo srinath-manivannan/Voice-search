@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import socket
 from pathlib import Path
+from urllib.parse import urlparse
 
 import pytest
 
@@ -71,9 +74,60 @@ def test_optional_scan_tools_are_reported_not_fatal():
 
 # --- redis money -------------------------------------------------------------
 
+# Default is the address a local redis-server and the GitHub Actions service
+# both listen on. GitLab's service container is reached by the REDIS_TEST_URL
+# that job sets. CI=true with nothing listening is a failure, not a skip.
+_DEFAULT_REDIS = "redis://127.0.0.1:6379/0"
+
+
+def _redis_url() -> str:
+    return os.environ.get("REDIS_TEST_URL", _DEFAULT_REDIS)
+
+
+def _redis_address(url: str) -> tuple[str, int]:
+    parsed = urlparse(url)
+    return parsed.hostname or "127.0.0.1", parsed.port or 6379
+
+
+def _require_redis() -> str:
+    """Return the Redis URL, skip when it is down, fail when CI cannot see it."""
+    url = _redis_url()
+    host, port = _redis_address(url)
+    try:
+        with socket.create_connection((host, port), timeout=0.4):
+            return url
+    except OSError:
+        where = f"{host}:{port}"
+        if os.environ.get("CI", "").strip().lower() in {"1", "true", "yes"}:
+            pytest.fail(
+                f"Redis is not reachable at {where}. "
+                "CI must run the Lua reserve/settle/release tests against a live server."
+            )
+        pytest.skip(
+            f"Redis is not running at {where}. "
+            "Start redis-server to run the Lua reserve/settle/release tests."
+        )
+
 
 def _redis() -> RedisStore:
-    return RedisStore("redis://127.0.0.1:6379/0", Caps(100, 300, 30_000), "test-secret")
+    return RedisStore(_require_redis(), Caps(100, 300, 30_000), "test-secret")
+
+
+def test_a_missing_redis_skips_outside_ci_and_fails_inside_it(monkeypatch):
+    """The three Lua tests follow this rule. CI must not quietly skip them."""
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.delenv("REDIS_TEST_URL", raising=False)
+
+    def down(*_args, **_kwargs):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(socket, "create_connection", down)
+    with pytest.raises(pytest.skip.Exception, match="Start redis-server"):
+        _require_redis()
+
+    monkeypatch.setenv("CI", "true")
+    with pytest.raises(pytest.fail.Exception, match="CI must run the Lua"):
+        _require_redis()
 
 
 def _conv(host: str = "") -> Conversation:

@@ -28,6 +28,19 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
+    # The Lua money tests open a real Redis. Port 6379 on the runner is this
+    # container; GitHub sets CI=true, so a missing server fails those tests
+    # instead of skipping them.
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
