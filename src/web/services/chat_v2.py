@@ -84,9 +84,16 @@ class SocketFanout:
             self.discard(conv_id, socket)
 
 
-class EmptyCatalogue:
-    async def search(self, *, brand: str | None, max_price: int | None) -> list[Any]:
-        return []
+class UnconfiguredCatalogue:
+    async def search(
+        self,
+        *,
+        brand: str | None,
+        max_price: int | None,
+        category: str = "phone",
+        min_price: int | None = None,
+    ) -> list[Any]:
+        raise RuntimeError("Catalogue is not configured")
 
     async def lookup(self, product_id: str, variant_id: str) -> None:
         return None
@@ -356,6 +363,11 @@ class WidgetRelay:
         return parsed, False
 
     def _host_allowed(self, origin: str) -> bool:
+        if (
+            self._settings.widget_public_origin
+            and origin == self._settings.widget_public_origin
+        ):
+            return True
         allowed = self._settings.widget_host_origins
         if allowed:
             return origin in allowed
@@ -544,7 +556,7 @@ class WidgetRelay:
         override = getattr(self._socket.app.state, "widget_catalogue", None)
         if override is not None:
             return cast(Catalogue, override)
-        return EmptyCatalogue()
+        return UnconfiguredCatalogue()
 
     def _model_client(self) -> GeminiTextModel | None:
         override = getattr(self._socket.app.state, "widget_model", None)

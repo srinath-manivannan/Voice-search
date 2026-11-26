@@ -35,6 +35,9 @@ def catalogue_for(settings: Config) -> Catalogue | None:
         settings.catalogue_token,
         settings.catalogue_origin,
         key_header=settings.catalogue_key_header,
+        collection=settings.catalogue_collection,
+        access_id=settings.cf_access_client_id,
+        access_secret=settings.cf_access_client_secret,
     )
 
 

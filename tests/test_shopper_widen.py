@@ -28,7 +28,14 @@ class Shelf:
     def __init__(self, items: list[ModelProduct]) -> None:
         self.items = items
 
-    async def search(self, *, brand: str | None, max_price: int | None) -> list:
+    async def search(
+        self,
+        *,
+        brand: str | None,
+        max_price: int | None,
+        category: str = "phone",
+        min_price: int | None = None,
+    ) -> list:
         del max_price
         if brand and brand.casefold() != "demo":
             return []

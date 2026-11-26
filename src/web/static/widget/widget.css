@@ -167,7 +167,7 @@ button:focus-visible, textarea:focus-visible {
 .sa-turn { display: flex; flex-direction: column; gap: 4px; max-width: 100%; }
 .sa-time { font-size: 12px; color: var(--sa-muted); }
 .sa-turn.mine { align-items: flex-end; }
-.sa-turn.mine .sa-time { text-align: right; color: rgba(255, 255, 255, 0.85); }
+.sa-turn.mine .sa-time { text-align: right; color: var(--sa-muted); }
 
 .sa-products {
   display: flex;

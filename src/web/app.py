@@ -45,8 +45,10 @@ log = logging.getLogger(__name__)
 
 
 def create_app(config: Config | None = None) -> FastAPI:
-    load_dotenv()
-    settings = config or load()
+    if config is None:
+        load_dotenv()
+        config = load()
+    settings = config
     logging.basicConfig(level=settings.log_level)
     # Each inventory refresh makes hundreds of HTTP calls. Keep request
     # traces available at DEBUG and show shelf summaries at INFO.
@@ -97,6 +99,16 @@ def create_app(config: Config | None = None) -> FastAPI:
         from src.chat.demo_catalogue import DemoCatalogue
 
         app.state.widget_catalogue = DemoCatalogue()
+    else:
+        from src.agent.tools import estate
+        from src.chat.live_catalogue import LiveCatalogue
+        from src.web.services.dependencies import catalogue_for
+
+        index = catalogue_for(settings)
+        if index is not None:
+            app.state.widget_catalogue = LiveCatalogue(
+                index, estate.build(settings), settings.neutrality_denylist
+            )
     middleware.install(app)
     errors.install(app, reporter)
 
