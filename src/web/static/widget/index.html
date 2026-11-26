@@ -27,10 +27,12 @@
     </div>
     <button type="button" id="sa-min" aria-label="Minimise chat">–</button>
     <button type="button" id="sa-close" aria-label="Close chat">×</button>
-    <button type="button" id="sa-menu" aria-label="Chat options" aria-expanded="false" aria-controls="sa-menu-pop">⋮</button>
-    <div id="sa-menu-pop" class="sa-menu" hidden>
-      <button type="button" id="sa-new">New chat</button>
-      <button type="button" id="sa-clear">Clear</button>
+    <div class="sa-overflow">
+      <button type="button" id="sa-menu" aria-label="Chat options" aria-expanded="false" aria-controls="sa-menu-pop">⋮</button>
+      <div id="sa-menu-pop" class="sa-menu" hidden>
+        <button type="button" id="sa-new">New chat</button>
+        <button type="button" id="sa-clear">Clear</button>
+      </div>
     </div>
   </header>
   <nav id="sa-tabs" class="sa-tabs" hidden aria-label="Guided, voice or chat">

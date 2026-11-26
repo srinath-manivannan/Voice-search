@@ -67,6 +67,7 @@ _CATEGORY = re.compile(
     re.IGNORECASE,
 )
 _YES = {"yes", "yeah", "yep", "ok", "okay", "sure", "haan", "ஆமா", "ஆம்"}
+_WIDER = ("please", "wider", "show more", "look wider", "a little wider")
 _LETTERS = "ABCDEFGHIJ"
 
 
@@ -213,10 +214,23 @@ class ShopperGuide:
             )
 
         if slots.pending == "relax" and self._accepts_relax(folded, slots):
-            stated, _hard = _find_budget(cleaned)
-            slots.budget = stated or slots.proposed_budget or slots.budget
-            slots.budget_hard = True
+            stated, hard = _find_budget(cleaned)
+            named = _find_brand(cleaned)
+            slots.rejected = []
             slots.pending = ""
+            slots.visible = []
+            # "please" / "wider" drops a brand that produced nothing. A named
+            # brand in the same sentence ("Show Vivo up to ₹27,000") stays.
+            if slots.brand and not named and not folded.startswith("show "):
+                slots.previous_brand = slots.brand
+                slots.brand = None
+            if stated:
+                slots.budget = stated
+                slots.budget_hard = hard
+            else:
+                nxt = await self._next_ceiling(slots)
+                slots.budget = nxt or slots.proposed_budget or slots.budget
+                slots.budget_hard = True
             slots.proposed_budget = None
             return await self._show(
                 slots, intro="Here are options inside the budget you just agreed"
@@ -236,6 +250,12 @@ class ShopperGuide:
 
         budget, hard = _find_budget(cleaned)
         if budget:
+            # A new ceiling leaves the previous empty search behind.
+            if budget != slots.budget or slots.pending == "relax":
+                slots.rejected = []
+                slots.pending = ""
+                slots.proposed_budget = None
+                slots.visible = []
             slots.budget = budget
             slots.budget_hard = hard
         brand = _find_brand(cleaned)
@@ -427,12 +447,12 @@ class ShopperGuide:
                 proposal = max(higher)
         slots.proposed_budget = proposal
         slots.pending = "relax" if proposal and slots.budget_hard else ""
-        brand = slots.brand or "that brand"
         ceiling = _rupees(slots.budget) if slots.budget else "your budget"
         suggestions: list[str] = []
         extra = ""
         if proposal and slots.budget_hard:
-            suggestions.append(f"Show {brand} up to {_rupees(proposal)}")
+            label = slots.brand or "options"
+            suggestions.append(f"Show {label} up to {_rupees(proposal)}")
             extra = f" Your {ceiling} limit stays unless you choose otherwise."
         if slots.previous_brand:
             suggestions.append(f"Go back to {slots.previous_brand}")
@@ -442,10 +462,11 @@ class ShopperGuide:
             lead = "Understood, I've set those aside. "
         else:
             lead = ""
-        text = (
-            f"{lead}There's no other {brand} matching that under {ceiling}. "
-            f"Would you like to look a little wider?{extra}"
-        )
+        if slots.brand:
+            missed = f"There's no other {slots.brand} matching that under {ceiling}."
+        else:
+            missed = f"There's nothing matching that under {ceiling}."
+        text = f"{lead}{missed} Would you like to look a little wider?{extra}"
         return self._turn(slots, " ".join(text.split()), suggestions, [])
 
     async def _available(
@@ -681,11 +702,29 @@ class ShopperGuide:
     def _accepts_relax(self, folded: str, slots: Slots) -> bool:
         if folded in _YES or folded.startswith("yes") or folded.startswith("show "):
             return True
+        if any(phrase in folded for phrase in _WIDER):
+            return True
         if slots.proposed_budget and str(slots.proposed_budget) in folded.replace(
             ",", ""
         ):
             return True
         return False
+
+    async def _next_ceiling(self, slots: Slots) -> int | None:
+        """The cheapest known price above the current ceiling, if one exists."""
+        try:
+            found = await self._catalogue.search(brand=slots.brand, max_price=None)
+        except Exception:
+            return None
+        floor = slots.budget or 0
+        prices = sorted(
+            {
+                item.price.selling_inr
+                for item in found or []
+                if item.price.selling_inr and item.price.selling_inr > floor
+            }
+        )
+        return prices[0] if prices else None
 
     def _add_need(self, slots: Slots, need: str) -> None:
         if need not in slots.needs:
