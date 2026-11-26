@@ -26,8 +26,13 @@
   var title = document.getElementById("sa-title");
   if (title) title.textContent = ASSISTANT;
   document.title = ASSISTANT;
-  if (!window.parent || window.parent === window) {
+  // A visit straight to this page (not framed by a storefront) shows the chat
+  // as a corner icon. Clicking it opens the same panel; close collapses it.
+  var standalone = !window.parent || window.parent === window;
+  var bubble = document.getElementById("sa-bubble");
+  if (standalone) {
     document.documentElement.setAttribute("data-standalone", "1");
+    document.documentElement.setAttribute("data-launcher", "closed");
   }
   if (config.color) {
     document.documentElement.style.setProperty("--sa-accent", config.color);
@@ -497,11 +502,21 @@
       send(input.value);
     }
   });
+  function setLauncher(open) {
+    document.documentElement.setAttribute("data-launcher", open ? "open" : "closed");
+    if (bubble) bubble.setAttribute("aria-expanded", open ? "true" : "false");
+    if (open) input.focus(); else if (bubble) bubble.focus();
+  }
+  if (standalone && bubble) {
+    bubble.addEventListener("click", function () { setLauncher(true); });
+  }
   document.getElementById("sa-close").addEventListener("click", function () {
+    if (standalone) { setLauncher(false); return; }
     panelOpen = false;
     post({ type: "sa.close" });
   });
   document.getElementById("sa-min").addEventListener("click", function () {
+    if (standalone) { setLauncher(false); return; }
     panelOpen = false;
     post({ type: "sa.layout", mode: "closed", modal: false });
     window.setTimeout(function () {
