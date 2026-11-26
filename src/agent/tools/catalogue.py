@@ -35,6 +35,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
+from decimal import Decimal, ROUND_CEILING
 from typing import Any, Callable, Protocol
 
 import httpx
@@ -109,9 +110,12 @@ def _amount(value: Any) -> int | None:
     if isinstance(value, dict):
         return _amount(value.get("price"))
     if isinstance(value, (int, float, str)) and re.fullmatch(
-        r"[0-9]+(?:\.0+)?", str(value)
+        r"[0-9]+(?:\.[0-9]+)?", str(value)
     ):
-        return int(str(value).split(".")[0]) or None
+        # Cards use whole rupees. Keep a price one paisa above a hard ceiling outside it.
+        return (
+            int(Decimal(str(value)).to_integral_value(rounding=ROUND_CEILING)) or None
+        )
     return None
 
 

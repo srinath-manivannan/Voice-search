@@ -45,6 +45,14 @@ def _category_matches(doc: dict[str, Any], category: str) -> bool:
     return CATEGORIES[category].casefold() in labels
 
 
+def _capacity_gb(value: Any) -> int | None:
+    for label in _values(value):
+        match = re.fullmatch(r"(\d+)\s*(GB|TB)?", label, re.IGNORECASE)
+        if match:
+            return int(match[1]) * (1024 if (match[2] or "").lower() == "tb" else 1)
+    return None
+
+
 def _raw(doc: dict[str, Any], category: str, now: str) -> dict[str, Any]:
     return {
         "item_code": doc.get("item_code") or doc.get("erp_item_code"),
@@ -59,8 +67,8 @@ def _raw(doc: dict[str, Any], category: str, now: str) -> dict[str, Any]:
             "fetched_at": now,
         },
         "specs": {
-            "ram": next(iter(_values(doc.get("ram"))), ""),
-            "storage": next(iter(_values(doc.get("internal_storage"))), ""),
+            "ram": _capacity_gb(doc.get("ram")),
+            "storage": _capacity_gb(doc.get("internal_storage")),
             "ois": doc.get("ois"),
             "usb": doc.get("usb_type"),
             "five_g": "5G" in _values(doc.get("cellulartechnology")) or None,
@@ -262,7 +270,9 @@ class LiveCatalogue:
             }
             for key, value in facts.specifications:
                 if target := spec_keys.get(key.casefold()):
-                    raw["specs"][target] = value
+                    raw["specs"][target] = (
+                        _capacity_gb(value) if target in {"ram", "storage"} else value
+                    )
             raw["emi"] = {
                 "state": facts.emi.state,
                 "from_inr_per_month": facts.emi.per_month,

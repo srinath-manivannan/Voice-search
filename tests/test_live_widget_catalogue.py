@@ -58,11 +58,12 @@ def test_two_turn_widget_returns_production_shaped_cards(monkeypatch):
         lambda q: page(
             [
                 handset("EXP", special_price=49000),
+                handset("PAISE", special_price=30000.25, price=25000),
                 handset("ACC", categories_slug=["phone-holders"]),
                 handset("OFF", stock_status="Out Of Stock"),
                 handset("INACTIVE", isActive=False),
                 handset("SHOW", name="Demo Handset"),
-                handset("ONE"),
+                handset("ONE", ram=["8GB"], internal_storage=["1TB"]),
                 handset("TWO", price=None, special_price=None, selling_price=22999),
                 handset(
                     "THREE",
@@ -104,6 +105,7 @@ def test_two_turn_widget_returns_production_shaped_cards(monkeypatch):
         assert not proxy.searches
         second = turn("Under ₹30,000", "00000000-0000-4000-b000-000000000002")
     (query,) = proxy.searches
+    assert second["cards"][0]["variant_label"] == "8 GB + 1024 GB"
     assert query["q"] == "*" and query["per_page"] == 40
     assert all(
         f in query["filter_by"]
@@ -146,6 +148,7 @@ async def test_unindexed_or_empty_filtered_page_retries_and_paginates(rejected):
     assert [i.sku_id for i in items] == ["OK"]
     assert items[0].price.list_inr == 40999
     assert list_price({"mrp": 40999.0}) == 40999
+    assert list_price({"mrp": 29999.5}) == 30000
     assert proxy.searches[-1]["page"] == 2
 
 
