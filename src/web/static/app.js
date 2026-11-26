@@ -553,14 +553,25 @@ function showCost(cost) {
   }
 }
 
+const VOICE_OFF = 'Live voice calling is currently disabled. ' +
+  'To enable it locally, start the server with LIVE_VOICE=1 and VOICE_ROUTE_B=1. ' +
+  'You can switch to Chat or Guided yourself if you want to keep going.';
+
 el('toggle').addEventListener('click', async () => {
   if (state.running) return stop();
   if (!state.config) await loadConfig().catch(() => null);
-  // Live voice is a paid model and is off unless the server says otherwise;
-  // the Voice Call tab then opens the same Guided conversation by voice, ₹0.
-  if (!state.config?.live_voice && typeof startGuidedVoice === 'function') {
-    return startGuidedVoice();
+  // Stay on this tab. Live voice is off unless the server says otherwise.
+  if (!state.config?.live_voice) {
+    const note = el('voice-notice');
+    if (note) {
+      note.hidden = false;
+      note.textContent = VOICE_OFF;
+    }
+    setStatus('');
+    return;
   }
+  const note = el('voice-notice');
+  if (note) note.hidden = true;
   return start();
 });
 // Known before the first click, so that click opens the right voice at once.
@@ -612,6 +623,13 @@ function focusTab(index) {
   showTab(NAMES[id], false);
   // After showTab, so the panel it reveals cannot take the focus back.
   el(id).focus();
+}
+
+const embedQuery = new URLSearchParams(location.search);
+if (embedQuery.get('embed') === '1') document.body.classList.add('sa-embed');
+const initialPanel = embedQuery.get('panel');
+if (initialPanel === 'guided' || initialPanel === 'voice' || initialPanel === 'chat') {
+  showTab(initialPanel, false);
 }
 
 TABS.forEach((id, index) => {
