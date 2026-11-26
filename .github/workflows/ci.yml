@@ -83,7 +83,10 @@ jobs:
         run: mypy src
 
       - name: Tests
-        run: pytest
+        # pythonpath in pytest.ini puts the repo root on sys.path. This
+        # job still skips the browser suite entirely: collecting it imports
+        # Playwright, and that belongs to the e2e job.
+        run: pytest --ignore=tests/e2e
 
       - name: Neutrality
         # PY=python because this job has no virtualenv. The target shells
@@ -103,7 +106,10 @@ jobs:
         run: make audit AUDIT_BIN=
 
   e2e:
-    runs-on: ubuntu-latest
+    # ubuntu-latest moved to 26.04. Playwright 1.49's --with-deps list still
+    # names Ubuntu 24.04 packages (libicu74, libvpx9, libx264-164), which
+    # 26.04 does not ship. Pin the runner that those package names match.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
