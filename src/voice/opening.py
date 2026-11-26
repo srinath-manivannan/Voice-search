@@ -160,6 +160,14 @@ class SpeaksTheOpening:
         await self._inner.end_of_speech()
 
     @property
+    def joins_follow_on_speech(self) -> bool:
+        return bool(getattr(self._inner, "joins_follow_on_speech", False))
+
+    async def speech_continued(self) -> None:
+        if self.joins_follow_on_speech:
+            await self._inner.speech_continued()  # type: ignore[attr-defined]
+
+    @property
     def seconds(self) -> float:
         return bytes_to_seconds(self._pcm, self._rate)
 

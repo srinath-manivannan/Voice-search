@@ -119,6 +119,7 @@ THINKING = "thinking"
 GROK = "grok"
 GROK_TTS = "grok_tts"
 BRAIN = "brain"
+TRANSCRIPTION = "transcription"
 
 LABELS = {
     IN_AUDIO: "Caller voice + audio history",
@@ -129,6 +130,7 @@ LABELS = {
     GROK: "Grok memory",
     GROK_TTS: "Agent voice, spoken by Grok",
     BRAIN: "Working it out on the text model",
+    TRANSCRIPTION: "Gemini speech recognition",
 }
 
 
@@ -288,6 +290,7 @@ def price(
     include_grok: bool = False,
     grok_tts_chars: int = 0,
     brain_usd: float = 0.0,
+    transcription_usd: float = 0.0,
 ) -> Breakdown:
     """Price already-counted tokens. Token counts are BILLED counts.
 
@@ -318,6 +321,10 @@ def price(
         raw[GROK] = (grok_tokens, 0.0)
         priced[GROK] = grok_usd
         order.append(GROK)
+    if transcription_usd:
+        raw[TRANSCRIPTION] = (0, 0.0)
+        priced[TRANSCRIPTION] = transcription_usd
+        order.append(TRANSCRIPTION)
     if brain_usd:
         # The cascade's brain prices itself on flash-lite's card, so what
         # crosses is dollars rather than tokens. It was reaching

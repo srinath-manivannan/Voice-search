@@ -195,6 +195,43 @@ class ToolSession:
 
     # ── discovery ─────────────────────────────────────────────────────────
 
+    async def emi_ahead(self) -> dict[str, Any] | None:
+        """The EMI for the first phone on the shortlist, looked up unasked.
+
+        Not `product_details`: that narrows the conversation to the product it
+        was asked about, and a prefetch must not narrow anything. The facts are
+        kept the way a search keeps its prices, so a later question is free.
+        None when there is no shortlist, no estate, or no EMI to quote.
+        """
+        if not self._shortlist or self._estate is None:
+            return None
+        picked = self._shortlist[0]
+        held = self._facts.get(picked.item_code)
+        if held is None or not held[0].issuperset(WANTED["emi"]):
+            wanted = (
+                WANTED["emi"]
+                if held is None
+                else tuple(dict.fromkeys((*held[0], *WANTED["emi"])))
+            )
+            try:
+                facts = estate_api.read(
+                    await self._estate.product(picked.item_code, wanted)
+                )
+            except estate_api.EstateUnavailable:
+                return None
+            self._facts[picked.item_code] = (frozenset(wanted), facts)
+        facts = self._facts[picked.item_code][1]
+        emi = facts.emi
+        if emi.state != estate_api.KNOWN or not isinstance(emi.per_month, int):
+            return None
+        return {
+            "ref": picked.ref,
+            "name": picked.name,
+            "per_month": emi.per_month,
+            "months": emi.months,
+            "provider": emi.provider,
+        }
+
     async def search_ahead(self, args: dict[str, Any]) -> dict[str, Any]:
         """The search the model is about to make, run first. SHALLOW.
 

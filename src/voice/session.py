@@ -356,6 +356,21 @@ class Conversation:
                 self._caller_speaking = verdict.is_speech
                 await self._notify(type="state", caller_speaking=verdict.is_speech)
 
+                # The caller paused again while a reply is still owed. A
+                # model that can fold that into the question it has not
+                # started answering (the cascade) is told; the Live model
+                # keeps one signal per reply, which is what stopped it
+                # abandoning answer after answer.
+                if (
+                    not verdict.is_speech
+                    and self._heard_speech_this_turn
+                    and self._awaiting_reply
+                    and getattr(self._model, "joins_follow_on_speech", False)
+                ):
+                    self._heard_speech_this_turn = False
+                    self.trace.record("speech_continued", turn=self._model.turn_id)
+                    await self._model.speech_continued()  # type: ignore[attr-defined]
+
                 if not verdict.is_speech and (
                     self._heard_speech_this_turn and not self._awaiting_reply
                 ):

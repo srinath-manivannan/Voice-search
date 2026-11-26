@@ -303,13 +303,47 @@ class Searcher(Protocol):
 
     async def search_ahead(self, args: dict[str, Any]) -> dict[str, Any]: ...
 
+    async def emi_ahead(self) -> dict[str, Any] | None: ...
+
     @property
     def shortlist(self) -> tuple[Any, ...]: ...
+
+
+def emi_line(emi: dict[str, Any]) -> str:
+    """The EMI for the top phone, said once the shortlist is already known.
+
+    Sent as its own line, after the shortlist, and never inside it: the
+    shortlist is what the race with the model is about, and an EMI lookup
+    costs an estate round trip the race cannot afford to wait for.
+    """
+    return (
+        f"EMI for ref {emi['ref']}, {emi['name']}: "
+        f"{emi.get('provider') or 'the bank'}, {emi['months']} months, "
+        f"from {emi['per_month']:,} rupees a month. "
+        "Quote this figure as it is; for any other product call product_details."
+    )
 
 
 # Puts text in the model's context without asking it to answer. Both the Live
 # adapter and the rotating wrapper provide exactly this.
 Primer = Callable[[str], Awaitable[None]]
+
+
+def _stock_words(item: dict[str, Any]) -> str | None:
+    """What the search result said about stock, and nothing it did not.
+
+    The estate's answer when there is one; the index's hint, named as a
+    listing, when there is not; nothing when neither is there.
+    """
+    stock = item.get("stock")
+    if isinstance(stock, dict) and stock.get("state") == "known":
+        return "in stock" if stock.get("available") else "out of stock"
+    hint = item.get("in_stock_hint")
+    if hint is True:
+        return "listed in stock"
+    if hint is False:
+        return "listed out of stock"
+    return None
 
 
 def note(result: dict[str, Any], intent: Intent) -> str:
@@ -357,8 +391,20 @@ def note(result: dict[str, Any], intent: Intent) -> str:
         specs = item.get("specs")
         if isinstance(specs, dict) and specs:
             line += " - " + ", ".join(f"{k} {v}" for k, v in specs.items())
+        # Stock, for the same reason. The search result carries it and the
+        # note did not, so on the cascade - where this note is all the brain
+        # sees of the search - "stock irukka?" got persona.py's own example
+        # back word for word, "Ippo confirm panna mudiyathu" (2026-11-26).
+        if stock := _stock_words(item):
+            line += f" ({stock})"
         lines.append(line)
     lines.append("Do not call search_products again if these match the full request.")
+    # EMI is not in this note and is never worked out by hand. The brain
+    # (2026-11-26) answered "EMI tool-la illai" without calling for it, and
+    # earlier replies quoted EMI figures no tool returned.
+    lines.append(
+        'For an EMI on one of these, call product_details with its ref and want ["emi"].'
+    )
     return "\n".join(lines)
 
 
@@ -412,6 +458,7 @@ class Prefetcher:
         self._claimed = False
         self._done = 0
         self.task: asyncio.Task[bool] | None = None
+        self._emi: asyncio.Task[None] | None = None
         self.fired = False
         self.used = False
 
@@ -536,4 +583,30 @@ class Prefetcher:
             intent.category,
             intent.as_args(),
         )
+        # Not part of `task`: settle() must not wait for an EMI lookup.
+        self._emi = asyncio.create_task(self._emi_follow_up(), name="prefetch-emi")
         return True
+
+    async def _emi_follow_up(self) -> None:
+        """The EMI for the top phone, primed after the shortlist, if there is one.
+
+        The brain (2026-11-26) answered the EMI question from memory on about
+        half the calls, quoting ₹48 and ₹904 for a phone whose real EMI was ₹652
+        a month. Giving it the figure here means it does not have to choose to
+        look it up.
+        """
+        try:
+            emi = await asyncio.wait_for(self._tools.emi_ahead(), self._timeout)
+        except asyncio.CancelledError:
+            raise
+        except Exception as failed:  # noqa: BLE001 - never the caller's problem
+            log.info("prefetch EMI did not land: %s", type(failed).__name__)
+            return
+        if not emi:
+            return
+        try:
+            await self._prime(emi_line(emi))
+        except Exception as failed:  # noqa: BLE001
+            log.warning("prefetch EMI could not be primed: %s", type(failed).__name__)
+            return
+        self._note("prefetch_emi_primed", ref=emi["ref"])

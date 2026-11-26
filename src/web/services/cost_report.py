@@ -39,7 +39,7 @@ def report(
         settings.usd_inr,
         settings.gst_rate,
         minutes,
-        include_grok=settings.grok_memory_enabled,
+        include_grok=settings.grok_memory_enabled and not settings.voice_gemini_only,
         grok_tts_chars=grok_tts_chars,
     ).as_dict()
     payload["target_inr_per_min"] = settings.target_inr_per_minute

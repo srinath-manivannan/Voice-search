@@ -156,6 +156,11 @@ class Loudspeaker(Protocol):
 class CascadeSession:
     """Ear, brain and mouth, presented to `Conversation` as one model."""
 
+    # `Conversation` signals one end of speech per reply. This model can also
+    # be told the caller went on talking before that reply started, and
+    # folds it into the same question; see `speech_continued`.
+    joins_follow_on_speech = True
+
     def __init__(
         self,
         ear: Ear,
@@ -183,6 +188,9 @@ class CascadeSession:
 
         self._buffer = bytearray()
         self._cap = int(MAX_UTTERANCE_SECONDS * rate * 2)
+        # The caller said more while an answer was still owed. It waits in the
+        # buffer and is answered as the next question once this one is spoken.
+        self._queued = False
         self._turn_id = 0
         self._out: asyncio.Queue[Event] = asyncio.Queue()
         self._speech_ended_at: float | None = None
@@ -276,6 +284,37 @@ class CascadeSession:
             self._turn(pcm, self._turn_id), name="cascade-turn"
         )
 
+    async def speech_continued(self) -> None:
+        """The caller paused, then went on, while an answer is still owed.
+
+        Nothing is cancelled. The first version restarted the answer with the
+        whole question, and on the calls of 2026-11-26 every "ம்" or repeat
+        restarted it: the caller waited 4-6 seconds for the first audio
+        already, and each restart added another round. Now the answer that
+        has started is finished, and the new speech - which is already in the
+        buffer - is answered next, as a question of its own.
+        """
+        if len(self._buffer) >= MIN_UTTERANCE_SECONDS * self._rate * 2:
+            self._queued = True
+
+    def _after_silent_turn(self) -> None:
+        """A turn that ends without speech cannot run `_answer_queued` inline:
+        it is the task that `end_of_speech` would cancel. Start it beside."""
+        if self._queued:
+            asyncio.get_running_loop().create_task(self._answer_queued())
+
+    async def _answer_queued(self) -> None:
+        """Start the queued question, if the caller added one.
+
+        Called once an answer has been spoken, or once a turn has ended without
+        one. Running it earlier would cut the answer off.
+        """
+        if not self._queued:
+            return
+        self._queued = False
+        if len(self._buffer) >= MIN_UTTERANCE_SECONDS * self._rate * 2:
+            await self.end_of_speech()
+
     def events(self) -> AsyncIterator[Event]:
         return self._events()
 
@@ -355,6 +394,7 @@ class CascadeSession:
             await self._out.put(
                 TurnComplete(turn_id=turn_id, usage=TurnUsage(), first_audio_ms=None)
             )
+            self._after_silent_turn()
             return
 
         await self._out.put(CallerTranscript(turn_id=turn_id, text=heard))
@@ -368,6 +408,7 @@ class CascadeSession:
                     turn_id=turn_id, usage=self._turn_usage(), first_audio_ms=None
                 )
             )
+            self._after_silent_turn()
             return
 
         await self._out.put(Transcript(turn_id=turn_id, text=reply))
@@ -383,6 +424,8 @@ class CascadeSession:
         except Exception as failed:  # noqa: BLE001
             log.warning("cascade could not transcribe: %s", type(failed).__name__)
             return None
+        if heard.token_usd is not None:
+            self.usage.transcription_usd += heard.token_usd
         return heard.text or None
 
     async def _think(self, heard: str) -> str:
@@ -439,6 +482,7 @@ class CascadeSession:
                                 first_audio_ms=self._first_audio_ms(),
                             )
                         )
+                        await self._answer_queued()
                     case TurnInterrupted():
                         # The mouth's turn ended without completing. Measured
                         # on a real call: the greeting spoke and then nothing

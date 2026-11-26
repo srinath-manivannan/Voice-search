@@ -232,6 +232,7 @@ class Config:
     chat_paid_enabled: bool = True
     # Release 3. Both stay off until a pilot turns them on. Route C, the
     # recorded guided path, does not need either flag.
+    voice_gemini_only: bool = False
     voice_route_b_enabled: bool = False
     voice_route_a_enabled: bool = False
     # Retailer names and domains, from the deployment secret. Never committed.
@@ -579,6 +580,7 @@ def load(env: str | None = None) -> Config:
         chat_paid_enabled=os.environ.get("CHAT_PAID_ENABLED", "1").strip().lower()
         not in ("0", "false", "no", "off"),
         voice_route_b_enabled=_flag("VOICE_ROUTE_B"),
+        voice_gemini_only=_flag("VOICE_GEMINI_ONLY"),
         voice_route_a_enabled=_flag("VOICE_ROUTE_A"),
         neutrality_denylist=tuple(
             dict.fromkeys(

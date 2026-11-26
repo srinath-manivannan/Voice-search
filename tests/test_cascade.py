@@ -417,3 +417,100 @@ class TestTheRest:
         lowered = SPEAK_ONLY.lower()
         assert "word for word" in lowered
         assert "do not answer" in lowered
+
+
+class SlowEar(FakeEar):
+    """An ear that takes a moment, so more speech can arrive while the first
+    utterance is still being worked out."""
+
+    def __init__(self, *answers: str | Exception) -> None:
+        super().__init__(*answers)
+        self.started: list[int] = []
+
+    async def hear(self, pcm: bytes, *, rate: int) -> Heard:
+        self.started.append(len(pcm))
+        await asyncio.sleep(0.05)
+        return await super().hear(pcm, rate=rate)
+
+
+async def _wait_for(predicate, timeout: float = 2.0) -> None:
+    loop = asyncio.get_running_loop()
+    until = loop.time() + timeout
+    while not predicate():
+        if loop.time() > until:
+            raise AssertionError("timed out waiting")
+        await asyncio.sleep(0.01)
+
+
+class TestAQuestionWithAPauseInIt:
+    """2026-11-26, the first Gemini-only call: "Mudhal phone stock-la
+    irukka? ... EMI evvalavu?" ended at the pause, and the EMI half was
+    never answered. The first fix cancelled the answer and restarted it, which
+    made every repeat cost another round: 4-6 seconds to the first audio
+    already. Now the answer in flight is finished, and the next question is
+    answered after it."""
+
+    async def test_the_next_question_is_answered_after_the_first_is_spoken(self):
+        ear = SlowEar("stock irukka?", "EMI evvalavu?")
+        brain = FakeBrain("Stock irukku.", "EMI 652 rupees.")
+        mouth = FakeMouth()
+        session = build(ear, brain, mouth)
+
+        seen: list[Any] = []
+
+        async def pump() -> None:
+            async for event in session.events():
+                seen.append(event)
+
+        pumping = asyncio.create_task(pump())
+        try:
+            await session.send_audio(speech(1.0))
+            await session.end_of_speech()
+            await asyncio.sleep(0)  # the first turn is under way
+            await session.send_audio(speech(0.8))
+            await session.speech_continued()
+
+            # Nothing was cancelled: the first question is the one asked.
+            await asyncio.wait_for(session._thinking, 1.0)
+            assert ear.started == [len(speech(1.0))]
+            assert brain.asked == ["stock irukka?"]
+            await _wait_for(lambda: mouth.said == ["Stock irukku."])
+
+            # The first answer finishes; the second question is answered next.
+            mouth.speak_back(bytes(64), turn_id=7)
+            await _wait_for(lambda: len(mouth.said) == 2)
+            assert brain.asked == ["stock irukka?", "EMI evvalavu?"]
+            assert mouth.said == ["Stock irukku.", "EMI 652 rupees."]
+        finally:
+            pumping.cancel()
+
+    async def test_speech_during_the_answer_waits_in_the_buffer(self):
+        ear = FakeEar("stock irukka?")
+        brain = FakeBrain("Stock irukku.")
+        session = build(ear, brain, FakeMouth())
+
+        await session.send_audio(speech(1.0))
+        await session.end_of_speech()
+        await asyncio.wait_for(session._thinking, 1.0)
+
+        await session.send_audio(speech(0.8))
+        await session.speech_continued()
+        assert ear.heard == [len(speech(1.0))]
+        assert session._queued is True
+        assert len(session._buffer) == len(speech(0.8))
+
+    async def test_a_blip_is_not_a_question(self):
+        ear = SlowEar("stock irukka?")
+        brain = FakeBrain("Stock irukku.")
+        session = build(ear, brain, FakeMouth())
+
+        await session.send_audio(speech(1.0))
+        await session.end_of_speech()
+        await asyncio.sleep(0)
+        await session.send_audio(speech(0.1))
+        await session.speech_continued()
+        await asyncio.wait_for(session._thinking, 1.0)
+
+        assert ear.started == [len(speech(1.0))]
+        assert brain.asked == ["stock irukka?"]
+        assert session._queued is False

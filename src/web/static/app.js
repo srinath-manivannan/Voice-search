@@ -373,11 +373,12 @@ const PLAIN = {
   grok:      'Writing itself notes',
   grok_tts:  'Speaking back',
   brain:     'Working out the answer',
+  transcription: 'Understanding your words',
 };
 // Which side of the meter each line sits on. Said as "taking in" and
 // "giving back" rather than input and output, which mean nothing to anyone
 // who has not read a pricing page.
-const TAKES_IN = ['in_audio', 'in_text'];
+const TAKES_IN = ['in_audio', 'in_text', 'transcription'];
 // Who the money actually goes to. Two companies one letter apart, so they
 // are named by company and not by model: "Grok" and "Groq" in the same list
 // would be a bill nobody could check. Every charge line that is not the
@@ -387,7 +388,7 @@ const VENDORS = [
   // `brain` is the cascade's text model, which is also Gemini. It prices
   // itself on flash-lite's card and crosses as dollars rather than tokens,
   // so it has its own key - but the money still goes to the same company.
-  { who: 'Google · Gemini', keys: ['in_audio', 'in_text', 'out_audio', 'out_text', 'thinking', 'brain'] },
+  { who: 'Google · Gemini', keys: ['in_audio', 'in_text', 'out_audio', 'out_text', 'thinking', 'brain', 'transcription'] },
   { who: 'xAI · Grok', keys: ['grok', 'grok_tts'] },
 ];
 

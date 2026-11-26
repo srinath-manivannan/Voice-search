@@ -19,7 +19,6 @@ from dataclasses import dataclass, field
 import logging
 from typing import Any, Protocol
 
-from src.agent.tools.runner import ToolSession
 from src.chat.gemini_text import GeminiTextModel
 from src.voice.usage import FLASH_LITE, SessionUsage
 
@@ -65,6 +64,12 @@ READING_TEMPERATURE = 0.2
 QUOTING_TEMPERATURE = 0.0
 
 
+class Tools(Protocol):
+    """What the brain needs from a tool session: running one call."""
+
+    async def run(self, name: str, args: dict[str, Any]) -> dict[str, Any]: ...
+
+
 class RoundHooks(Protocol):
     """Reserve before a generation and settle after it, including tool rounds."""
 
@@ -89,7 +94,7 @@ class ChatSession:
     def __init__(
         self,
         model: GeminiTextModel,
-        tools: ToolSession | None = None,
+        tools: Tools | None = None,
         max_history_messages: int = 12,
         sanitise: Sanitise | None = None,
         hooks: RoundHooks | None = None,
@@ -158,10 +163,26 @@ class ChatSession:
         self._history = self._history[cut:]
 
     async def send(self, text: str) -> AsyncIterator[str]:
-        """Add the customer's message, stream the reply, record what it cost."""
+        """Add the customer's message, stream the reply, record what it cost.
+
+        All or nothing for the history. A reply that is cancelled or fails
+        part way - the voice cascade cancels one whenever the caller carries
+        on talking before it is spoken - takes its question, and any tool
+        call it had started, back out with it. Left in, a function call with
+        no response after it makes every later request a 400, and the
+        brain is silent for the rest of the call.
+        """
         self._history.append({"role": "user", "parts": [{"text": text}]})
         self._trim()
+        mark = len(self._history) - 1
+        try:
+            async for delta in self._answer():
+                yield delta
+        except BaseException:
+            del self._history[mark:]
+            raise
 
+    async def _answer(self) -> AsyncIterator[str]:
         reply = ""
         turn = None
         for _round in range(self.MAX_TOOL_ROUNDS + 1):
