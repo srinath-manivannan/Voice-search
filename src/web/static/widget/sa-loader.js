@@ -103,7 +103,7 @@
     if (narrow) {
       frame.style.cssText = "position:fixed;inset:0;width:100%;height:100dvh;z-index:2147483000;border:0;background:#fff;";
     } else {
-      frame.style.cssText = "position:fixed;right:20px;bottom:96px;width:380px;height:min(600px,80vh);z-index:2147483000;border:0;border-radius:16px;box-shadow:0 16px 48px rgba(20,34,38,.18);background:#fff;";
+      frame.style.cssText = "position:fixed;right:20px;bottom:88px;width:360px;height:min(560px,78vh);z-index:2147483000;border:0;border-radius:16px;box-shadow:0 16px 48px rgba(20,34,38,.18);background:#fff;";
     }
   }
 

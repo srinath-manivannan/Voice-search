@@ -33,9 +33,10 @@ def install(app: FastAPI, settings: Config) -> None:
         html = (WIDGET / "index.html").read_text(encoding="utf-8")
         name = settings.brand_name or settings.assistant_name
         color = settings.brand_primary_color
-        surfaces = (
-            ["guided", "voice", "chat"] if settings.app_mode == "full" else ["chat"]
-        )
+        # The embed is the chat and nothing else. Release 1 has no voice and
+        # no Guided (docs/RELEASE1_RUNBOOK.md); the developer app at / keeps
+        # those tabs for demos, and this page never shows them.
+        surfaces = ["chat"]
         config = {
             "v": 1,
             "assistant_name": name,

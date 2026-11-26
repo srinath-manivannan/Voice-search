@@ -377,7 +377,6 @@
   function onServer(message) {
     if (message.type === "welcome") {
       token = message.token || token;
-      if (message.context_label) document.getElementById("sa-context").textContent = "Asking about: " + message.context_label;
       post({ type: "sa.persist", token: token });
       (message.replay || []).forEach(onServer);
       if (outbox && outbox.status !== "done") {
@@ -469,13 +468,24 @@
         token = body.token;
         post({ type: "sa.persist", token: token });
       }
-      if (body.context_label) document.getElementById("sa-context").textContent = "Asking about: " + body.context_label;
       redraw(body.messages || []);
     }).catch(function () { /* history is optional; the welcome is already on screen */ });
   }
 
   SUGGESTIONS.forEach(function () {});
   renderSuggestions(SUGGESTIONS);
+
+  // The welcome is for the first visit. After that the chat opens on the
+  // conversation itself, not on the same greeting again. Kept in the
+  // browser, so a closed and reopened panel remembers it.
+  var welcome = document.getElementById("sa-welcome");
+  var WELCOME_KEY = "sa_welcome_seen";
+  var seenBefore = false;
+  try { seenBefore = window.localStorage.getItem(WELCOME_KEY) === "1"; } catch (err) { /* storage blocked: show it */ }
+  if (welcome && seenBefore) welcome.hidden = true;
+  if (!seenBefore) {
+    try { window.localStorage.setItem(WELCOME_KEY, "1"); } catch (err) { /* storage blocked */ }
+  }
 
   form.addEventListener("submit", function (event) {
     event.preventDefault();
@@ -497,10 +507,6 @@
     window.setTimeout(function () {
       if (!panelOpen && socket) socket.close(1000, "panel closed");
     }, 60000);
-  });
-  document.getElementById("sa-back").addEventListener("click", function () {
-    if (product) post({ type: "sa.navigate", product_id: product.product_id, variant_id: product.variant_id });
-    post({ type: "sa.close" });
   });
   input.addEventListener("input", function () {
     input.style.height = "44px";
@@ -641,7 +647,6 @@
       nonce = data.nonce || nonce;
       if (data.embed === "panel" || data.embed === "sheet") hostEmbed = data.embed;
       product = data.product || null;
-      document.querySelector(".sa-context").hidden = !product;
       if (data.pincode) config.pincode = data.pincode;
       try { sessionStorage.setItem("sa_host_session", data.host_session || ""); } catch (err) { /* ignore */ }
       if (data.restore_token) {
@@ -661,11 +666,9 @@
       applyMode();
     } else if (data.type === "sa.context") {
       product = data.product || null;
-      document.querySelector(".sa-context").hidden = !product;
       if (product && product.variant_id) {
         document.documentElement.setAttribute("data-variant", product.variant_id);
       }
-      document.getElementById("sa-context").textContent = "Asking about: this page";
       // The open socket still has the previous variant on its hello.
       // Drop it so the next send resumes with this one. Spend stays on
       // the conversation token.

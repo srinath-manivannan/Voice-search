@@ -172,6 +172,9 @@ async function start() {
 
   try {
     if (!state.config) await loadConfig();
+    // Chrome waits here for the microphone permission. Say so, or a page
+    // that is waiting for a click looks exactly like one that has hung.
+    setStatus('allow the microphone to start', 'live');
     state.stream = await navigator.mediaDevices.getUserMedia({
       audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
     });
@@ -230,11 +233,32 @@ async function start() {
   state.socket.onclose = (event) => {
     // A refusal says why ("voice calls are paused for today"); show it.
     if (event && event.reason) setStatus(event.reason, 'bad');
-    if (state.running) stop();
+    if (state.running) {
+      stop();
+    } else {
+      // The socket went before the call started. Without this the button
+      // stayed disabled on "connecting…" for good.
+      el('toggle').disabled = false;
+      setCtaLabel('Start Call');
+      if (!(event && event.reason)) setStatus('the call ended before it started', 'bad');
+    }
   };
   state.socket.onerror = () => setStatus('connection failed', 'bad');
 
   state.socket.onopen = () => {
+    try {
+      startAudio();
+    } catch (error) {
+      console.error('could not start audio', error);
+      setStatus('could not start audio: ' + error.message, 'bad');
+      el('toggle').disabled = false;
+      setCtaLabel('Start Call');
+      if (state.socket) state.socket.close();
+    }
+  };
+}
+
+function startAudio() {
     const sourceNode = state.captureContext.createMediaStreamSource(state.stream);
     state.micAnalyser = analyserFor(state.captureContext, sourceNode);
     startLevelLoop();
@@ -253,7 +277,6 @@ async function start() {
     setCtaLabel('End Call');
     el('toggle').classList.add('stop');
     el('sub').textContent = 'Speak whenever you like — you can talk over it';
-  };
 }
 
 function stop() {

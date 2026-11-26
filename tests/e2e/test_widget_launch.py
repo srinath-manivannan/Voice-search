@@ -87,10 +87,13 @@ def test_dormant_panel_creates_no_socket_audio_or_permission(
     page.set_viewport_size({"width": 1280, "height": 800})
     page.goto(stack.storefront)
     button = page.get_by_role("button", name="Open Shopping Assistant chat")
-    for _ in range(3):
+    for attempt in range(3):
         button.click()
         frame = _frame(page)
-        frame.locator("#sa-welcome").wait_for(state="visible")
+        # The greeting is for the first visit only; later opens go straight
+        # to the conversation.
+        state = "visible" if attempt == 0 else "hidden"
+        frame.locator("#sa-welcome").wait_for(state=state)
         button.click()
         expect(button).to_have_attribute("aria-expanded", "false")
     gum = _probe(page, "gum")
@@ -99,7 +102,7 @@ def test_dormant_panel_creates_no_socket_audio_or_permission(
     page.reload()
     button = page.get_by_role("button", name="Open Shopping Assistant chat")
     button.click()
-    _frame(page).locator("#sa-welcome").wait_for(state="visible")
+    _frame(page).locator("#sa-welcome").wait_for(state="hidden")
     button.click()
     assert watched.sockets == [], browser_name
     assert _widget_urls(watched.requests, stack.widget) == [], browser_name
@@ -241,7 +244,7 @@ def test_bad_messages_and_foreign_origins_are_ignored(watched, stack: Stack) -> 
         nonce,
     )
     expect(frame.locator("#sa-welcome")).to_be_visible()
-    expect(frame.locator("#sa-context")).to_contain_text("this page")
+    expect(frame.locator("#sa-context")).to_have_count(0)
     page.evaluate(
         """(nonce) => {
           const frame = document.querySelector('#sa-launcher-root').shadowRoot.querySelector('iframe');
@@ -334,11 +337,8 @@ def test_availability_follows_the_variant_and_back_returns_to_the_product(
     expect(frame.locator(".sa-msg.assistant").last).to_contain_text(
         "8 GB + 128 GB, Black is in stock", timeout=10000
     )
-    frame.get_by_role("button", name="Back to product page").click()
+    frame.get_by_role("button", name="Close chat").click()
     expect(page.locator("iframe[title='Shopping Assistant chat']")).to_be_hidden()
     assert _focused_label(page) == "Open Shopping Assistant chat"
-    nav = page.evaluate("() => window.__saNav")
-    assert nav["product_id"] == "SKU-DEMO-A1"
-    assert nav["variant_id"] == "VAR-128-BLK"
     assert button.get_attribute("aria-expanded") == "false"
     assert watched.errors == []

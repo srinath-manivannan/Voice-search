@@ -26,7 +26,7 @@ def test_orange_tokens_and_product_actions(watched, stack: Stack) -> None:
     page.locator("iframe[title='Shopping Assistant chat']").wait_for(state="attached")
     frame = next(item for item in page.frames if "/widget/v1" in (item.url or ""))
     frame.locator("#sa-welcome").wait_for(state="visible")
-    expect(frame.locator(".sa-context")).to_be_visible()
+    expect(frame.locator(".sa-context")).to_have_count(0)
     color = frame.locator(".sa-header").evaluate(
         "el => getComputedStyle(el).backgroundColor"
     )
@@ -63,14 +63,14 @@ def test_direct_widget_is_a_narrow_shell(page, stack: Stack) -> None:  # noqa: A
     width = page.locator("body").evaluate("el => el.getBoundingClientRect().width")
     assert width <= 420
     assert page.locator("html").get_attribute("data-standalone") == "1"
-    expect(page.locator(".sa-context")).to_be_hidden()
+    expect(page.locator(".sa-context")).to_have_count(0)
     page.locator("#sa-input").fill("Help me find the right phone")
     page.locator(".sa-send").click()
     timestamp = page.locator(".sa-turn.mine time").first
     expect(timestamp).to_be_visible()
     assert timestamp.evaluate("el => getComputedStyle(el).color") == "rgb(95, 102, 115)"
     expect(page.locator("#sa-log")).to_contain_text("What budget", timeout=10000)
-    expect(page.locator(".sa-context")).to_be_hidden()
+    expect(page.locator(".sa-context")).to_have_count(0)
 
 
 @pytest.fixture(scope="module")
