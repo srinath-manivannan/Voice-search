@@ -10,19 +10,24 @@ import json
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 
 from src.chat.copy import SUGGESTIONS, WELCOME
 from src.config import Config
 
 WIDGET = Path(__file__).resolve().parents[1] / "static" / "widget"
 _JS = "application/javascript; charset=utf-8"
+# Served in place of the loader when widget.enabled is off, so a storefront
+# that still points at this URL renders no button and opens no iframe.
+_DISABLED_JS = "/* Shopping Assistant is switched off. */\n"
 
 
 def install(app: FastAPI, settings: Config) -> None:
     @app.get("/widget/v1", include_in_schema=False)
     @app.get("/widget/v1/", include_in_schema=False)
-    async def page() -> HTMLResponse:
+    async def page() -> Response:
+        if not settings.widget_enabled:
+            return HTMLResponse("Not found", status_code=404)
         html = (WIDGET / "index.html").read_text(encoding="utf-8")
         config = {
             "v": 1,
@@ -35,7 +40,9 @@ def install(app: FastAPI, settings: Config) -> None:
         return HTMLResponse(html)
 
     @app.get("/widget/v1/sa-loader.js", include_in_schema=False)
-    async def loader() -> FileResponse:
+    async def loader() -> Response:
+        if not settings.widget_enabled:
+            return Response(_DISABLED_JS, media_type=_JS)
         return FileResponse(WIDGET / "sa-loader.js", media_type=_JS)
 
     @app.get("/widget/v1/widget.js", include_in_schema=False)

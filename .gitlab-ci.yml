@@ -40,9 +40,23 @@ test:
       alias: redis
   variables:
     REDIS_TEST_URL: redis://redis:6379/0
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends tesseract-ocr
+    - pip install --upgrade pip
+    - pip install --require-hashes -r requirements.txt -r requirements-dev.txt
   script:
     - pytest
     - python -m src.tools.neutrality_scan
+
+e2e:
+  extends: .python
+  stage: check
+  before_script:
+    - pip install --upgrade pip
+    - pip install --require-hashes -r requirements.txt -r requirements-dev.txt
+    - python -m playwright install --with-deps chromium webkit
+  script:
+    - pytest -m e2e --browser chromium --browser webkit --override-ini="addopts=-q --strict-markers"
 
 secrets:
   stage: check

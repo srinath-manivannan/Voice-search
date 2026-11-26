@@ -228,6 +228,15 @@ class Config:
     voice_route_a_enabled: bool = False
     # Retailer names and domains, from the deployment secret. Never committed.
     neutrality_denylist: tuple[str, ...] = ()
+    # Kill switch for the embed. Off, the loader is a no-op and /ws/chat
+    # refuses. Spend stops immediately via chat_paid_enabled; this one
+    # removes the entry point on the next uncached page load.
+    widget_enabled: bool = True
+    # Local staging and browser tests. A scripted reply, never a model call.
+    widget_stub_model: bool = False
+    widget_stub_delay_ms: int = 0
+    # A fixed two-variant handset so "Is this available?" works with no feed.
+    widget_demo_catalogue: bool = False
 
     @property
     def system_instruction(self) -> str:
@@ -474,4 +483,11 @@ def load(env: str | None = None) -> Config:
                 if token.strip()
             )
         ),
+        widget_enabled=os.environ.get("WIDGET_ENABLED", "1").strip().lower()
+        not in ("0", "false", "no", "off"),
+        widget_stub_model=_flag("WIDGET_STUB_MODEL"),
+        widget_stub_delay_ms=max(
+            0, int(os.environ.get("WIDGET_STUB_DELAY_MS", "0") or "0")
+        ),
+        widget_demo_catalogue=_flag("WIDGET_DEMO_CATALOGUE"),
     )

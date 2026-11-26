@@ -105,7 +105,13 @@ def install(app: FastAPI) -> None:
                 }:
                     continue
                 response.headers.setdefault(header, value)
-            response.headers["Cache-Control"] = "public, max-age=60"
+            # A disabled widget must not stay cached as the live loader.
+            # While it is on, a minute is enough for a launch and short
+            # enough that a kill switch is not stuck behind a long TTL.
+            if settings is not None and not settings.widget_enabled:
+                response.headers["Cache-Control"] = "no-store"
+            else:
+                response.headers["Cache-Control"] = "public, max-age=60"
             return response
         for header, value in SECURITY_HEADERS.items():
             response.headers.setdefault(header, value)

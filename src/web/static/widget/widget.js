@@ -35,6 +35,7 @@
   var panelOpen = true;
   var product = null;
   var modal = false;
+  var hostEmbed = "";
   var slowTimer = 0;
 
   function uuid() {
@@ -50,10 +51,19 @@
   }
 
   function post(payload) {
-    if (!parentOrigin || !window.parent || window.parent === window) return;
+    if (!window.parent || window.parent === window) return;
+    // sa.ready is the first message, sent before the host has introduced
+    // itself, so there is no saved origin yet. The parent is whoever was
+    // allowed to frame this document. After sa.init, every later message
+    // is addressed to that exact origin.
+    var target = parentOrigin;
+    if (!target && document.referrer) {
+      try { target = new URL(document.referrer).origin; } catch (err) { target = ""; }
+    }
+    if (!target) target = "*";
     payload.v = 1;
     payload.nonce = nonce;
-    window.parent.postMessage(payload, parentOrigin);
+    window.parent.postMessage(payload, target);
   }
 
   function hostAllowed(origin) {
@@ -62,8 +72,9 @@
   }
 
   function knownKeys(type) {
-    if (type === "sa.init") return ["type", "v", "nonce", "host_session", "locale", "pincode", "product", "restore_token"];
+    if (type === "sa.init") return ["type", "v", "nonce", "host_session", "locale", "pincode", "product", "restore_token", "embed"];
     if (type === "sa.context") return ["type", "v", "nonce", "product"];
+    if (type === "sa.embed") return ["type", "v", "nonce", "embed"];
     return null;
   }
 
@@ -80,9 +91,12 @@
     for (var i = 0; i < present.length; i++) if (keys.indexOf(present[i]) < 0) return false;
     if (nonce && data.nonce !== nonce) return false;
     if (data.product) {
+      if (!data.product || typeof data.product !== "object") return false;
       if (!validId(data.product.product_id)) return false;
       if (data.product.variant_id && !validId(data.product.variant_id)) return false;
     }
+    if (data.embed && data.embed !== "panel" && data.embed !== "sheet") return false;
+    if (data.type === "sa.embed" && !data.embed) return false;
     if (data.restore_token && String(data.restore_token).length > 512) return false;
     if (data.pincode && !/^\d{6}$/.test(data.pincode)) return false;
     return true;
@@ -103,12 +117,22 @@
   }
 
   function applyMode() {
-    modal = window.innerWidth < 768;
+    // The iframe is 380px wide on a desktop storefront, so its own
+    // innerWidth is not the host viewport. The loader says which layout
+    // the host is actually showing. Until that arrives, a framed page
+    // stays a non-modal dialog rather than trapping a desktop shopper.
+    var mode = hostEmbed;
+    var framed = window.parent && window.parent !== window;
+    if (mode !== "panel" && mode !== "sheet") {
+      mode = !framed && window.innerWidth < 768 ? "sheet" : "panel";
+    }
+    modal = mode === "sheet";
     var dialog = document.body;
     dialog.setAttribute("role", "dialog");
     dialog.setAttribute("aria-labelledby", "sa-title");
     if (modal) dialog.setAttribute("aria-modal", "true");
     else dialog.removeAttribute("aria-modal");
+    document.documentElement.setAttribute("data-embed", mode);
     post({ type: "sa.layout", mode: modal ? "sheet" : "panel", modal: modal });
   }
 
@@ -188,8 +212,10 @@
     }
     if (socket && socket.readyState === WebSocket.CONNECTING) return;
     var url = (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws/chat";
-    socket = new WebSocket(url);
-    socket.onopen = function () {
+    var current = new WebSocket(url);
+    socket = current;
+    current.onopen = function () {
+      if (socket !== current) return;
       attempts = 0;
       setAlert("");
       socket.send(JSON.stringify({
@@ -205,13 +231,15 @@
         }
       }));
     };
-    socket.onmessage = function (event) {
+    current.onmessage = function (event) {
+      if (socket !== current) return;
       var message = JSON.parse(event.data);
       if (message.seq && message.seq <= lastSeq && message.type !== "welcome") return;
       if (message.seq) lastSeq = Math.max(lastSeq, message.seq);
       onServer(message);
     };
-    socket.onclose = function () {
+    current.onclose = function () {
+      if (socket !== current) return;
       enableComposer();
       socket = null;
       if (!outbox || outbox.status === "done") return;
@@ -288,7 +316,14 @@
   function send(text) {
     text = (text || "").trim();
     if (!text) return;
-    enableComposer();
+    // A second tap while this message is still in flight would mint a new
+    // id and a second reply. The composer is disabled until the socket
+    // closes or the reply finishes, and the guard covers the tap that
+    // lands in the same turn as the first.
+    if (outbox && outbox.status !== "done") return;
+    input.disabled = true;
+    var sendButton = form.querySelector(".sa-send");
+    if (sendButton) sendButton.disabled = true;
     outbox = { message_id: uuid(), text: text, created_at: Date.now(), status: "sending" };
     saveOutbox();
     addBubble(text, true);
@@ -400,6 +435,7 @@
     var data = event.data;
     if (data.type === "sa.init") {
       nonce = data.nonce || nonce;
+      if (data.embed === "panel" || data.embed === "sheet") hostEmbed = data.embed;
       product = data.product || null;
       if (data.pincode) config.pincode = data.pincode;
       try { sessionStorage.setItem("sa_host_session", data.host_session || ""); } catch (err) { /* ignore */ }
@@ -407,12 +443,31 @@
         token = data.restore_token;
         loadHistory(token);
       }
+      if (product && product.variant_id) {
+        document.documentElement.setAttribute("data-variant", product.variant_id);
+      }
       loadOutbox();
       if (outbox && outbox.status !== "done") connectAndSend();
+      applyMode();
+      document.documentElement.setAttribute("data-ready", "1");
       input.focus();
+    } else if (data.type === "sa.embed") {
+      hostEmbed = data.embed;
+      applyMode();
     } else if (data.type === "sa.context") {
       product = data.product || product;
+      if (product && product.variant_id) {
+        document.documentElement.setAttribute("data-variant", product.variant_id);
+      }
       document.getElementById("sa-context").textContent = "Asking about: this page";
+      // The open socket still has the previous variant on its hello.
+      // Drop it so the next send resumes with this one. Spend stays on
+      // the conversation token.
+      if (socket && socket.readyState !== WebSocket.CLOSED) {
+        var previous = socket;
+        socket = null;
+        try { previous.close(1000, "context changed"); } catch (err) { /* already closing */ }
+      }
     }
   });
   enableComposer();

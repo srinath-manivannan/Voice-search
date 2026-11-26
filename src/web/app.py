@@ -38,6 +38,7 @@ from src.observability.reporting import build as build_reporter
 from src.web import errors, middleware, routes
 from src.web.routes.pages import STATIC
 from src.guided.directory import MemoryDirectory
+from src.web.services.chat_v2 import SocketFanout
 from src.web.services.conversation_store import build_store
 
 log = logging.getLogger(__name__)
@@ -83,6 +84,19 @@ def create_app(config: Config | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.conversations = build_store(settings)
     app.state.guided_directory = MemoryDirectory()
+    # Attached here so a reconnect during a reply shares the generation
+    # instead of starting another one. See SocketFanout.
+    app.state.widget_fanout = SocketFanout()
+    if settings.widget_stub_model:
+        from src.chat.stub_model import StubTextModel
+
+        app.state.widget_model = StubTextModel(
+            delay_s=settings.widget_stub_delay_ms / 1000.0
+        )
+    if settings.widget_demo_catalogue:
+        from src.chat.demo_catalogue import DemoCatalogue
+
+        app.state.widget_catalogue = DemoCatalogue()
     middleware.install(app)
     errors.install(app, reporter)
 

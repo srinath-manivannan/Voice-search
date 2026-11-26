@@ -10,6 +10,12 @@
 
 pytest==9.1.1
 pytest-asyncio==1.3.0
+# Browser tests live under tests/e2e and are deselected from the default
+# pytest run. The package is installed with the rest of the dev tools so the
+# suite can be collected; the browsers themselves are downloaded only by the
+# e2e job (`playwright install chromium webkit`).
+pytest-playwright==0.7.2
+playwright==1.49.1
 ruff==0.14.3
 mypy==1.18.2
 detect-secrets==1.5.0

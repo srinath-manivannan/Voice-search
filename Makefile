@@ -7,7 +7,7 @@
 VENV := .venv/bin
 PY   := $(VENV)/python
 
-.PHONY: help install hooks lock ui talk test audio live check audit fmt mic image alerts greeting profile guided-voice neutrality-scan
+.PHONY: help install hooks lock ui talk test audio live e2e check audit fmt mic image alerts greeting profile guided-voice neutrality-scan
 
 # The exception list for the dev lockfile scan, turned into flags. Comments
 # and blank lines dropped; see .pip-audit-ignore for what is in it and why.
@@ -64,6 +64,10 @@ test:                    ## the fast tests - no API, no devices, no money
 
 audio:                   ## device tests - needs a microphone and speaker
 	$(PY) -m pytest -m audio
+
+e2e:                     ## widget browser tests - Chromium and WebKit
+	$(PY) -m playwright install chromium webkit
+	$(PY) -m pytest -m e2e --browser chromium --browser webkit --override-ini="addopts=-q --strict-markers"
 
 live:                    ## real Gemini Live calls - spends a few cents
 	$(PY) -m pytest -m live
