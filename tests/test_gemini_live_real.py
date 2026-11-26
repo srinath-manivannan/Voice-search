@@ -80,17 +80,17 @@ async def test_tamil_turn_returns_audio_within_the_phase1_latency_target(config)
     assert done.first_audio_ms < 2000, f"first audio took {done.first_audio_ms:.0f} ms"
 
 
-async def test_thinking_is_actually_off_on_the_wire(config):
-    """The config says thinkingBudget 0; this proves the server honoured it.
+async def test_thoughts_are_reported_even_when_thinking_cannot_be_disabled(config):
+    """gemini-3.8-live rejects thinkingConfig and still thinks.
 
-    A silently ignored field would cost about Rs 0.14/min and would not show up
-    anywhere else until the invoice.
+    The wire check is that thoughtsTokenCount came back as a number the
+    meter can add, not that it is zero. Zero was the old budget field,
+    which this model closes the socket on.
     """
     events = await asyncio.wait_for(one_turn(config, "tamil_short.wav"), timeout=60)
     done = next(e for e in events if isinstance(e, TurnComplete))
-    assert done.usage.thoughts == 0, (
-        f"thinking was not disabled: {done.usage.thoughts} tokens"
-    )
+    assert done.usage.thoughts >= 0
+    assert done.usage.billable_output >= done.usage.response_audio
 
 
 async def test_reply_respects_the_word_cap(config):

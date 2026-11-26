@@ -1,0 +1,120 @@
+# The checks, moved to before the commit exists.
+#
+# Nothing new is enforced here. Every hook below is a step `make check` and
+# both pipelines already run - the only thing that changes is WHEN you find
+# out, which is the difference between fixing a line and pushing a branch,
+# waiting for CI, and fixing the same line with four people's attention on it.
+#
+# Why every hook is `local`:
+#
+# The usual pre-commit config names remote repos pinned by git rev, and that
+# is a second place where a tool version is decided. This repo already has
+# one: requirements-dev.txt, compiled, hashed and installed by `make install`
+# and by CI. A hook pinned separately drifts from it, and the day it does,
+# the linter that passed locally is not the linter that runs on the branch.
+# `language: system` means these hooks run the binaries in .venv - the same
+# ruff, the same bandit, the same versions CI installs, by construction.
+#
+# It also means they need no network to install. Run `make hooks` once.
+#
+# Two stages. pre-commit gets what is fast and local. pre-push gets the one
+# that asks the network, because a commit should not wait on PyPI.
+
+default_install_hook_types: [pre-commit, pre-push]
+# vendor/ is a byte-for-byte copy of the Search-proxy estate code (see
+# vendor/estate/SOURCE). It is formatted, linted and secret-scanned in its
+# own repository; reformatting it here would only make it drift. Its three
+# "secret" hits are the NAMES of environment variables, checked 2026-11-25.
+exclude: ^vendor/
+default_stages: [pre-commit]
+
+repos:
+  - repo: local
+    hooks:
+      # --- the thing this is really for --------------------------------
+      #
+      # .gitignore keeps .env out of a commit until somebody types
+      # `git add -f`, or renames it, or a tool writes a copy beside it.
+      # That is not hypothetical here: an `.env.env.bak` was created in
+      # this repo once and was not covered by any ignore rule.
+      #
+      # `language: fail` means there is nothing to run: a matching file is
+      # the failure, and the entry is the message the committer reads.
+      - id: no-credentials-file
+        name: refuse a credentials file
+        language: fail
+        entry: >-
+          this file holds real credentials and must never be committed.
+          keep it local, and put its NAMES in .env.example instead.
+        # .env itself, anything built from its name (.env.local, .env.bak,
+        # the .env.env.bak above), and a GCP service key. NOT .env.example,
+        # which holds names and placeholders and is meant to be committed.
+        files: '(^|/)\.env($|\.)|-service-key\.json$'
+        exclude: '(^|/)\.env\.example$'
+
+      # --- formatting and lint -----------------------------------------
+      #
+      # These rewrite files. pre-commit then stops the commit and asks you
+      # to look at what changed and stage it, which is the point: a hook
+      # that edits your commit behind you is worse than one that complains.
+      - id: ruff-format
+        name: ruff format
+        language: system
+        entry: .venv/bin/ruff format
+        types: [python]
+
+      - id: ruff-check
+        name: ruff check
+        language: system
+        entry: .venv/bin/ruff check --fix
+        types: [python]
+
+      # --- secrets ------------------------------------------------------
+      #
+      # The baseline records what has already been looked at and judged not
+      # a secret - test fixtures shaped like real tokens, mostly. A NEW
+      # high-entropy string is not in it and fails here.
+      - id: detect-secrets
+        name: detect secrets
+        language: system
+        entry: .venv/bin/detect-secrets-hook --baseline .secrets.baseline
+        types: [text]
+
+      # --- holes we wrote ------------------------------------------------
+      #
+      # src/ only. tests/ asserts for a living and carries synthetic
+      # credentials on purpose; bandit.yaml says the same thing for the
+      # whole-tree run, and this says it again because a hook is handed
+      # filenames and does not read exclude_dirs.
+      - id: bandit
+        name: bandit
+        language: system
+        entry: .venv/bin/bandit -c bandit.yaml -q
+        types: [python]
+        files: ^src/
+
+      # --- types ----------------------------------------------------------
+      #
+      # Whole package, not the changed files: mypy strict on three files in
+      # isolation reports errors that do not exist and misses the ones that
+      # do. A few seconds, and it is the check most likely to catch a real
+      # mistake before it is pushed.
+      - id: mypy
+        name: mypy (strict)
+        language: system
+        entry: .venv/bin/mypy src
+        types: [python]
+        pass_filenames: false
+
+      # --- pre-push ---------------------------------------------------
+      #
+      # Needs PyPI, so it waits for the push rather than the commit. Same
+      # command CI runs; see the `audit` target for why the runtime
+      # lockfile gets no exception list.
+      - id: pip-audit
+        name: pip-audit (known CVEs)
+        language: system
+        entry: make audit
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]

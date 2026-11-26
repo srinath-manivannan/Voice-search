@@ -17,7 +17,7 @@ else works today.
 One immutable image tag, naming the commit it was built from:
 
 ```
-<registry>/poorvika-voice:main-4f9c2a1b
+<registry>/shopping-assistant:main-4f9c2a1b
 ```
 
 There is no `:latest`. A tag never moves, every tag that has ever been
@@ -43,7 +43,7 @@ in production and the one in front of you did not.
 | `/readyz` says a capability is missing that was there before | **Roll back now** |
 | Error rate over 1 in 20 calls, or rising | **Roll back now** |
 | Cost per connected minute over the ₹8 session ceiling | **Roll back now** — the ceiling ends calls, so customers are already being cut off |
-| Cost over the ₹2 target but under the ceiling | Do not roll back. That is every release today; see `COST.md` |
+| Cost over the ₹2.50 target but under the ceiling | Do not roll back. That is every release today; see `COST.md` |
 | First audio p50 over 1 s, p95 over 2 s | Judgement. Roll back if it is a step change rather than a drift |
 | One customer reports one odd answer | Do not roll back. Get the trace |
 
@@ -90,16 +90,16 @@ time it runs, so the job log for the bad deploy already names it.
 Confirm the image exists before you need it to:
 
 ```bash
-docker manifest inspect <registry>/poorvika-voice:main-<previous>
+docker manifest inspect <registry>/shopping-assistant:main-<previous>
 ```
 
 ### 3. Put it back
 
 ```bash
 # <host>: the one line that depends on where this runs.
-#   Cloud Run     gcloud run services update poorvika-voice --image <registry>/poorvika-voice:main-<previous>
-#   Kubernetes    kubectl set image deploy/poorvika-voice app=<registry>/poorvika-voice:main-<previous>
-#   Plain Docker  docker run -d --env-file /etc/poorvika/voice.env <registry>/poorvika-voice:main-<previous>
+#   Cloud Run     gcloud run services update shopping-assistant --image <registry>/shopping-assistant:main-<previous>
+#   Kubernetes    kubectl set image deploy/shopping-assistant app=<registry>/shopping-assistant:main-<previous>
+#   Plain Docker  docker run -d --env-file /etc/shopping-assistant/voice.env <registry>/shopping-assistant:main-<previous>
 ```
 
 Calls in flight will drop. A voice session is a held socket and there is no
@@ -139,7 +139,7 @@ Worth knowing before you assume the rollback fixed everything.
 | | |
 |---|---|
 | **Host environment variables** | `.env` on the host is not in the image. A release that needed a new setting leaves it set; a release that changed one leaves the new value. Check `/readyz` and the env file together |
-| **Poorvika's own services** | The catalogue, pricing, offers and stock are live and upstream. Nothing here caches or writes to them, so there is nothing to undo — and equally, rolling back fixes nothing that is wrong there |
+| **the store's own services** | The catalogue, pricing, offers and stock are live and upstream. Nothing here caches or writes to them, so there is nothing to undo — and equally, rolling back fixes nothing that is wrong there |
 | **Call traces** | `out/traces/` keeps what the bad release wrote. Keep them: they are the evidence |
 | **Money already spent** | Gemini bills per turn as it happens |
 

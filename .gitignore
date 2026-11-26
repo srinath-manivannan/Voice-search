@@ -30,3 +30,6 @@ out/
 
 # NOTE: `tests/` is deliberately NOT ignored here. search-proxy gitignores it,
 # which leaves its tests unversioned and unreviewable. Ours are committed.
+
+# Abandoned experiments kept on disk, out of the build (2026-11-24).
+attic/

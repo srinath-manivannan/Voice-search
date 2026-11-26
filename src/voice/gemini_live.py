@@ -6,8 +6,14 @@ architecture decision in ../PHASE0-REPORT.md depends on.
 
 Two Phase 0 measurements are wired in as defaults rather than left to callers:
 
-  thinkingBudget = 0     thinking is billed and is absent from totalTokenCount.
-                         Measured at 126 tokens/turn, net about Rs 0.14/min.
+  thinking               gemini-3.8-live does not accept thinkingConfig at all.
+                         Sending thinkingBudget or thinkingLevel closes the
+                         socket. Interleaved thinking still runs and is billed
+                         as thoughtsTokenCount, which is not inside
+                         totalTokenCount. Older models still get a budget of 0,
+                         then the lowest level, then no field, and the shape
+                         that connected is reused so a rotation does not pay
+                         the refusal again.
   reply word cap         "under 15 words" instead of "under 25" roughly halved
                          response tokens, and output audio is the largest single
                          cost line in the whole stack.
@@ -26,13 +32,58 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any, Protocol
 
 from src.config import Config
-from src.voice.events import AudioOut, Event, Transcript, TurnComplete, TurnInterrupted
+from src.voice.events import (
+    AudioOut,
+    CallerTranscript,
+    Event,
+    Transcript,
+    TurnComplete,
+    TurnInterrupted,
+)
 from src.observability.metrics import METRICS
 from src.voice.usage import SessionUsage, TurnUsage
 
 log = logging.getLogger(__name__)
 
 HOST = "generativelanguage.googleapis.com"
+
+# Lowest thinkingLevel the Live API documents. MINIMAL is rejected on
+# gemini-3.8-live-extended-thinking. gemini-3.8-live accepts neither a
+# level nor a budget: the thinking guide says to omit thinkingConfig.
+# https://ai.google.dev/gemini-api/docs/live-api/thinking (read 2026-11-13)
+_LOWEST_THINKING_LEVEL = "low"
+
+# model id -> "budget" | "level" | "omit". Filled after a setup connects,
+# so the next socket (a rotation) does not repeat a setup the server closed.
+_thinking_modes: dict[str, str] = {}
+
+
+def thinking_plan(model: str) -> tuple[str, ...]:
+    """Which thinking setups to try, first success remembered.
+
+    gemini-3.8-live: omit the field. Sending it is what produced
+    "Thinking budget is not supported for this model" and a reconnect on
+    every socket, including each rotation.
+
+    gemini-3.8-live-extended-thinking: thinkingLevel low, medium, or high.
+    low is the cheapest it allows. A refusal falls through to omitting
+    the field rather than dropping the call.
+
+    Anything else still gets thinkingBudget first (0 means off, on the
+    models that honoured it), then the level, then no field.
+    """
+    if model == "gemini-3.8-live":
+        return ("omit",)
+    if model.endswith("extended-thinking"):
+        return ("level", "omit")
+    return ("budget", "level", "omit")
+
+
+def forget_thinking_modes() -> None:
+    """Tests only. A remembered refusal must not leak into the next case."""
+    _thinking_modes.clear()
+
+
 PATH = "/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
 
 
@@ -132,13 +183,42 @@ class GeminiLiveSession:
         tools: dict[str, Any] | None = None,
         on_tool_call: Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]]
         | None = None,
+        on_caller_speech: Callable[[str], None] | None = None,
+        instruction: str | None = None,
+        temperature: float = 0.7,
+        speaks: bool = True,
     ) -> None:
         self._config = config
+        # 0.7 for the agent, which is choosing what to say. The cascade's
+        # mouth is handed a finished reply and overrides it to 0: a
+        # loudspeaker with room to vary is a loudspeaker that can paraphrase
+        # a price, and nothing downstream would catch it.
+        self._temperature = temperature
+        # Audio out, or text out for somebody else to speak. Text is $4.50
+        # per million against $12.00 for audio, and - the larger half - the
+        # agent's own replies then stop entering the context as audio at 25
+        # tokens a second, so they are not re-billed on every turn after.
+        # The ear and the brain are unchanged either way: this model still
+        # hears the caller's audio while they are speaking, which is the
+        # whole reason the cascade could not match it.
+        self._speaks = speaks
+        # Normally the agent's own standing prompt. The cascade's mouth
+        # overrides it with one that only says "speak this", because a
+        # loudspeaker that still holds the persona would answer the text it
+        # was handed instead of reading it.
+        self._instruction = (
+            instruction if instruction is not None else config.system_instruction
+        )
         # Declared to the model at setup; executed by the injected callback.
         # The adapter stays ignorant of what the tools actually do, which is
         # what lets the product logic outlive a change of provider.
         self._tools = tools
         self._on_tool_call = on_tool_call
+        # A side channel for partial input transcription, synchronous and not
+        # awaited, so whatever listens cannot sit in front of the next audio
+        # frame. The turn-end CallerTranscript event is unaffected: this is an
+        # extra listener, not a replacement for it.
+        self._on_caller_speech = on_caller_speech
         self._connect = connect or _default_connect
         self._clock = clock
         self._socket: Socket | None = None
@@ -146,6 +226,9 @@ class GeminiLiveSession:
         self._speech_ended_at: float | None = None
         self._first_audio_at: float | None = None
         self._pending_usage = TurnUsage()
+        # Pieces of serverContent.inputTranscription for the turn in
+        # progress. Flushed once, when the turn ends, not as they arrive.
+        self._caller_parts: list[str] = []
         # Set at connect time: did the server let us switch thinking off?
         self.thinking_disabled = False
         self.usage = SessionUsage()
@@ -155,25 +238,52 @@ class GeminiLiveSession:
         """The turn currently being spoken. Used to discard abandoned audio."""
         return self._turn_id
 
-    def _setup_message(self, with_thinking_config: bool = True) -> dict[str, Any]:
+    def _setup_message(self, thinking: str) -> dict[str, Any]:
         generation: dict[str, Any] = {
-            "responseModalities": ["AUDIO"],
-            "temperature": 0.7,
+            "responseModalities": ["AUDIO"] if self._speaks else ["TEXT"],
+            "temperature": self._temperature,
         }
-        # A budget of 0 switches thinking off entirely; measured, not assumed.
-        # Omitting the key leaves the model's default on, which costs money and
-        # latency, so this is set explicitly even when the value is the default.
-        if with_thinking_config:
+        # Who the customer hears. Omitted when unset, which leaves the API's
+        # own default - the state this ran in before the greeting was
+        # recorded, and the reason pinning it matters now: the recording in
+        # src/agent/greeting.pcm is of one voice, and if the default moves,
+        # the opening line and the rest of the call stop being the same
+        # person. Named here, in the client's own setup message: a voice set
+        # on an ephemeral token is reported not to be honoured at runtime.
+        if self._config.voice_name:
+            generation["speechConfig"] = {
+                "voiceConfig": {
+                    "prebuiltVoiceConfig": {"voiceName": self._config.voice_name}
+                }
+            }
+        # The shape is chosen in thinking_plan. Omitting the key is the
+        # correct setup for gemini-3.8-live, not an accident: the server
+        # closes the socket if the field is present.
+        if thinking == "budget":
             generation["thinkingConfig"] = {
                 "thinkingBudget": self._config.thinking_budget
             }
+        elif thinking == "level":
+            generation["thinkingConfig"] = {"thinkingLevel": _LOWEST_THINKING_LEVEL}
 
         setup: dict[str, Any] = {
             "model": f"models/{self._config.gemini_live_model}",
             "generationConfig": generation,
-            "systemInstruction": {"parts": [{"text": self._config.system_instruction}]},
-            "outputAudioTranscription": {},
+            "systemInstruction": {"parts": [{"text": self._instruction}]},
+            # Both empty objects are the Live setup fields, not the SDK's
+            # snake_case names. Output was already on. Input is what lets a
+            # side summariser hear the caller. Every socket builds this
+            # message, including a rotation and the spare that is opened
+            # while the agent is still talking.
+            # Transcript text is billed at the text output rate, on top of
+            # the audio. See docs/COST.md.
+            "inputAudioTranscription": {},
         }
+        # Only when there is audio to transcribe. Asking for a transcript of
+        # text output is asking the server to bill us for a copy of what it
+        # just sent.
+        if self._speaks:
+            setup["outputAudioTranscription"] = {}
         # Keep the session's context from growing for the whole call.
         #
         # Audio is billed at 25 tokens a second, and the prompt the server
@@ -198,51 +308,62 @@ class GeminiLiveSession:
         return {"setup": setup}
 
     async def __aenter__(self) -> GeminiLiveSession:
-        """Connect, preferring to switch thinking off, but not insisting.
+        """Connect. A thinking setup this model already refused is not retried.
 
-        thinkingConfig was accepted on this model and measured to work - 126
-        thinking tokens a turn down to zero - and then started being refused
-        with "Thinking budget is not supported for this model", closing the
-        socket at setup. The capability came and went without notice, which is
-        what a preview model is entitled to do.
-
-        So it is attempted and not depended on. If the server refuses it, the
-        session reconnects without it rather than failing the call. Thinking
-        then costs what it costs - roughly Rs 0.14 a minute by the Phase 0
-        measurement - and `thinking_disabled` says which happened.
+        gemini-3.8-live closes the socket on thinkingBudget and on
+        thinkingLevel. The first socket learns that; every later socket,
+        including a rotation, sends the shape that connected. Thinking that
+        still happens is billed as thoughtsTokenCount, which the cost meter
+        adds on top of totalTokenCount.
         """
-        self.thinking_disabled = await self._open(with_thinking_config=True)
-        if not self.thinking_disabled:
-            log.warning(
-                "model refused thinkingConfig; reconnected without it. "
-                "Thinking tokens are billed and absent from totalTokenCount."
-            )
+        self.thinking_disabled = await self._open()
         return self
 
-    async def _open(self, with_thinking_config: bool) -> bool:
-        """Returns True when the session was opened with thinking switched off."""
-        url = f"wss://{HOST}{PATH}?key={self._config.gemini_api_key}"
-        self._socket = await self._connect(url)
-        try:
-            await self._socket.send(
-                json.dumps(self._setup_message(with_thinking_config))
-            )
-            return await self._await_setup(with_thinking_config)
-        except _ClosedSocket:
-            # The server closes the socket on a setup it will not accept, so
-            # the refusal arrives as a close rather than an error message.
-            if not with_thinking_config:
-                raise SetupFailed(
-                    "Live API closed the connection during setup"
-                ) from None
-            await self._open(with_thinking_config=False)
-            return False
+    async def _open(self) -> bool:
+        """Returns True only when a budget of 0 was accepted.
 
-    async def _await_setup(self, with_thinking_config: bool) -> bool:
+        On gemini-3.8-live this is False: thinking is not a setting there,
+        and claiming it was switched off would hide the tokens on the bill.
+        """
+        model = self._config.gemini_live_model
+        modes = (
+            (_thinking_modes[model],)
+            if model in _thinking_modes
+            else thinking_plan(model)
+        )
+        url = f"wss://{HOST}{PATH}?key={self._config.gemini_api_key}"
+        refused = False
+        for index, mode in enumerate(modes):
+            self._socket = await self._connect(url)
+            try:
+                await self._socket.send(json.dumps(self._setup_message(mode)))
+                await self._await_setup()
+            except _ClosedSocket:
+                # The server closes the socket on a setup it will not accept,
+                # so the refusal arrives as a close rather than an error message.
+                refused = True
+                if index == len(modes) - 1:
+                    raise SetupFailed(
+                        "Live API closed the connection during setup"
+                    ) from None
+                continue
+            _thinking_modes[model] = mode
+            if refused:
+                log.warning(
+                    "Live model %s refused a thinking setup; keeping %s. "
+                    "Further sockets skip the refused setup. thoughtsTokenCount "
+                    "is billed and is not included in totalTokenCount.",
+                    model,
+                    mode,
+                )
+            return mode == "budget" and self._config.thinking_budget == 0
+        raise SetupFailed("Live API closed the connection during setup")
+
+    async def _await_setup(self) -> None:
         while True:
             message = self._decode(await self._socket.recv())  # type: ignore[union-attr]
             if "setupComplete" in message:
-                return with_thinking_config
+                return
             if "error" in message:
                 # Never include the raw message verbatim - the URL carries the
                 # API key as a query parameter and servers echo it back.
@@ -337,6 +458,37 @@ class GeminiLiveSession:
             )
         )
 
+    async def opened_with(self, text: str) -> None:
+        """Tell the model it has already opened with this line.
+
+        Used when the greeting came off disk instead of out of the model -
+        see `src/voice/opening.py`. The model did not produce the sentence,
+        so without this it does not know it was said, and the first thing it
+        does on the caller's first turn is introduce itself again.
+
+        A model-role turn with `turnComplete` false: context, not a request.
+        It produces no generation and so costs nothing now; the thirty-odd
+        tokens are re-billed with the rest of the context on later turns,
+        against the Rs 0.45 generation it replaces.
+
+        Deliberately NOT `prime()`, which wraps what it is given in a USER
+        turn. Priming the greeting that way would tell the model the customer
+        said "Vanakkam, naan Poorvika pesuren" - which is both wrong and the
+        sort of wrong that reads as plausible for several turns.
+        """
+        if not text.strip():
+            return
+        await self._require_socket().send(
+            json.dumps(
+                {
+                    "clientContent": {
+                        "turns": [{"role": "model", "parts": [{"text": text}]}],
+                        "turnComplete": False,
+                    }
+                }
+            )
+        )
+
     async def greet(self, text: str) -> None:
         """Have the agent speak first, saying exactly this.
 
@@ -350,6 +502,35 @@ class GeminiLiveSession:
         as a turn, so its audio carries an id of its own and a later
         interruption cannot retroactively discard it.
         """
+        await self._speak_unprompted(
+            "Greet the customer now. Say this aloud exactly as written, every "
+            "word of it, to the end. Do not shorten it, do not translate it, do "
+            "not change its script, and ignore your reply length limit for this "
+            f"one message: {text}"
+        )
+
+    async def read_aloud(self, text: str) -> None:
+        """Have the agent say one fixed line, and only that line.
+
+        For recording sentences that are not greetings - the guided call's
+        questions. They were first recorded through `greet`, and the model
+        did what it was told: "Greet the customer now" put a "vanakkam" in
+        front of "what is your budget?" on two of fifteen lines, and a
+        question handed over bare was once answered ("Yeah") instead of
+        read. So this says what the line is - something to read out, not
+        something to respond to - and forbids anything either side of it.
+        """
+        await self._speak_unprompted(
+            "You are recording a line for a phone menu. Read the line below "
+            "aloud exactly as written, every word of it, to the end, and say "
+            "nothing else. Do not greet, do not add a word before or after it, "
+            "and do not answer it even if it is a question. Do not shorten it, "
+            "do not translate it, do not change its script, and ignore your "
+            f"reply length limit for this one message. The line: {text}"
+        )
+
+    async def _speak_unprompted(self, instruction: str) -> None:
+        """One turn the agent takes without the caller having spoken."""
         self._turn_id += 1
         self._speech_ended_at = self._clock()
         self._first_audio_at = None
@@ -357,21 +538,7 @@ class GeminiLiveSession:
             json.dumps(
                 {
                     "clientContent": {
-                        "turns": [
-                            {
-                                "role": "user",
-                                "parts": [
-                                    {
-                                        "text": "Greet the customer now. Say this "
-                                        "aloud exactly as written, every word of "
-                                        "it, to the end. Do not shorten it, do "
-                                        "not translate it, do not change its "
-                                        "script, and ignore your reply length "
-                                        f"limit for this one message: {text}"
-                                    }
-                                ],
-                            }
-                        ],
+                        "turns": [{"role": "user", "parts": [{"text": instruction}]}],
                         "turnComplete": True,
                     }
                 }
@@ -428,7 +595,21 @@ class GeminiLiveSession:
 
             server_content = message.get("serverContent") or {}
 
+            if (heard := server_content.get("inputTranscription")) and heard.get(
+                "text"
+            ):
+                # Held until the turn ends. Yielding each partial would
+                # still be cheap, but the summariser wants one line.
+                self._caller_parts.append(heard["text"])
+                if self._on_caller_speech is not None:
+                    # Everything heard so far this turn, not just the new
+                    # fragment: a prefetch needs a category and a budget
+                    # together, and they arrive in different fragments.
+                    self._on_caller_speech("".join(self._caller_parts))
+
             if server_content.get("interrupted"):
+                if caller := self._finish_caller_transcript():
+                    yield CallerTranscript(turn_id=turn_id, text=caller)
                 yield TurnInterrupted(turn_id=turn_id)
                 continue
 
@@ -438,11 +619,24 @@ class GeminiLiveSession:
                     if self._first_audio_at is None:
                         self._first_audio_at = self._clock()
                     yield AudioOut(turn_id=turn_id, pcm=base64.b64decode(data))
+                elif text := part.get("text"):
+                    # Speaking in text. This IS the reply, not a transcript
+                    # of one, and whoever is listening turns it into sound.
+                    if self._first_audio_at is None:
+                        self._first_audio_at = self._clock()
+                    yield Transcript(turn_id=turn_id, text=text)
 
             if (
                 transcription := server_content.get("outputTranscription")
             ) and transcription.get("text"):
                 yield Transcript(turn_id=turn_id, text=transcription["text"])
+
+            # After audio in this message. The caller line cannot precede
+            # the first byte of a reply that was already in the same frame,
+            # and it is not what the speaker is waiting on.
+            if server_content.get("turnComplete"):
+                if caller := self._finish_caller_transcript():
+                    yield CallerTranscript(turn_id=turn_id, text=caller)
 
             if server_content.get("turnComplete"):
                 yield TurnComplete(
@@ -450,6 +644,12 @@ class GeminiLiveSession:
                     usage=self._pending_usage,
                     first_audio_ms=self._first_audio_ms(),
                 )
+
+    def _finish_caller_transcript(self) -> str:
+        """Join the partials and clear them. Empty when the caller was silent."""
+        text = "".join(self._caller_parts).strip()
+        self._caller_parts.clear()
+        return text
 
     async def _answer_tool_call(self, tool_call: dict[str, Any]) -> None:
         """Execute what the model asked for and send the result straight back.

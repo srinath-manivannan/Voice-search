@@ -281,7 +281,7 @@ monitoring product. **From metrics, later**: `/metrics` is Prometheus text,
 and `deploy/alerts.yml` is generated from the same definitions so the rule
 that fires cannot drift from the rule that was reviewed.
 
-What is deliberately NOT alerted on: being over the ₹2.00 target. Every call
+What is deliberately NOT alerted on: being over the ₹2.50 target. Every call
 is, today. An alert that fires on every call is one people turn off, and the
 real ones go with it — so the cost alert sits at the ₹8 ceiling, where a
 caller is actually being cut off.

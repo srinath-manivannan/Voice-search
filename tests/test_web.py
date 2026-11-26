@@ -104,8 +104,16 @@ def test_the_config_endpoint_publishes_nothing_about_the_stack(config):
     for leak in ("gemini", "model", "thinking", "word_cap", "api_key", "flash"):
         assert leak not in serialised, f"/api/v1/config leaks {leak!r}"
 
-    # Exactly what the browser needs to open its audio devices, and no more.
-    assert set(body) == {"capture_sample_rate", "playback_sample_rate", "greeting"}
+    # Exactly what the browser needs to open its audio devices, and no more -
+    # plus whether the Voice Call tab may use the paid Live voice at all, a
+    # bare yes/no that names no vendor or model.
+    assert set(body) == {
+        "capture_sample_rate",
+        "playback_sample_rate",
+        "greeting",
+        "live_voice",
+        "hosted_asr",
+    }
     assert body["capture_sample_rate"] == 16000
 
 
@@ -115,7 +123,7 @@ def test_the_page_is_served(config):
     with TestClient(create_app(config)) as client:
         page = client.get("/")
     assert page.status_code == 200
-    assert "Talk to Poorvika" in page.text
+    assert "Talk to Shopping Assistant" in page.text
     # The page must say plainly what happens to the audio, and it must stay
     # true: nothing here records or stores a call.
     assert "Nothing is recorded or stored" in page.text

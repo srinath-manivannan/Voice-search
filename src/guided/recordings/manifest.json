@@ -1,0 +1,488 @@
+{
+  "ask_brand": {
+    "heard": "எந்த பிராண்ட் வேணும்?",
+    "seconds": 1.88,
+    "text": "எந்த பிராண்ட் வேணும்?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_brand_en": {
+    "heard": "Which brand do you prefer?",
+    "seconds": 1.92,
+    "text": "Which brand do you prefer?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_budget": {
+    "heard": "அதிகபட்சம் எவ்வளவு வரை பார்க்கலாம்?",
+    "seconds": 2.24,
+    "text": "அதிகபட்சம் எவ்வளவு வரை பார்க்கலாம்?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_budget_en": {
+    "heard": "What is the most you would like to spend?",
+    "seconds": 2.6,
+    "text": "What is the most you would like to spend?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_budget_up": {
+    "heard": "உங்க பட்ஜெட்டுக்குள்ள அதிகம் இல்ல. கொஞ்சம் மேல போனாலும் காட்டட்டுமா?",
+    "seconds": 4.52,
+    "text": "உங்க பட்ஜெட்டுக்குள்ள அதிகம் இல்ல. கொஞ்சம் மேல போனாலும் காட்டட்டுமா?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_budget_up_en": {
+    "heard": "There is not much inside your budget. Shall I show a little about it too?",
+    "seconds": 4.84,
+    "text": "There is not much inside your budget. Shall I show a little above it too?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_capacity": {
+    "heard": "எவ்வளவு கெப்பாசிட்டி வேணும்?",
+    "seconds": 1.96,
+    "text": "எவ்வளவு கெபாசிட்டி வேணும்?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_capacity_en": {
+    "heard": "What capacity do you need?",
+    "seconds": 2.04,
+    "text": "What capacity do you need?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_clash": {
+    "heard": "இந்த பட்ஜெட்ல அந்த பிராண்ட் இல்ல வேற பிராண்டா அதே பிராண்டா?",
+    "seconds": 4.56,
+    "text": "இந்த பட்ஜெட்ல அந்த பிராண்ட் இல்ல. வேற பிராண்டா, அதே பிராண்டா?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_clash_en": {
+    "heard": "That brand has nothing in this budget right now. Another brand or the same brand at its next price?",
+    "seconds": 5.92,
+    "text": "That brand has nothing in this budget right now. Another brand, or the same brand at its next price?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_confirm": {
+    "heard": "நீங்க சொன்னது இது சரியா? ஏதாவது மாத்தணுமா?",
+    "seconds": 4.36,
+    "text": "நீங்க சொன்னது இது. சரியா, ஏதாவது மாத்தணுமா?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_confirm_en": {
+    "heard": "Here is what you told me. Is it right or shall I change something?",
+    "seconds": 3.96,
+    "text": "Here is what you told me. Is it right, or shall I change something?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_fun": {
+    "heard": "ஜாலில எதுக்கு அதிகமா யூஸ் பண்ணுவீங்க?",
+    "seconds": 2.68,
+    "text": "ஜாலிக்கு எதுக்கு அதிகமா யூஸ் பண்ணுவீங்க?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_fun_en": {
+    "heard": "What do you enjoy most?",
+    "seconds": 1.96,
+    "text": "What do you enjoy most?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_head_for": {
+    "heard": "எதுக்காக அதிகமா பயன்படுத்தீங்க?",
+    "seconds": 2.24,
+    "text": "எதுக்காக அதிகம் பயன்படுத்துவீங்க?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_head_for_en": {
+    "heard": "What will you use them for most?",
+    "seconds": 2.36,
+    "text": "What will you use them for most?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_it_role": {
+    "heard": "IT ல என்ன மாதிரி வேலை?",
+    "seconds": 2.32,
+    "text": "IT-ல என்ன மாதிரி வேலை?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_it_role_en": {
+    "heard": "What kind of IT work?",
+    "seconds": 2.0,
+    "text": "What kind of IT work?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_kind": {
+    "heard": "எந்த வகை வேணும்?",
+    "seconds": 1.72,
+    "text": "எந்த வகை வேணும்?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_kind_en": {
+    "heard": "Which type do you want?",
+    "seconds": 2.0,
+    "text": "Which type do you want?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_language": {
+    "heard": "வணக்கம், பூர்விகாவுக்கு வரவேற்கிறோம் தமிழில் பேசலாமா or English?",
+    "seconds": 4.8,
+    "text": "வணக்கம்! பூர்விகாவுக்கு வரவேற்கிறோம். தமிழில் பேசலாமா, or English?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_movement": {
+    "heard": "நடந்து கொண்டே வீடியோ எடுப்பீங்களா? இல்ல ஒரே இடத்திலிருந்து எடுப்பீங்களா?",
+    "seconds": 3.64,
+    "text": "நடந்து கொண்டே வீடியோ எடுப்பீங்களா, ஒரே இடத்திலிருந்து எடுப்பீங்களா?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_movement_en": {
+    "heard": "Will you shoot while walking or from one spot?",
+    "seconds": 3.36,
+    "text": "Will you shoot while walking, or from one spot?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_priority": {
+    "heard": "உங்களுக்கு எது முக்கியம்?",
+    "seconds": 1.8,
+    "text": "உங்களுக்கு எது முக்கியம்?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_priority_en": {
+    "heard": "What matters most to you?",
+    "seconds": 2.12,
+    "text": "What matters most to you?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_purpose": {
+    "heard": "எதுக்காக வாங்குறீங்க?",
+    "seconds": 1.76,
+    "text": "எதுக்காக வாங்கறீங்க?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_purpose_en": {
+    "heard": "What will you mainly use it for?",
+    "seconds": 2.28,
+    "text": "What will you mainly use it for?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_relax": {
+    "heard": "இதுக்கு மேல பொருத்தம் இல்ல எதை மாத்தி பார்க்கலாம்?",
+    "seconds": 3.56,
+    "text": "இதுக்கு மேல பொருத்தம் இல்ல. எதை மாத்தி பாக்கலாம்?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_relax_en": {
+    "heard": "Nothing more fits. Which one shall we change?",
+    "seconds": 3.6,
+    "text": "Nothing more fits. Which one shall we change?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_shelf": {
+    "heard": "நான் உங்க பூர்விகா உதவியாளர் இன்னைக்கு எந்த பொருள் பார்க்கணும்?",
+    "seconds": 3.8,
+    "text": "நான் உங்க பூர்விகா உதவியாளர். இன்னைக்கு எந்த பொருள் பாக்கணும்?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_shelf_en": {
+    "heard": "I'm your Purvika assistant. What are you looking for today?",
+    "seconds": 3.52,
+    "text": "I am your Poorvika assistant. What are you looking for today?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_size": {
+    "heard": "எந்த சைஸ் வேணும்?",
+    "seconds": 1.8,
+    "text": "எந்த சைஸ் வேணும்?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_size_en": {
+    "heard": "Which size do you want?",
+    "seconds": 2.04,
+    "text": "Which size do you want?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_speaker_for": {
+    "heard": "எதுக்காக எந்த இடத்துக்கு வேணும்?",
+    "seconds": 2.68,
+    "text": "எதுக்காக, எந்த இடத்துக்கு வேணும்?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_speaker_for_en": {
+    "heard": "What is it for, and for which room?",
+    "seconds": 2.92,
+    "text": "What is it for, and for which room?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_spec": {
+    "heard": "உங்க டேவிக்கு இது முக்கியம்னு நினைக்கிறேன் அப்படியே பார்க்கட்டுமா?",
+    "seconds": 4.08,
+    "text": "உங்க தேவைக்கு இது முக்கியம்னு நினைக்கிறேன். அப்படியே பாக்கட்டுமா?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_spec_en": {
+    "heard": "for your needs, I would look at this. Shall I?",
+    "seconds": 3.76,
+    "text": "For your needs I would look at this. Shall I?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_student": {
+    "heard": "என்ன படிக்கிறீங்க?",
+    "seconds": 1.48,
+    "text": "என்ன படிக்கறீங்க?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_student_en": {
+    "heard": "What are you studying?",
+    "seconds": 1.72,
+    "text": "What are you studying?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_tv_room": {
+    "heard": "எந்த ரூமுக்கு வேணும்?",
+    "seconds": 1.52,
+    "text": "எந்த ரூமுக்கு வேணும்?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_tv_room_en": {
+    "heard": "Which room is it for?",
+    "seconds": 1.56,
+    "text": "Which room is it for?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_work": {
+    "heard": "என்ன மாதிரி வேலை?",
+    "seconds": 1.64,
+    "text": "என்ன மாதிரி வேலை?",
+    "voice": "ta-in-techagent-5"
+  },
+  "ask_work_en": {
+    "heard": "What kind of work do you do?",
+    "seconds": 2.08,
+    "text": "What kind of work do you do?",
+    "voice": "ta-in-techagent-5"
+  },
+  "say_ack": {
+    "heard": "சரிங்க",
+    "seconds": 1.08,
+    "text": "சரிங்க.",
+    "voice": "ta-in-techagent-5"
+  },
+  "say_ack_en": {
+    "heard": "Sure",
+    "seconds": 1.04,
+    "text": "Sure.",
+    "voice": "ta-in-techagent-5"
+  },
+  "say_again": {
+    "heard": "மன்னிக்கணும் புரியல மறுபடியும் சொல்லுங்க இல்லன்னா தொடுங்க.",
+    "seconds": 4.28,
+    "text": "மன்னிக்கணும், புரியல. மறுபடி சொல்லுங்க, இல்லன்னா தொடுங்க.",
+    "voice": "ta-in-techagent-5"
+  },
+  "say_again_en": {
+    "heard": "Sorry, I did not catch that. Please shout again or tap.",
+    "seconds": 4.24,
+    "text": "Sorry, I did not catch that. Please say it again, or tap.",
+    "voice": "ta-in-techagent-5"
+  },
+  "say_brand_not_in_budget": {
+    "heard": "அந்த பிராண்ட்ல இந்த பட்ஜெட்டுக்குள்ள இப்போ எதுவும் இல்லை. இருக்கிற பிராண்ட்ல ஒன்னு சொல்லுங்க.",
+    "seconds": 4.96,
+    "text": "அந்த பிராண்ட்ல இந்த பட்ஜெட்டுக்குள்ள இப்போ எதுவும் இல்ல. இருக்கற பிராண்ட்ல ஒண்ணு சொல்லுங்க.",
+    "voice": "ta-in-techagent-5"
+  },
+  "say_brand_not_in_budget_en": {
+    "heard": "That brand has nothing inside this budget right now. Please pick from the brands that do.",
+    "seconds": 5.56,
+    "text": "That brand has nothing inside this budget right now. Please pick from the brands that do.",
+    "voice": "ta-in-techagent-5"
+  },
+  "say_card": {
+    "heard": "இது முழு விவரம்",
+    "seconds": 1.72,
+    "text": "இதோ முழு விவரம்.",
+    "voice": "ta-in-techagent-5"
+  },
+  "say_card_en": {
+    "heard": "Here are the full details.",
+    "seconds": 2.04,
+    "text": "Here are the full details.",
+    "voice": "ta-in-techagent-5"
+  },
+  "say_dealer": {
+    "heard": "சரி ஸ்டோர் இருக்கிற பக்கத்து கடைல நம்ம ஆள்கிட்ட பேசலாம் கீழ இருக்கிற கடைகள்ல கேளுங்க",
+    "seconds": 5.52,
+    "text": "சரி! ஸ்டாக் இருக்கற பக்கத்து கடைல நம்ம ஆள்கிட்ட பேசலாம். கீழ இருக்கற கடைகள்ல கேளுங்க.",
+    "voice": "ta-in-techagent-5"
+  },
+  "say_dealer_en": {
+    "heard": "Sure, you can talk to our person at a shop holding stock. Ask at any branch below.",
+    "seconds": 5.68,
+    "text": "Sure! You can talk to our person at a shop holding stock. Ask at any branch below.",
+    "voice": "ta-in-techagent-5"
+  },
+  "say_down": {
+    "heard": "மன்னிப்பினு இப்போ பாக்க முடியல. கொஞ்ச நேரம் கழிச்சு முயற்சி பண்ணுங்க.",
+    "seconds": 4.0,
+    "text": "மன்னிக்கணும், இப்போ பாக்க முடியல. கொஞ்ச நேரம் கழிச்சு முயற்சி பண்ணுங்க.",
+    "voice": "ta-in-techagent-5"
+  },
+  "say_down_en": {
+    "heard": "Sorry, I cannot check right now. Please try again in a while.",
+    "seconds": 4.64,
+    "text": "Sorry, I cannot check right now. Please try again in a while.",
+    "voice": "ta-in-techagent-5"
+  },
+  "say_enough": {
+    "heard": "இன்னும் விபரத்துக்கு பக்கத்து பூர்விக கடையில கேளுங்க",
+    "seconds": 3.28,
+    "text": "இன்னும் விவரத்துக்கு பக்கத்து பூர்விகா கடைல கேளுங்க.",
+    "voice": "ta-in-techagent-5"
+  },
+  "say_enough_en": {
+    "heard": "For anything more, please ask at your nearest Poorvika shop.",
+    "seconds": 4.2,
+    "text": "For anything more, please ask at your nearest Poorvika shop.",
+    "voice": "ta-in-techagent-5"
+  },
+  "say_expired": {
+    "heard": "நேரம் ஆயிடுச்சு முதல்ல இருந்து ஆரம்பிக்கலாம்.",
+    "seconds": 3.0,
+    "text": "நேரம் ஆயிடுச்சு. முதல்ல இருந்து ஆரம்பிக்கலாம்.",
+    "voice": "ta-in-techagent-5"
+  },
+  "say_expired_en": {
+    "heard": "That'll take a while. Let us start from the beginning.",
+    "seconds": 3.44,
+    "text": "That took a while. Let us start from the beginning.",
+    "voice": "ta-in-techagent-5"
+  },
+  "say_list": {
+    "heard": "சரி, லிஸ்ட்டா காட்டுறேன், பாத்து ஒண்ண தொடுங்க.",
+    "seconds": 3.28,
+    "text": "சரி, லிஸ்ட்டா காட்றேன். பார்த்து ஒண்ணை தொடுங்க.",
+    "voice": "ta-in-techagent-5"
+  },
+  "say_list_en": {
+    "heard": "Sure, here is the list. Have a look and tap on",
+    "seconds": 3.6,
+    "text": "Sure, here is the list. Have a look and tap one.",
+    "voice": "ta-in-techagent-5"
+  },
+  "say_more": {
+    "heard": "சரி இன்னும் கொஞ்சம்",
+    "seconds": 2.12,
+    "text": "சரி, இதோ இன்னும் கொஞ்சம்.",
+    "voice": "ta-in-techagent-5"
+  },
+  "say_more_en": {
+    "heard": "Sure, here are a few more.",
+    "seconds": 2.04,
+    "text": "Sure, here are a few more.",
+    "voice": "ta-in-techagent-5"
+  },
+  "say_no_more": {
+    "heard": "ஸ்டாக்ல இருக்கிறது அவ்வளவுதான். கீழ இருக்கிறதுல தேர்ந்திடுங்க.",
+    "seconds": 3.76,
+    "text": "ஸ்டாக்ல இருக்கறது அவ்வளவு தான். கீழ இருக்கறதுல தேர்ந்தெடுங்க.",
+    "voice": "ta-in-techagent-5"
+  },
+  "say_no_more_en": {
+    "heard": "That is everything in stock. Please choose from the list.",
+    "seconds": 3.76,
+    "text": "That is everything in stock. Please choose from the list.",
+    "voice": "ta-in-techagent-5"
+  },
+  "say_not_that": {
+    "heard": "அது புஸ்தகம்ல இல்ல. ஸ்டாக்ல இருக்குறத காட்டியிருக்கேன். இதுல சொல்லுங்க.",
+    "seconds": 4.8,
+    "text": "அது இப்போ ஸ்டாக்ல இல்ல. ஸ்டாக்ல இருக்கறத காட்டியிருக்கேன், இதுல சொல்லுங்க.",
+    "voice": "ta-in-techagent-5"
+  },
+  "say_not_that_en": {
+    "heard": "That one is not in stock right now. Here is what we have. Please pick from these.",
+    "seconds": 4.92,
+    "text": "That one is not in stock right now. Here is what we have - please pick from these.",
+    "voice": "ta-in-techagent-5"
+  },
+  "say_nothing": {
+    "heard": "மன்னிக்கணும் இதுல இப்போ ஸ்டாக் இல்ல வேற ஒன்னு பார்க்கலாமா?",
+    "seconds": 3.68,
+    "text": "மன்னிக்கணும், இதுல இப்போ ஸ்டாக் இல்ல. வேற ஒண்ணு பாக்கலாமா?",
+    "voice": "ta-in-techagent-5"
+  },
+  "say_nothing_en": {
+    "heard": "Sorry, nothing is in stock for that. Shall we try something else?",
+    "seconds": 4.48,
+    "text": "Sorry, nothing is in stock for that. Shall we try something else?",
+    "voice": "ta-in-techagent-5"
+  },
+  "say_one": {
+    "heard": "இப்போ ஸ்டாக்ல இருக்குறது இது ஒண்ணுதான்.",
+    "seconds": 2.8,
+    "text": "இப்போ ஸ்டாக்ல இருக்கறது இது ஒண்ணு தான்.",
+    "voice": "ta-in-techagent-5"
+  },
+  "say_one_en": {
+    "heard": "This is the only one in stock right now.",
+    "seconds": 2.68,
+    "text": "This is the only one in stock right now.",
+    "voice": "ta-in-techagent-5"
+  },
+  "say_slow_down": {
+    "heard": "கொஞ்ச பொறுங்க. ஒரு நிமிஷம் கழிச்சு முயற்சி பண்ணுங்க.",
+    "seconds": 3.28,
+    "text": "கொஞ்சம் பொறுங்க, ஒரு நிமிஷம் கழிச்சு முயற்சி பண்ணுங்க.",
+    "voice": "ta-in-techagent-5"
+  },
+  "say_slow_down_en": {
+    "heard": "Please wait a minute and try again.",
+    "seconds": 2.32,
+    "text": "Please wait a minute and try again.",
+    "voice": "ta-in-techagent-5"
+  },
+  "say_suggest": {
+    "heard": "உங்க தேதிக்கு இது நல்லா பொருந்தும்னு நினைக்கிறேன். இது சரியா வேற பாக்கட்டுமா?",
+    "seconds": 5.32,
+    "text": "உங்க தேவைக்கு இது நல்லா பொருந்தும்னு நினைக்கிறேன். இது சரியா, வேற பாக்கட்டுமா?",
+    "voice": "ta-in-techagent-5"
+  },
+  "say_suggest_en": {
+    "heard": "I think this one suits your need well. Is this right? Or shall I show another?",
+    "seconds": 5.0,
+    "text": "I think this one suits your need well. Is this right, or shall I show another?",
+    "voice": "ta-in-techagent-5"
+  },
+  "say_tap": {
+    "heard": "இப்போ தொட்டு தேர்ந்தெடுங்க",
+    "seconds": 1.92,
+    "text": "இப்போ தொட்டு தேர்ந்தெடுங்க.",
+    "voice": "ta-in-techagent-5"
+  },
+  "say_tap_en": {
+    "heard": "Please tap your choice for no.",
+    "seconds": 2.08,
+    "text": "Please tap your choice for now.",
+    "voice": "ta-in-techagent-5"
+  },
+  "say_thinking": {
+    "heard": "ஒரு நிமிஷம் பாக்குறேன்.",
+    "seconds": 1.84,
+    "text": "ஒரு நிமிஷம், பாக்குறேன்.",
+    "voice": "ta-in-techagent-5"
+  },
+  "say_thinking_en": {
+    "heard": "One moment, let me look.",
+    "seconds": 2.52,
+    "text": "One moment, let me look.",
+    "voice": "ta-in-techagent-5"
+  },
+  "say_unsure": {
+    "heard": "அது எனக்கு உறுதியா தெரியல, கடையில கேட்டுக்கோங்க.",
+    "seconds": 3.96,
+    "text": "அது எனக்கு உறுதியா தெரியல. கடைல கேட்டுக்கோங்க.",
+    "voice": "ta-in-techagent-5"
+  },
+  "say_unsure_en": {
+    "heard": "I'm not sure about that. Please ask at the shop.",
+    "seconds": 3.76,
+    "text": "I am not sure about that. Please ask at the shop.",
+    "voice": "ta-in-techagent-5"
+  }
+}

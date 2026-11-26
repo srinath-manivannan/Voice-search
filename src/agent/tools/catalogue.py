@@ -38,17 +38,44 @@ from typing import Any, Callable, Protocol
 
 COLLECTION = "productsnew"
 SHORTLIST = 3  # nobody can hold a longer list read aloud
+# The most one shelf is ever asked for whole. Typesense refuses a page over
+# 250; the largest shelf the guided call scripts held 70 on 2026-11-23.
+SHELF_LIMIT = 120
 QUERY_BY = "name,categories,item_code,sku,ram"
 QUERY_WEIGHTS = "4,3,2,1,1"
 
 # Spoken category words to the one value the schema filters on.
+#
+# Every value here was read off a live facet query and checked to return
+# something - `tv` used to map to "Televisions", which is not a value this
+# catalogue has, so the one category a customer asks for by name as often as
+# phones found nothing at all. The shelf is "Television", singular.
+#
+# These are the shelves that can be FILTERED. They are not the shelves
+# Poorvika sells: the catalogue carries over a hundred facet values and the
+# text query reaches all of them, which is why the tool's description tells
+# the model to search by words for anything not listed here. Checked against
+# the live catalogue on 2026-11-16; counts in the comments are from that day
+# and will drift.
 CATEGORIES = {
-    "phone": "Mobiles",
+    "phone": "Mobiles",  # 70
     "mobile": "Mobiles",
-    "laptop": "Laptops",
-    "tablet": "Tabs & IPad",
-    "watch": "Smart Watches",
-    "tv": "Televisions",
+    "laptop": "Laptops",  # 18
+    "tablet": "Tabs & IPad",  # 7
+    "watch": "Smart Watches",  # 10
+    "tv": "Television",  # 21
+    "ac": "Air Conditioners",  # 23
+    "fridge": "Refrigerators",  # 18
+    "washing machine": "Washing Machines",  # 14
+    "fan": "Fans",  # 30
+    "headphones": "Headphones & Headsets",  # 34
+    "speaker": "Speakers",  # 18
+    "powerbank": "Powerbanks",  # 12
+    "charger": "Chargers",  # 10
+    "case": "Cases & Covers",  # 27
+    "geyser": "Geysers",  # 5
+    "kitchen": "Kitchen Appliances",  # 53
+    "home appliance": "Home Appliances",  # 98
 }
 
 # Both stock fields must agree, and the variant must be one the shop lists.
@@ -111,10 +138,14 @@ class Catalogue:
         token: str,
         origin: str = "bot",
         poster_factory: Callable[[], Poster] | None = None,
+        key_header: str = "access-token",
     ) -> None:
         self._url = url
         self._token = token
         self._origin = origin
+        # The staging proxy reads the key from "access-token"; production
+        # Typesense behind proxy.poorvika.com reads "X-TYPESENSE-API-KEY".
+        self._key_header = key_header
         self._poster_factory = poster_factory or _default_poster
 
     @staticmethod
@@ -211,6 +242,71 @@ class Catalogue:
         if filter_by := self._filter(category, min_price, max_price, in_stock_only):
             search["filter_by"] = filter_by
 
+        result = (await self.multi([search]))[0]
+        hits = result.get("hits") or []
+        return SearchResult(
+            products=[self._product(h.get("document") or {}) for h in hits[:limit]],
+            total=int(result.get("found") or 0),
+        )
+
+    async def shelf(
+        self, category: str, limit: int | None = None
+    ) -> list[dict[str, Any]]:
+        """Everything the index calls in stock on one shelf, as it holds it.
+
+        Whole documents rather than `Product`s, on purpose. The guided call
+        builds its buttons out of fields a voice reply never needs - tonnage,
+        door type, load orientation - and the five-spec summary above exists
+        precisely to stop a voice agent reading those out.
+
+        The index's own idea of stock and price is where the guided call
+        starts, not what it shows: both are re-asked of the estate before a
+        customer sees either. See `src/guided/shelf.py`.
+        """
+        if not CATEGORIES.get(category.lower().strip()):
+            # An unknown shelf would otherwise build an empty filter and
+            # return the whole catalogue as if it were one shelf.
+            raise ValueError(f"not a shelf that can be filtered: {category!r}")
+        page_size = SHELF_LIMIT if limit is None else min(limit, SHELF_LIMIT)
+        if page_size <= 0:
+            return []
+        query = {
+            "collection": COLLECTION,
+            "q": "*",
+            "query_by": "name",
+            "filter_by": self._filter(category, None, None, True),
+            "sort_by": "review_count:desc",
+            "per_page": page_size,
+            "use_cache": True,
+            "cache_ttl": 120,
+        }
+        page = 1
+        documents: dict[str, dict[str, Any]] = {}
+        while True:
+            result = (await self.multi([{**query, "page": page}]))[0]
+            hits = result.get("hits") or []
+            before = len(documents)
+            for hit in hits:
+                doc = hit.get("document") or {}
+                if code := doc.get("item_code"):
+                    documents[str(code)] = doc
+            if (limit is not None and len(documents) >= limit) or len(hits) < page_size:
+                break
+            if page * page_size >= int(result.get("found", page * page_size)):
+                break
+            if len(documents) == before:
+                raise CatalogueUnavailable("shelf pagination stopped advancing")
+            page += 1
+        return list(documents.values())[:limit]
+
+    async def multi(self, searches: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Several searches in one request, answered in the order asked.
+
+        Any one of them being rejected fails the lot: a rejected filter is a
+        bug in our query, not an empty shelf, and reading it as "found
+        nothing" is how a customer gets told Poorvika does not sell
+        televisions.
+        """
         client = self._poster_factory()
         try:
             response = await client.post(
@@ -218,9 +314,12 @@ class Catalogue:
                 headers={
                     "Content-Type": "application/json",
                     "Origin": self._origin,
-                    "access-token": self._token,
+                    self._key_header: self._token,
+                    # Cloudflare in front of the production proxy refuses a
+                    # library's default agent (error 1010); a named one passes.
+                    "User-Agent": "shopping-assistant/1.0",
                 },
-                json={"searches": [search]},
+                json={"searches": searches},
             )
         except Exception as exc:  # noqa: BLE001 - every transport failure is the same here
             raise CatalogueUnavailable(str(exc)[:200]) from exc
@@ -228,16 +327,15 @@ class Catalogue:
         if response.status_code != 200:
             raise CatalogueUnavailable(f"search returned {response.status_code}")
 
-        result = (response.json().get("results") or [{}])[0]
-        if error := result.get("error"):
-            # A rejected filter is a bug in our query, not an empty shelf.
-            raise CatalogueUnavailable(f"search rejected the query: {error[:160]}")
-
-        hits = result.get("hits") or []
-        return SearchResult(
-            products=[self._product(h.get("document") or {}) for h in hits[:limit]],
-            total=int(result.get("found") or 0),
-        )
+        results = response.json().get("results") or []
+        if len(results) != len(searches):
+            raise CatalogueUnavailable(
+                f"asked {len(searches)} searches, got {len(results)} answers"
+            )
+        for result in results:
+            if error := result.get("error"):
+                raise CatalogueUnavailable(f"search rejected the query: {error[:160]}")
+        return list(results)
 
 
 def _first(value: Any) -> str | None:

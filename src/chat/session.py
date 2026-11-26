@@ -14,10 +14,10 @@ optimisation.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 import logging
-from typing import Any
+from typing import Any, Protocol
 
 from src.agent.tools.runner import ToolSession
 from src.chat.gemini_text import GeminiTextModel
@@ -50,6 +50,34 @@ def _is_question(message: dict[str, Any]) -> bool:
     return any("text" in part for part in message.get("parts") or [])
 
 
+# Reading what the caller wants out of Tanglish that arrives misspelt,
+# half-finished and romanised three different ways. Some slack, because the
+# input varies and what comes out is a tool call rather than a claim.
+READING_TEMPERATURE = 0.2
+# Answering with the tool's result already in the window. Every number it
+# could need is in front of it, so there is nothing to be creative about -
+# and creativity at this point is the word for a price nobody quoted.
+#
+# Temperature costs nothing either way. The same tokens are generated and
+# billed at the same rate at 0.0 as at 1.0; this is a hallucination control
+# and it is only in this file because that is where the two halves of a turn
+# can be told apart for free.
+QUOTING_TEMPERATURE = 0.0
+
+
+class RoundHooks(Protocol):
+    """Reserve before a generation and settle after it, including tool rounds."""
+
+    async def before(self, round_index: int) -> bool: ...
+
+    async def after(self, round_index: int, usage: dict[str, Any]) -> None: ...
+
+    async def failed(self, round_index: int) -> None: ...
+
+
+Sanitise = Callable[[dict[str, Any]], dict[str, Any]]
+
+
 class ChatSession:
     # Two rounds, because one question can genuinely need two lookups:
     # "20,000-30,000 kulla phone, stock irukka?" is a search and then a stock
@@ -63,6 +91,8 @@ class ChatSession:
         model: GeminiTextModel,
         tools: ToolSession | None = None,
         max_history_messages: int = 12,
+        sanitise: Sanitise | None = None,
+        hooks: RoundHooks | None = None,
     ) -> None:
         self._model = model
         self._tools = tools
@@ -70,12 +100,34 @@ class ChatSession:
         # one" still resolves, short enough that the prompt stops growing.
         self._max_history = max_history_messages
         self._history: list[dict[str, Any]] = []
+        self._sanitise = sanitise
+        self._hooks = hooks
         self.usage = SessionUsage(rates=FLASH_LITE)
         self.result = ChatResult()
+        # "cap" when a reservation was refused before a generation.
+        self.stopped: str | None = None
 
     @property
     def history(self) -> list[dict[str, Any]]:
         return list(self._history)
+
+    def remember(self, context: str) -> None:
+        """Put something in the history without asking for an answer.
+
+        What `GeminiLiveSession.prime` does with `turnComplete: false`, done
+        by the side that owns the history instead of by the wire protocol.
+        The acknowledgement is ours, not the model's: a pair is appended so
+        `_trim` still sees whole exchanges, and so the next real question is
+        not read as a second message from the customer in a row.
+
+        Used by the prefetch, which hands over a shortlist the customer has
+        not asked for yet. Priming must never make the agent say anything.
+        """
+        if not context.strip():
+            return
+        self._history.append({"role": "user", "parts": [{"text": context}]})
+        self._history.append({"role": "model", "parts": [{"text": "Sari."}]})
+        self._trim()
 
     def _trim(self) -> None:
         """Drop the oldest exchanges, keeping whole pairs.
@@ -113,12 +165,40 @@ class ChatSession:
         reply = ""
         turn = None
         for _round in range(self.MAX_TOOL_ROUNDS + 1):
+            if self._hooks is not None and not await self._hooks.before(_round):
+                self.stopped = "cap"
+                break
             reply = ""
             turn = None
-            async for delta, streamed in self._model.stream(self._history):
-                turn = streamed
-                reply += delta
-                yield delta
+            # The round IS the router, and it costs nothing to ask: round
+            # zero is the model reading the caller, every round after it is
+            # the model quoting something a tool returned.
+            temperature = READING_TEMPERATURE if _round == 0 else QUOTING_TEMPERATURE
+            try:
+                async for delta, streamed in self._model.stream(
+                    self._history, temperature
+                ):
+                    turn = streamed
+                    reply += delta
+                    yield delta
+            except Exception:
+                if self._hooks is not None:
+                    await self._hooks.failed(_round)
+                raise
+
+            usage = turn.usage if turn is not None and turn.usage else {}
+            if turn is not None and turn.usage:
+                recorded = self.usage.record_text(turn.usage)
+                self.result.turns.append(
+                    ChatRecord(
+                        turn=len(self.result.turns) + 1,
+                        prompt_tokens=recorded.prompt_text,
+                        response_tokens=recorded.response_text,
+                        thinking_tokens=recorded.thoughts,
+                    )
+                )
+            if self._hooks is not None:
+                await self._hooks.after(_round, usage)
 
             if turn is None or not (call := turn.function_call):
                 break
@@ -139,6 +219,12 @@ class ChatSession:
                 if self._tools is not None
                 else {"error": "catalogue_not_configured"}
             )
+            if self._sanitise is not None:
+                result = self._sanitise(
+                    result
+                    if isinstance(result, dict)
+                    else {"error": "details_unavailable"}
+                )
             self._history.append(
                 {
                     "role": "user",
@@ -154,14 +240,3 @@ class ChatSession:
             )
 
         self._history.append({"role": "model", "parts": [{"text": reply}]})
-
-        if turn is not None and turn.usage:
-            recorded = self.usage.record_text(turn.usage)
-            self.result.turns.append(
-                ChatRecord(
-                    turn=len(self.result.turns) + 1,
-                    prompt_tokens=recorded.prompt_text,
-                    response_tokens=recorded.response_text,
-                    thinking_tokens=recorded.thoughts,
-                )
-            )

@@ -159,8 +159,15 @@ def test_both_surfaces_share_one_persona_differing_only_in_delivery():
         # English never - Poorvika's customers are Tamil speakers.
         assert "NEVER REPLY IN ENGLISH" in text
         assert "Tanglish" in text
-        # The greeting must survive the word cap, or it is spoken half-finished.
-        assert "does NOT apply" in text
+        # The word cap used to carry an exemption for the greeting, so that
+        # it could not be shortened into half a sentence. The greeting is no
+        # longer generated at all - voice plays a recording and chat sends
+        # the string - so the exemption describes a case that cannot happen,
+        # and a rule that cannot fire is a rule charged on every generation
+        # for nothing. Asserted gone rather than deleted, so that putting
+        # the greeting back in the model's hands has to come back here.
+        assert "does NOT apply" not in text
+        assert "greeting" not in text.lower()
     assert "speaking out loud" in voice
     assert "chat window" in chat
     # Both caps are 100 at the operator's instruction. Measurement says the

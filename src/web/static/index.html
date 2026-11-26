@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Poorvika</title>
+<title>Shopping Assistant</title>
 <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
 <style>
   :root {
@@ -25,7 +25,15 @@
        share bar in the cost table, both of which are non-text UI at 3.48:1
        against a 3:1 requirement - and the bar's value is in the number
        beside it, so nothing depends on seeing the colour at all. */
-    --brand: #f4511e;
+    --sa-accent: #F36F21;
+    --sa-accent-hover: #D95B12;
+    --sa-accent-soft: #FFF4EC;
+    --sa-ink: #1C1F26;
+    --sa-muted: #5F6673;
+    --sa-surface: #FFFFFF;
+    --sa-bg: #F6F7F9;
+    --sa-border: #E6E8EC;
+    --brand: #D95B12;
     /* A deeper orange wherever white text sits on it. White on the logo orange
        is about 3.4:1, under the 4.5:1 that 14px text needs; this clears it. */
     --brand-ink: #c2410c;
@@ -51,13 +59,13 @@
     overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
   }
   body {
-    margin: 0; background: var(--bg); color: var(--ink);
+    margin: 0; background: var(--sa-bg); color: var(--sa-ink);
     font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
     display: flex; flex-direction: column; min-height: 100vh;
   }
 
   /* header ------------------------------------------------------------- */
-  header { display: flex; align-items: center; gap: 12px; padding: 14px 20px; }
+  header { display: flex; align-items: center; gap: 12px; padding: 14px 20px; background: var(--sa-surface); border-bottom: 3px solid var(--sa-accent); }
   /* The supplied file is orange on its own off-white ground, so the tile adds
      no background - only the rounded corner and a hairline, without which a
      near-white square on a white header has no edge at all. */
@@ -87,7 +95,7 @@
   .tab {
     background: none; border: 0; padding: 10px 0 12px; font-size: 14.5px;
     color: var(--dim); cursor: pointer; border-bottom: 2px solid transparent;
-    display: flex; align-items: center; gap: 7px;
+    display: flex; align-items: center; gap: 7px; min-height: 44px;
   }
   .tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--brand); font-weight: 500; }
   .tab:disabled { opacity: .45; cursor: not-allowed; }
@@ -179,7 +187,7 @@
   .cta {
     background: var(--brand-ink); color: #fff; border: 0; border-radius: 999px;
     padding: 12px 26px; font-size: 14.5px; font-weight: 500; cursor: pointer;
-    display: inline-flex; align-items: center; gap: 9px;
+    display: inline-flex; align-items: center; gap: 9px; min-height: 44px; min-width: 44px;
   }
   .cta:hover { background: var(--brand-ink-hover); }
   .cta:disabled { opacity: .5; cursor: default; }
@@ -224,7 +232,7 @@
   }
   .composer input:focus { border-color: var(--brand-ink); }
   .send {
-    width: 42px; height: 42px; border-radius: 50%; border: 0;
+    width: 44px; height: 44px; border-radius: 50%; border: 0;
     background: var(--brand-ink); color: #fff; cursor: pointer; flex: none;
     display: grid; place-items: center;
   }
@@ -253,6 +261,125 @@
   .good { color: var(--good); } .warn { color: var(--warn); } .bad { color: var(--bad); }
   .note { color: var(--dim); font-size: 11.5px; max-width: 330px; }
 
+  .voice-notice {
+    max-width: 420px; margin: 14px auto 0; padding: 12px 14px; text-align: left;
+    background: var(--sa-accent-soft); color: var(--sa-ink);
+    border: 1px solid var(--sa-border); border-radius: 14px; font-size: 14px;
+  }
+  .chat-hero { text-align: left; padding: 8px 4px 12px; }
+  .chat-hero h2 { font-size: 22px; line-height: 1.3; margin: 0; }
+  .chat-hero p { color: var(--sa-muted); margin: 8px 0 0; }
+  .chat-day {
+    display: inline-block; margin: 0 0 10px; padding: 4px 10px; border-radius: 999px;
+    background: var(--sa-bg); color: var(--sa-muted); font-size: 12px; font-weight: 700;
+  }
+  .chat-chips { display: flex; gap: 8px; overflow-x: auto; padding: 4px 0 12px; }
+  .chat-chips button {
+    flex: 0 0 auto; min-height: 44px; border-radius: 999px; border: 1px solid var(--sa-border);
+    background: #fff; color: var(--sa-ink); padding: 8px 14px; cursor: pointer;
+  }
+  .chat-chips button:hover { border-color: var(--sa-accent); background: var(--sa-accent-soft); }
+  .msg time { display: block; margin-top: 4px; font-size: 12px; color: var(--sa-muted); }
+  .chat-products { display: flex; gap: 10px; overflow-x: auto; margin-top: 8px; }
+  .chat-product {
+    flex: 0 0 220px; text-align: left; background: #fff; border: 1px solid var(--sa-border);
+    border-radius: 16px; padding: 12px; box-shadow: 0 8px 24px rgba(28,31,38,.06);
+  }
+  .chat-product img { width: 100%; height: 88px; object-fit: contain; background: var(--sa-bg); border-radius: 10px; }
+  .chat-product .badge { display: inline-block; background: var(--sa-accent-soft); color: var(--sa-accent-hover); border-radius: 999px; font-size: 12px; font-weight: 700; padding: 2px 8px; }
+  .chat-product h3 { margin: 6px 0 0; font-size: 15px; }
+  .chat-product p { margin: 4px 0 0; color: var(--sa-muted); font-size: 13px; }
+  .chat-product .rupee { color: var(--sa-ink); font-weight: 700; }
+  .chat-product button { width: 100%; min-height: 44px; margin-top: 6px; border-radius: 12px; border: 1px solid var(--sa-accent); background: #fff; color: var(--sa-accent); font-weight: 600; cursor: pointer; }
+  .chat-product button.view { background: var(--sa-accent); color: #fff; }
+  .typing { display: inline-flex; gap: 5px; padding: 8px 4px; }
+  .typing i { width: 7px; height: 7px; border-radius: 50%; background: var(--sa-accent); animation: blink 1s infinite; }
+  .typing i:nth-child(2) { animation-delay: .15s; }
+  .typing i:nth-child(3) { animation-delay: .3s; }
+  @keyframes blink { 50% { opacity: .25; } }
+  .chat-menu { position: relative; }
+  .chat-pop { position: absolute; right: 0; top: 36px; background: #fff; border: 1px solid var(--sa-border); border-radius: 12px; box-shadow: 0 12px 32px rgba(28,31,38,.12); padding: 6px; z-index: 2; }
+  .chat-pop button { display: block; width: 100%; min-height: 44px; min-width: 140px; text-align: left; border: 0; background: transparent; padding: 0 12px; cursor: pointer; }
+  body.sa-embed header, body.sa-embed nav[role="tablist"], body.sa-embed .drawer, body.sa-embed #meter { display: none !important; }
+  body.sa-embed main { padding: 12px; place-items: stretch; align-content: stretch; }
+  body.sa-embed .stage, body.sa-embed #chat-panel { max-width: none; }
+
+
+  /* what the call cost, for someone who has never seen a token ---------- */
+  /* the meter ---------------------------------------------------------- */
+  /* On screen for the whole call, because "how long have I been talking and
+     what has that cost" are the two numbers you want DURING a call, not in a
+     panel you scroll to after it. The full breakdown below still exists; this
+     is the glance.
+
+     Tabular numerals on both figures: without them the digits are different
+     widths, the box twitches on every tick, and a number that moves while it
+     is being read is a number nobody trusts. */
+  #meter {
+    position: fixed; top: 58px; right: 20px; z-index: 20;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 12px;
+    padding: 10px 14px; min-width: 124px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, .06);
+  }
+  #meter .lbl {
+    font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--dim); margin-bottom: 5px;
+  }
+  #meter .clock {
+    font-size: 24px; font-weight: 600; line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  #meter .rs {
+    font-size: 16px; font-weight: 600; margin-top: 7px;
+    font-variant-numeric: tabular-nums;
+  }
+  #meter .per { font-size: 11px; color: var(--dim); margin-top: 2px; }
+  /* `#meter .per` is an id plus a class, so a bare `.good` further up the
+     sheet loses to it and the rate would stay grey however far over target
+     it ran. Stated at the same weight to win. */
+  #meter .per.good { color: var(--good); }
+  #meter .per.warn { color: var(--warn); }
+  #meter .per.bad { color: var(--bad); }
+  #meter .waiting { color: var(--dim); font-weight: 400; }
+  /* On a phone there is no corner to float in: fixed at the top right it sat
+     on the last tab and on whatever the panel put first. So it becomes one
+     line of the page instead, above the tabs, and covers nothing. */
+  @media (max-width: 640px) {
+    #meter {
+      position: static; display: flex; align-items: baseline; gap: 10px;
+      margin: 0 20px 4px; padding: 6px 12px; min-width: 0; box-shadow: none;
+    }
+    #meter .lbl { margin: 0; }
+    #meter .clock { font-size: 16px; }
+    #meter .rs { font-size: 14px; margin: 0; }
+    #meter .per { margin: 0 0 0 auto; }
+  }
+
+  #spend {
+    margin: 18px auto 0; max-width: 360px; text-align: left;
+    border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px;
+  }
+  #spend .top { display: flex; align-items: baseline; justify-content: space-between; }
+  #spend .rupees { font-size: 28px; font-weight: 600; line-height: 1; }
+  #spend .rate { font-size: 13px; color: var(--dim); }
+  #spend .rate b { font-weight: 600; }
+  #spend .cap { font-size: 11.5px; color: var(--dim); margin: 4px 0 12px; }
+  #spend .row { display: flex; align-items: center; gap: 8px; margin: 7px 0; font-size: 13px; }
+  #spend .row .what { flex: 1; }
+  #spend .row .amt { font-variant-numeric: tabular-nums; }
+  #spend .row .bar { width: 64px; height: 5px; border-radius: 3px; background: var(--line); }
+  #spend .row .bar i { display: block; height: 100%; border-radius: 3px; background: currentColor; }
+  #spend .io { display: flex; gap: 14px; font-size: 12px; color: var(--dim);
+               border-top: 1px solid var(--line); margin-top: 12px; padding-top: 10px; }
+  #spend .io div { flex: 1; }
+  #spend .io b { display: block; font-size: 15px; color: var(--ink); font-weight: 600; }
+  #spend .split { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 9px; }
+  #spend .split h4 { font-size: 11px; font-weight: 600; color: var(--dim);
+                     text-transform: uppercase; letter-spacing: .04em; margin: 0 0 5px; }
+  #spend .split .row { margin: 4px 0; font-size: 12.5px; }
+  #spend .split .row.sum { border-top: 1px solid var(--line); margin-top: 6px;
+                           padding-top: 6px; font-weight: 600; }
+
   /* cost panel --------------------------------------------------------- */
   #cost { display: block; min-width: 340px; }
   .cost-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 2px; }
@@ -276,29 +403,195 @@
     background: #e8e8e8; color: #6b6b6b; font-size: 9.5px; line-height: 13px;
     text-align: center; cursor: help; vertical-align: text-top;
   }
+
+  /* guided ------------------------------------------------------------- */
+  /* A question, and the only answers there are. Every answer is a button
+     at least 48px tall, because this is tapped with a thumb far more often
+     than it is clicked, and a row of small links is how the wrong budget
+     gets chosen. No colour here carries meaning on its own: a count is a
+     number, stock is a sentence. */
+  #guided-panel h1 { font-size: 21px; margin: 4px 0 2px; line-height: 1.4; }
+  .g-trail { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; min-height: 28px; margin: 4px 0 12px; }
+  .g-chip {
+    font-size: 12.5px; color: var(--dim); background: var(--soft);
+    border: 1px solid var(--line); border-radius: 999px; padding: 3px 11px;
+  }
+  .g-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(158px, 1fr)); gap: 10px; margin: 18px 0 8px; }
+  .g-choice {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    min-height: 50px; padding: 12px 14px; text-align: left; cursor: pointer;
+    border: 1px solid var(--line); border-radius: 12px; background: var(--bg);
+    color: var(--ink); font: inherit; font-size: 15px;
+  }
+  .g-choice:hover { border-color: var(--brand-ink); background: var(--soft); }
+  .g-choice .n { font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; }
+  .g-choice.any { grid-column: 1 / -1; justify-content: center; color: var(--dim); }
+  .g-choice:disabled, .g-pick:disabled { opacity: .55; cursor: default; }
+
+  /* The wait is said, not just spun: three dots tell nobody what is
+     happening, and a customer who has just answered four questions should
+     not be left wondering whether the fifth tap registered. */
+  .g-wait { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 26px 0; color: var(--dim); font-size: 15px; }
+  .g-wait .dots { display: inline-flex; gap: 5px; }
+  .g-wait .dots b { width: 7px; height: 7px; border-radius: 50%; background: var(--brand); animation: g-bob 1s ease-in-out infinite; }
+  .g-wait .dots b:nth-child(2) { animation-delay: .15s; }
+  .g-wait .dots b:nth-child(3) { animation-delay: .3s; }
+  @keyframes g-bob { 0%, 80%, 100% { opacity: .25; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-4px); } }
+  @media (prefers-reduced-motion: reduce) { .g-wait .dots b { animation: none; opacity: .7; } }
+
+  .g-picks { text-align: left; margin-top: 16px; }
+  .g-pick {
+    display: block; width: 100%; text-align: left; cursor: pointer;
+    border: 1px solid var(--line); border-radius: 14px; background: var(--bg);
+    padding: 14px 16px; margin-bottom: 10px; font: inherit; color: var(--ink);
+  }
+  .g-pick:hover { border-color: var(--brand-ink); background: var(--soft); }
+  .g-pick .nm { font-weight: 600; font-size: 15px; line-height: 1.4; }
+  .g-shop { margin-top: 6px; }
+  .g-way { color: var(--brand-ink); font-weight: 600; margin-left: 6px; }
+  .g-relax { border-color: var(--brand-ink); }
+  .g-letter {
+    display: inline-grid; place-items: center; width: 22px; height: 22px; margin-right: 8px;
+    border-radius: 50%; background: var(--brand-ink); color: #fff; font-size: 12.5px;
+    font-weight: 700; vertical-align: 1px;
+  }
+  .g-pick .pr, .g-card .pr { font-size: 18px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .g-was { color: var(--dim); text-decoration: line-through; font-weight: 400; font-size: 13px; margin-left: 8px; }
+  .g-pick .why { color: var(--dim); font-size: 13.5px; margin-top: 5px; }
+  .g-note { font-size: 12.5px; color: var(--dim); margin-top: 6px; }
+  .g-note.in, .g-stock.in { color: var(--good); }
+  .g-note.out, .g-stock.out { color: var(--bad); }
+  /* "A little over your budget": an honest flag, not an alarm. */
+  .g-note.over { color: var(--warn); font-weight: 500; }
+  .g-note-line { grid-column: 1 / -1; color: var(--dim); font-size: 13.5px; text-align: center; margin: -6px 0 2px; }
+
+  /* the questions a customer may ask about the one they picked ---------- */
+  .g-questions { margin-top: 14px; text-align: left; }
+  .g-invite { font-size: 13.5px; color: var(--dim); margin-bottom: 8px; }
+  .g-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .g-chip-btn {
+    font: inherit; font-size: 13.5px; color: var(--ink); cursor: pointer;
+    background: var(--soft); border: 1px solid var(--line); border-radius: 999px;
+    padding: 9px 14px; min-height: 40px;
+  }
+  .g-chip-btn:hover { border-color: var(--brand-ink); }
+  .g-chip-btn:disabled { opacity: .55; cursor: default; }
+  .g-answer {
+    text-align: left; font-size: 14.5px; margin: 12px 0 0;
+    background: var(--soft); border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px 14px;
+  }
+  .g-answer.unsure { color: var(--dim); }
+  .g-answer { white-space: pre-line; }
+
+  /* speaking instead of tapping ---------------------------------------- */
+  .g-mic {
+    display: inline-flex; align-items: center; gap: 8px; margin: 14px auto 0;
+    background: var(--bg); color: var(--brand-ink); border: 1.5px solid var(--brand-ink);
+    border-radius: 999px; padding: 10px 20px; font: inherit; font-size: 15px; cursor: pointer;
+    min-height: 46px;
+  }
+  .g-mic svg { width: 18px; height: 18px; }
+  .g-mic:hover { background: var(--soft); }
+  .g-mic.on { background: var(--brand-ink); color: #fff; }
+  .g-heard { color: var(--dim); font-size: 13.5px; margin: -2px 0 6px; }
+  /* What a typed or spoken turn was understood as, above the next question. */
+  .g-overview { font-size: 15px; color: var(--dim); margin: 6px auto 2px; max-width: 560px; }
+  .g-compose { max-width: 560px; margin: 18px auto 0; padding-top: 0; border-top: 0; }
+  .g-compose input { min-width: 0; }
+  .g-send {
+    border: 0; border-radius: 999px; padding: 0 18px; min-height: 44px; flex: none;
+    background: var(--brand-ink); color: #fff; font: inherit; font-size: 15px; cursor: pointer;
+  }
+  .g-send:hover { background: var(--brand-ink-hover); }
+  .g-compose .g-mic { margin: 0; padding: 10px 14px; flex: none; }
+  @media (max-width: 520px) { #g-mic-label { display: none; } }
+  /* What a spoken press pressed, shown for a moment before the next screen. */
+  .pressed { border-color: var(--brand-ink) !important; background: var(--soft) !important;
+             box-shadow: 0 0 0 2px var(--brand-ink); }
+
+  .g-card { text-align: left; border: 1px solid var(--line); border-radius: 14px; padding: 18px; margin-top: 16px; }
+  .g-card h2 { font-size: 16px; margin: 0; line-height: 1.4; }
+  .g-card dl { display: grid; grid-template-columns: auto 1fr; gap: 5px 16px; margin: 14px 0 4px; font-size: 14px; }
+  .g-card dt { color: var(--dim); }
+  .g-card dd { margin: 0; }
+  .g-card .sec { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 10px; font-size: 14px; }
+  .g-card .sec b { display: block; font-size: 12px; color: var(--dim); font-weight: 600; margin-bottom: 3px; }
+
+  .g-foot { display: flex; justify-content: center; gap: 6px; margin-top: 10px; }
+  .g-link { background: none; border: 0; color: var(--brand-ink); cursor: pointer; font: inherit; font-size: 14px; padding: 9px 12px; border-radius: 8px; }
+  .g-link:hover { background: var(--soft); }
+  .g-cost { font-size: 12px; color: var(--dim); margin: 14px auto 0; max-width: 460px; line-height: 1.5; }
 </style>
+<script id="sa-brand" type="application/json">__SA_BRAND_JSON__</script>
 </head>
 <body data-state="idle">
 
 <header>
-  <img class="logo" src="/static/logo-photo.avif" alt="Poorvika">
-  <div class="who"><b>Poorvika</b><span>AI Assistant</span></div>
+  <img class="logo" src="/static/logo-photo.avif" alt="Shopping Assistant">
+  <div class="who"><b id="brand-name">Shopping Assistant</b><span id="brand-sub">Your smart shopping guide</span></div>
   <div class="spacer"></div>
   <button class="icon-btn" id="share" title="Copy link" aria-label="Copy link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg></button>
 </header>
 
-<nav role="tablist" aria-label="Voice or chat">
-  <button class="tab" id="tab-voice" role="tab" aria-selected="true"
-          aria-controls="voice-panel" tabindex="0"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .3 1.9.6 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.5c.9.3 1.8.5 2.8.6a2 2 0 0 1 1.7 2z"/></svg> Voice Call</button>
+<!-- aria-live is off on purpose. A clock that ticks every second, announced
+     every second, makes the page unusable with a screen reader. The figures
+     are readable on demand; they do not need to interrupt. -->
+<aside id="meter" hidden aria-live="off">
+  <div class="lbl">On call</div>
+  <div class="clock" id="meter-time">0:00</div>
+  <div class="rs waiting" id="meter-rs">&mdash;</div>
+  <div class="per" id="meter-rate">&nbsp;</div>
+</aside>
+
+<nav role="tablist" aria-label="Guided, voice or chat">
+  <button class="tab" id="tab-guided" role="tab" aria-selected="true"
+          aria-controls="guided-panel" tabindex="0"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M3.5 6l1 1 2-2M3.5 12l1 1 2-2M3.5 18l1 1 2-2"/></svg> Guided</button>
+  <button class="tab" id="tab-voice" role="tab" aria-selected="false"
+          aria-controls="voice-panel" tabindex="-1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .3 1.9.6 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.5c.9.3 1.8.5 2.8.6a2 2 0 0 1 1.7 2z"/></svg> Voice Call</button>
   <button class="tab" id="tab-chat" role="tab" aria-selected="false"
           aria-controls="chat-panel" tabindex="-1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.5 8.5 0 0 1-3.8-.9L3 20.5l1.4-4.2A8.5 8.5 0 0 1 12 3.5a8.4 8.4 0 0 1 9 8z"/></svg> Chat</button>
 </nav>
 
 <main>
-  <div class="stage" id="voice-panel" role="tabpanel" aria-labelledby="tab-voice" tabindex="0">
+  <!-- The guided call. Every word in it that a customer reads comes from the
+       server, in Tamil, so the panel says which language it is in: the
+       page is declared English and a screen reader would otherwise
+       pronounce Tamil script with English rules. -->
+  <div class="stage" id="guided-panel" role="tabpanel" aria-labelledby="tab-guided" tabindex="0" lang="ta">
+    <button type="button" id="g-begin" style="min-height:44px;min-width:44px">Start</button>
+    <div class="g-trail" id="g-trail"></div>
+    <p class="g-overview" id="g-overview" hidden aria-live="polite"></p>
+    <h1 id="g-ask" aria-live="polite">&nbsp;</h1>
+    <p class="g-heard" id="g-heard" hidden aria-live="polite"></p>
+    <div class="g-choices" id="g-choices" role="group" aria-labelledby="g-ask"></div>
+    <div class="g-wait" id="g-wait" role="status" hidden>
+      <span class="dots"><b></b><b></b><b></b></span><span id="g-wait-text"></span>
+    </div>
+    <div class="g-picks" id="g-picks"></div>
+    <div class="g-card" id="g-card" hidden></div>
+    <div class="g-questions" id="g-questions" hidden></div>
+    <p class="g-answer" id="g-answer" hidden aria-live="polite"></p>
+    <!-- Type, speak or tap: all three continue the same conversation, from
+         the first second. Typed and spoken words take the same free path. -->
+    <form class="composer g-compose" id="g-compose" autocomplete="off">
+      <label class="sr-only" for="g-text" id="g-text-label">டைப் பண்ணுங்க</label>
+      <input id="g-text" placeholder="டைப் பண்ணுங்க… உதா: Samsung போன், ₹25,000 வரை" enterkeyhint="send" maxlength="300">
+      <button class="g-send" id="g-send" type="submit">அனுப்பு</button>
+      <button class="g-mic" id="g-mic" type="button" aria-pressed="false" aria-label="Speak your answer" style="min-width:44px;min-height:44px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span id="g-mic-label">Speak</span></button>
+    </form>
+    <div class="g-foot">
+      <button class="g-link" id="g-back" hidden>&larr; பின்னாடி</button>
+      <button class="g-link" id="g-restart" hidden>முதல்ல இருந்து</button>
+      <button class="g-link" id="g-sound" aria-pressed="true">குரல்: ஆன்</button>
+    </div>
+    <p class="g-cost" id="g-cost" lang="en" hidden></p>
+  </div>
+
+  <div class="stage" id="voice-panel" role="tabpanel" aria-labelledby="tab-voice" tabindex="0" hidden>
     <div class="orb-wrap"><div class="orb"><i></i><i></i><i></i></div></div>
 
-    <h1>Talk to Poorvika</h1>
+    <h1>Talk to Shopping Assistant</h1>
     <p class="sub" id="sub">Click to start a voice conversation</p>
     <p class="fine">
       You'll be talking to an AI assistant in Tamil, English or Tanglish.
@@ -306,18 +599,52 @@
     </p>
 
     <button class="cta" id="toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .3 1.9.6 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.5c.9.3 1.8.5 2.8.6a2 2 0 0 1 1.7 2z"/></svg><span>Start Call</span></button>
+    <p id="voice-notice" class="voice-notice" role="status" hidden></p>
     <div class="state" id="status"></div>
+
+    <div id="spend" hidden>
+      <div class="top">
+        <span class="rupees" id="spend-total">₹0.00</span>
+        <span class="rate"><b id="spend-rate">₹0.00</b> a minute</span>
+      </div>
+      <p class="cap" id="spend-cap">&nbsp;</p>
+      <div id="spend-rows"></div>
+      <div class="io">
+        <div>Taking in<b id="spend-in">₹0.00</b>what it heard and remembered</div>
+        <div>Giving back<b id="spend-out">₹0.00</b>what it worked out and said</div>
+      </div>
+      <div class="split">
+        <h4>Who gets paid</h4>
+        <div id="spend-vendors"></div>
+      </div>
+      <div class="split">
+        <h4>Tax</h4>
+        <div class="row"><span class="what">What the models charge</span>
+          <span class="amt" id="spend-net">₹0.00</span></div>
+        <div class="row"><span class="what" id="spend-gst-label">GST</span>
+          <span class="amt" id="spend-gst">₹0.00</span></div>
+        <div class="row sum"><span class="what">Total</span>
+          <span class="amt" id="spend-gross">₹0.00</span></div>
+      </div>
+    </div>
 
     <div id="transcript"></div>
   </div>
 
   <div id="chat-panel" role="tabpanel" aria-labelledby="tab-chat" tabindex="0" hidden>
-    <div id="messages"></div>
-    <div class="composer">
-      <label class="sr-only" for="chat-input">Message Poorvika</label>
-      <input id="chat-input" placeholder="Message Poorvika…" autocomplete="off">
-      <button class="send" id="chat-send" title="Send" aria-label="Send"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2.6 20.9 21.4 12.8c.9-.4.9-1.6 0-2L2.6 2.7c-.8-.3-1.6.4-1.4 1.2L2.9 10c.1.4.4.7.8.8l7.6 1.2-7.6 1.2c-.4.1-.7.4-.8.8L1.2 19.7c-.2.8.6 1.5 1.4 1.2z"/></svg></button>
+    <div id="messages">
+      <div class="chat-hero" id="chat-welcome">
+        <p class="chat-day">Today</p>
+        <h2 id="chat-headline">Hi! I'm Shopping Assistant. What can I help you with?</h2>
+        <p id="chat-lead">Your smart shopping guide — products, offers, stores & support. Ask me anything, anytime!</p>
+      </div>
+      <div id="chat-chips" class="chat-chips"></div>
     </div>
+    <form class="composer" id="chat-form" autocomplete="off">
+      <label class="sr-only" for="chat-input">Message the Shopping Assistant</label>
+      <input id="chat-input" placeholder="Try: &quot;Best phone under ₹30,000 with good camera&quot;" autocomplete="off">
+      <button class="send" id="chat-send" title="Send" aria-label="Send" type="submit"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2.6 20.9 21.4 12.8c.9-.4.9-1.6 0-2L2.6 2.7c-.8-.3-1.6.4-1.4 1.2L2.9 10c.1.4.4.7.8.8l7.6 1.2-7.6 1.2c-.4.1-.7.4-.8.8L1.2 19.7c-.2.8.6 1.5 1.4 1.2z"/></svg></button>
+    </form>
     <p class="composer-note">You're chatting with an AI assistant.</p>
   </div>
 </main>
@@ -367,7 +694,33 @@
   </div>
 </details>
 
+<script>
+(function () {
+  var node = document.getElementById("sa-brand");
+  var brand = {};
+  try { brand = JSON.parse((node && node.textContent) || "{}"); } catch (err) { brand = {}; }
+  var root = document.documentElement;
+  if (brand.color) {
+    root.style.setProperty("--sa-accent", brand.color);
+    root.style.setProperty("--brand", brand.color);
+  }
+  if (brand.hover) root.style.setProperty("--sa-accent-hover", brand.hover);
+  var name = document.getElementById("brand-name");
+  var sub = document.getElementById("brand-sub");
+  if (name && brand.name) name.textContent = brand.name;
+  if (sub && brand.subtitle) sub.textContent = brand.subtitle;
+  if (brand.name) document.title = brand.name;
+  var headline = document.getElementById("chat-headline");
+  if (headline && brand.headline) headline.textContent = brand.headline;
+  if (brand.logo) {
+    var logo = document.querySelector("header .logo");
+    if (logo) logo.src = brand.logo;
+  }
+})();
+</script>
 <script src="/static/app.js"></script>
 <script src="/static/chat.js"></script>
+<script src="/static/guided-mic.js"></script>
+<script src="/static/guided.js"></script>
 </body>
 </html>

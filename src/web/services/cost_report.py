@@ -24,9 +24,24 @@ from src.config import Config
 from src.voice.usage import SessionUsage
 
 
-def report(usage: SessionUsage, settings: Config, minutes: float) -> dict[str, Any]:
-    """Every charge line plus the two numbers it is read against."""
-    payload = usage.breakdown(settings.usd_inr, settings.gst_rate, minutes).as_dict()
+def report(
+    usage: SessionUsage,
+    settings: Config,
+    minutes: float,
+    grok_tts_chars: int = 0,
+) -> dict[str, Any]:
+    """Every charge line plus the two numbers it is read against.
+
+    `grok_tts_chars` is counted rather than tokenised: xAI bills speech per
+    character, and the line is labelled so nobody reads it as tokens.
+    """
+    payload = usage.breakdown(
+        settings.usd_inr,
+        settings.gst_rate,
+        minutes,
+        include_grok=settings.grok_memory_enabled,
+        grok_tts_chars=grok_tts_chars,
+    ).as_dict()
     payload["target_inr_per_min"] = settings.target_inr_per_minute
     payload["ceiling_inr_per_min"] = settings.max_inr_per_minute
     payload["voice_floor_inr_per_min"] = round(

@@ -29,7 +29,15 @@ from dataclasses import dataclass, field
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any, Protocol
 
-from src.voice.events import AudioOut, Event, TurnComplete, Transcript, TurnInterrupted
+from src.voice.events import (
+    AudioOut,
+    CallerTranscript,
+    Event,
+    TurnComplete,
+    Transcript,
+    TurnInterrupted,
+)
+from src.voice.shadow import ShadowEar
 from src.voice.trace import CallTrace
 from src.voice.transport import AudioSink, AudioSource
 from src.voice.vad import EnergyVad, VadFrame
@@ -92,11 +100,25 @@ class Conversation:
         vad: EnergyVad | None = None,
         on_update: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
         agent_opens: bool = False,
+        shadow: ShadowEar | None = None,
+        trace: CallTrace | None = None,
+        should_end: Callable[[], bool] | None = None,
+        holding: bytes | None = None,
+        before_reply: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         self._model = model
         self._source = source
         self._sink = sink
         self._vad = vad or EnergyVad()
+        # A second transcriber on the same frames, measuring the first. None
+        # unless WHISPER_COMPARE is on, and nothing in the call awaits it.
+        self._shadow = shadow
+        # Asked at the end of a turn, never during one. The tool layer sets
+        # it when the customer says goodbye; this file stays ignorant of why.
+        self._should_end = should_end
+        # Bytes of the turn being spoken, so the socket is not closed while
+        # the browser is still playing it.
+        self._spoken_bytes = 0
         # Optional, because the CLI does not need it and the telephony
         # transport will not have a screen to update.
         self._on_update = on_update
@@ -118,6 +140,26 @@ class Conversation:
         # at all. After sixteen seconds it had stopped producing audio
         # entirely.
         self._awaiting_reply = False
+        # Set when the caller has finished a turn and cleared when the
+        # spoken reply to that turn lands. A silent tool generation in
+        # between keeps it set, so a summary counts caller replies rather
+        # than every generation the model spends.
+        self._reply_belongs_to_caller = False
+        # What to play while a tool round trip is in flight, and whether it
+        # has been played for the turn in progress. None leaves the line
+        # silent, which is what it used to do.
+        #
+        # Measured across six traced calls: every call that answered within
+        # about two seconds had zero barge-ins, and both calls that made the
+        # caller wait past five seconds were cut off mid-reply - the caller
+        # heard nothing, spoke again, and that read as an interruption. Two
+        # searches back to back is six seconds of silence down a phone line.
+        self._holding = holding
+        self._held_the_line = False
+        # Awaited between "the caller stopped" and telling the model so.
+        # Whatever it does must be capped by whoever supplied it: this sits
+        # directly in front of every reply on the call.
+        self._before_reply = before_reply
         # The opening greeting is protected from interruption. A trace caught
         # it being cut at 3.2 seconds by a frame at rms 949 - loud enough to
         # clear the threshold, and impossible to tell from a louder speaker.
@@ -134,7 +176,10 @@ class Conversation:
         self._abandoned: set[int] = set()
         # Every decision this call makes, timestamped. Not the words - the
         # choices, which is what is missing when something goes wrong.
-        self.trace = CallTrace()
+        # Taken rather than made when the caller already holds one - the
+        # shadow ear writes to the same trace and has to be built before the
+        # conversation it listens to.
+        self.trace = trace if trace is not None else CallTrace()
         self.trace.record("call_open", agent_opens=agent_opens)
         self.result = ConversationResult()
 
@@ -146,10 +191,25 @@ class Conversation:
     # nothing. The grace period is the fix: for this long after the agent
     # starts speaking, it does not listen for interruptions at all.
     BARGE_IN_GRACE_SECONDS = 0.4
+
+    # Longest the agent may hold the microphone shut without finishing a
+    # turn. Found on a real call: the greeting's socket died after five
+    # chunks of audio, TurnComplete never arrived, `_agent_speaking` stayed
+    # True, and the gate was held for all 30 seconds the caller sat there
+    # talking. The trace is 1,530 gate_held events and 5 audio_out, with no
+    # turn_complete at all. The page said "listening" the whole time.
+    #
+    # Nothing recovered it and nothing reported it, because every path out
+    # of the held gate runs through a TurnComplete that was never coming. A
+    # reply is seven seconds; anything past this is a turn that will not end.
+    FLOOR_HELD_TOO_LONG_SECONDS = 20.0
     # A real interrupter speaks over the agent for a moment, and does it loudly
     # relative to the room. Echo surviving the browser's cancellation is neither
     # sustained nor loud, so demanding both is what separates them. 12 frames is
     # 240 ms.
+    # Longest an agent's closing line is allowed to hold the line open.
+    MAX_CLOSING_WAIT_SECONDS = 8.0
+
     BARGE_IN_SPEECH_FRAMES = 12
     BARGE_IN_RMS_FACTOR = 6.0
     # An absolute floor as well as a relative one. A trace showed a barge-in
@@ -164,6 +224,16 @@ class Conversation:
     # of the agent's own sentence leaking through the speaker does not
     # qualify.
     SPEECH_FRAMES_FOR_A_TURN = 8
+
+    def _floor_held_for(self) -> float:
+        return time.monotonic() - self._agent_started_at
+
+    def _floor_is_stuck(self) -> bool:
+        """The agent claimed the floor and never gave it back."""
+        return (
+            self._agent_started_at > 0
+            and self._floor_held_for() >= self.FLOOR_HELD_TOO_LONG_SECONDS
+        )
 
     def _past_grace(self) -> bool:
         return (
@@ -183,6 +253,25 @@ class Conversation:
             self._barge_frames = 0
         return self._barge_frames >= self.BARGE_IN_SPEECH_FRAMES and self._past_grace()
 
+    async def _hold_the_line(self) -> None:
+        """Say we are checking, once, while a tool round trip is in flight.
+
+        Deliberately does NOT claim the floor. The greeting does, because it
+        opens the call and must not be cut; this is the opposite case - the
+        caller has asked something and is waiting, and if they talk over
+        "oru nimisham" that is a real interruption and must behave like one.
+        Claiming the floor here would also put a second thing in the gate's
+        way, in the file where every bug of this call has lived.
+
+        So it is one write to the sink and a flag. If a barge-in flushes it,
+        what is lost is a one-second holding line, not an answer.
+        """
+        if self._holding is None or self._held_the_line:
+            return
+        self._held_the_line = True
+        self.trace.record("holding", bytes=len(self._holding))
+        await self._sink.write(self._holding)
+
     async def _notify(self, **payload: Any) -> None:
         if self._on_update is not None:
             await self._on_update(payload)
@@ -196,6 +285,18 @@ class Conversation:
         """
         async for frame in self._source.frames():
             verdict = self._vad.accept(frame)
+
+            if self._agent_speaking and self._floor_is_stuck():
+                # Let go rather than hold a dead line. The caller is talking
+                # into a gate that has no one behind it.
+                log.warning("agent held the floor for too long; releasing")
+                self.trace.record(
+                    "floor_released", held_s=round(self._floor_held_for(), 1)
+                )
+                await self._notify(type="state", agent_speaking=False)
+                self._agent_speaking = False
+                self._held.clear()
+                self._barge_frames = 0
 
             if self._agent_speaking:
                 # Hold the microphone back rather than streaming the agent's
@@ -272,9 +373,32 @@ class Conversation:
                     # was never measured either.
                     self._heard_speech_this_turn = False
                     self._awaiting_reply = True
+                    self._reply_belongs_to_caller = True
+                    self._held_the_line = False
                     self.trace.record("end_of_speech", turn=self._model.turn_id + 1)
+                    if self._shadow is not None:
+                        # Closes the utterance and starts a transcription of
+                        # it. Returns immediately; the next frame is behind
+                        # this call, exactly as with end_of_speech itself.
+                        self._shadow.caller_stopped()
+                    # Held, briefly, for a decision our own code is in the
+                    # middle of making. A prefetch that lands before the
+                    # model is told the caller finished saves a tool round
+                    # trip - two generations and about three seconds - and
+                    # one that lands after it is a search nobody used.
+                    #
+                    # This is the whole difference between racing and
+                    # deciding. It is capped, and a cap that passes means
+                    # the model searches exactly as it always did.
+                    if self._before_reply is not None:
+                        await self._before_reply()
                     await self._model.end_of_speech()
 
+            if self._shadow is not None:
+                # The same bytes the model is about to be sent, and only
+                # those: the silence substituted while the agent speaks is
+                # not what either ear is being compared on.
+                self._shadow.hears(frame)
             await self._model.send_audio(frame)
 
     async def _interrupt(self) -> None:
@@ -303,10 +427,23 @@ class Conversation:
                         self.trace.record("agent_floor", turn=turn_id)
                         await self._notify(type="state", agent_speaking=True)
                     self.trace.record("audio_out", turn=turn_id, bytes=len(pcm))
+                    self._spoken_bytes += len(pcm)
                     await self._sink.write(pcm)
 
-                case Transcript(text=text):
-                    await self._notify(type="transcript", text=text)
+                case Transcript(text=text, turn_id=turn_id):
+                    await self._notify(type="transcript", text=text, turn_id=turn_id)
+
+                case CallerTranscript(text=text, turn_id=turn_id):
+                    # The line is already finished. Recording it does not
+                    # wait on Grok, and it is not what starts playback.
+                    await self._notify(
+                        type="caller_transcript", text=text, turn_id=turn_id
+                    )
+                    if self._shadow is not None:
+                        # This is the half the second ear is compared
+                        # against. Pairing happens at the end of the turn,
+                        # not here, so a slow Groq cannot delay the reply.
+                        self._shadow.live_said(text)
 
                 case TurnInterrupted(turn_id=turn_id):
                     # Distinct from our own barge-in: this is the model saying
@@ -326,9 +463,41 @@ class Conversation:
                     # call and the caller's later speech is never signalled.
                     # A trace showed one end_of_speech across forty seconds.
                     self._awaiting_reply = False
+                    # A spoken reply closes the caller turn. A tool generation
+                    # that came back with no audio does not: the answer is
+                    # still coming, and the summary waits for it.
+                    # Bytes, not tokens. The Grok mouth is billed per
+                    # CHARACTER and reports no tokens at all, so a token
+                    # test called every one of its turns silent: on the
+                    # cascade call of 2026-11-16 the agent answered twice
+                    # and "oru nimisham, paarkiren" played eight times,
+                    # once for every turn, because nothing it said counted
+                    # as having been said.
+                    #
+                    # What the question actually means is whether the
+                    # caller heard anything, and that is this.
+                    caller_reply = self._reply_belongs_to_caller and (
+                        self._spoken_bytes > 0
+                        or usage.response_audio > 0
+                        or usage.response_text > 0
+                    )
+                    if caller_reply:
+                        self._reply_belongs_to_caller = False
+                    elif self._reply_belongs_to_caller:
+                        # A generation that said nothing, with the caller
+                        # still owed an answer: the model has called a tool
+                        # and is going round again. Tell them that, rather
+                        # than leaving the line dead - see `_holding`.
+                        await self._hold_the_line()
                     # Echo gathered while the agent spoke is not the caller.
                     self._held.clear()
                     self._barge_frames = 0
+                    if self._shadow is not None:
+                        # After the reply, never during one. Only utterances
+                        # whose transcription has already come back are
+                        # paired, so this awaits nothing that is still in
+                        # flight and the next turn does not wait for Groq.
+                        await self._shadow.settle()
                     record = TurnRecord(
                         turn_id=turn_id,
                         first_audio_ms=first_audio_ms,
@@ -354,7 +523,34 @@ class Conversation:
                         response_tokens=record.response_tokens,
                         thinking_tokens=record.thinking_tokens,
                         agent_speaking=False,
+                        caller_reply=caller_reply,
                     )
+
+                    if self._should_end is not None and self._should_end():
+                        await self._let_the_last_line_finish()
+                        self.trace.record("hung_up", turn=turn_id)
+                        await self._notify(type="ended", reason="customer_said_goodbye")
+                        return
+                    # Per turn, not per call: the closing wait is for the
+                    # closing line, and a three-minute call's worth of
+                    # audio would hold the line open for the cap every time.
+                    self._spoken_bytes = 0
+
+    async def _let_the_last_line_finish(self) -> None:
+        """Wait for the browser to play what it has already been sent.
+
+        TurnComplete means the MODEL stopped generating, not that the
+        customer stopped hearing. The closing line is across the network and
+        sitting in the page's playback queue, and `BrowserSink` has no drain
+        to await - the only thing that can play it is the page. So this waits
+        for as long as the audio lasts.
+
+        Capped, because a wait derived from a byte count is a guess about a
+        queue we cannot see, and a caller held on a silent line is a worse
+        failure than a syllable lost.
+        """
+        seconds = self._spoken_bytes / (self._sink.sample_rate * 2)
+        await asyncio.sleep(min(seconds, self.MAX_CLOSING_WAIT_SECONDS))
 
     async def run(self) -> ConversationResult:
         """Run until the microphone stops or the socket closes.

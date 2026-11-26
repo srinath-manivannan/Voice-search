@@ -12,6 +12,7 @@ place and makes tests able to construct a Config without touching the process.
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 
 
@@ -19,6 +20,13 @@ from dataclasses import dataclass
 class Config:
     gemini_api_key: str
     gemini_live_model: str
+    # Which prebuilt voice speaks. Empty means "whatever the API defaults
+    # to", which is what this ran on until the greeting was recorded - and
+    # is exactly the problem: the recording in src/agent/greeting.pcm has to
+    # be in the SAME voice as everything said after it, and an unpinned
+    # default can move under us without a line of this repo changing. Pin
+    # it, and the two cannot drift. Re-record after changing it.
+    voice_name: str
     # Chat deliberately runs on a cheaper text model. See ../CHAT-PLAN.md.
     gemini_text_model: str
 
@@ -55,8 +63,9 @@ class Config:
     max_session_minutes: float
     max_session_inr: float
     # Two different numbers, deliberately. The target is what Poorvika wants a
-    # connected minute to cost, GST in - Rs 2.00 - and it is what the screen
-    # is coloured against. The ceiling is where a session is cut off, and it is a runaway
+    # connected minute to cost, GST in - Rs 1.50, the owner's figure of
+    # 2026-11-23, restated for this path on 2026-11-24 - and it is what the
+    # screen is coloured against. The ceiling is where a session is cut off, and it is a runaway
     # guard - set well above the target because hanging up on a customer
     # mid-sentence to save a rupee is not a cost saving. We are over the
     # target today; docs/COST.md says by how much and what would close it.
@@ -67,6 +76,7 @@ class Config:
     catalogue_url: str
     catalogue_token: str
     catalogue_origin: str
+    catalogue_key_header: str
 
     # The per-item estate - price in force, live stock, card offers, bank EMI.
     # `estate.py` explains the two backends and why one environment is chosen
@@ -109,8 +119,129 @@ class Config:
     # commercial, and how many calls Poorvika takes is not for a public URL.
     metrics_token: str
 
+    # Grok writes the text handover a fresh Live socket is given. Off leaves
+    # the tool note exactly as it was. The key is optional: a deploy that
+    # has not set one runs with memory off rather than refusing to boot,
+    # because a missing side-model key is not a reason to drop the call.
+    grok_memory_enabled: bool
+    xai_api_key: str
+    grok_model: str
+    grok_summary_every_turns: int
+    grok_timeout_seconds: float
+
+    # Whisper on GROQ - a different company from xAI's Grok above, one letter
+    # apart, and neither key is a fallback for the other. On, it transcribes
+    # the same frames the Live API hears and writes both transcripts to the
+    # trace; it answers nobody and holds up nothing. It is the measurement
+    # docs/CASCADE.md step 3 has to be decided on, and it is off by default
+    # because it spends money to learn something rather than to serve a call.
+    whisper_compare_enabled: bool
+    groq_api_key: str
+    whisper_model: str
+    whisper_timeout_seconds: float
+
+    # The whole conversation off native audio: Whisper for the ear, the chat
+    # tab's own text session for the brain, and the Live socket demoted to a
+    # mouth that is only ever handed the finished reply. Worth about Rs 1.27
+    # a connected minute and costs about 1.3 seconds on every turn, which is
+    # why it is a flag and not a change. Needs GROQ_API_KEY; without one it
+    # logs and stays on the Live path. See docs/CASCADE.md.
+    cascade_enabled: bool
+    # The paid Live voice. Off unless LIVE_VOICE=1. The Voice Call tab then
+    # opens the free Guided voice. Widget mode forces this off as well.
+    live_voice_enabled: bool
+    grok_mouth_enabled: bool
+    prefetch_wait_seconds: float
+    # The cascade's ear. xAI's STT is preferred because XAI_API_KEY is
+    # already set for the summariser; Groq's Whisper is the alternative.
+    stt_model: str
+    stt_language: str
+
     log_level: str
     env: str
+
+    # The guided call's own budget, held apart from the Live path's on
+    # purpose. Rs 1.50 a connected minute is what a guided session may spend
+    # and Rs 1.70 is where it is refused everything paid; the Live path is
+    # judged against `target_inr_per_minute` above, which is a different
+    # number for a different product. `src/guided/sessions.py` has the rule.
+    guided_target_inr_per_minute: float = 1.0
+    guided_max_inr_per_minute: float = 1.0
+    # A page left open all afternoon earns "per minute" for all of it. This
+    # is the most one session may spend however long it has been open.
+    guided_session_cap_inr: float = 0.25
+    # The Chat tab pays a model per message; this is where one conversation
+    # stops starting new paid answers (GST in). One message may finish past it.
+    chat_session_cap_inr: float = 1.00
+    # Everything paid, all users, per day (IST), GST in: Live voice, Chat and
+    # the guided think. Past it they pause until midnight; Guided stays free.
+    daily_spend_cap_inr: float = 300.0
+    guided_userinfo_url: str = ""
+    guided_database_url: str = ""
+    # A Poorvika-hosted speech worker. Empty (the default): none is run, and
+    # the mic is offered only where the browser itself can hear.
+    guided_asr_url: str = ""
+    # How long a shelf's live stock and prices are believed before they are
+    # asked for again. Each rebuild is a burst of calls to Poorvika's own
+    # services - 86 for the phone shelf - so this is their load, not ours.
+    guided_shelf_ttl_seconds: float = 900.0
+    # The one voice the guided call speaks in - its recorded lines and every
+    # sentence it builds from live data. Chosen by the owner, by ear, from
+    # four auditions on 2026-11-24. Change it and run `make guided-voice
+    # ARGS=--all`: a recording in any other voice is not played.
+    guided_voice: str = "ta-in-techagent-5"
+    # Where checked sentences are kept, so each is paid for once. Not
+    # committed: it is a cache of what the shelves said this week.
+    guided_speech_dir: str = "out/guided-speech"
+    # Where each built guided shelf is saved, so a restart serves it at once.
+    guided_shelf_dir: str = "out/guided-shelves"
+    # The microphone on the guided page. Off after the owner's test of
+    # 2026-11-24: with the voice quota spent the agent could not talk back,
+    # and the open mic pressed buttons he had not meant - "கண்ணை மூடின்னு
+    # ஏதோ ஒன்று கிளிக் பண்ணிக்குது". His decision: he taps, it talks. The
+    # hearing stack stays built and tested for the phone line.
+    guided_mic_enabled: bool = False
+    # Release 1. "full" is the developer app (voice, guided and chat).
+    # "widget" serves only the embeddable chat and forces live voice off,
+    # so a widget deployment cannot reach the paid live model.
+    app_mode: str = "full"
+    assistant_name: str = "Shopping Assistant"
+    brand_name: str = "Shopping Assistant"
+    brand_subtitle: str = "Your smart shopping guide"
+    brand_primary_color: str = "#F36F21"
+    brand_logo_url: str = ""
+    # Exact scheme, host and port. No wildcards. Empty refuses every embed.
+    widget_host_origins: tuple[str, ...] = ()
+    # The origin of this process. /ws/chat accepts a socket only from it.
+    widget_public_origin: str = ""
+    # Per browser, per IST day, GST in. A new conversation token does not reset it.
+    chat_client_cap_inr: float = 3.0
+    # Reserved before each generation, including a tool round.
+    chat_max_output_tokens: int = 400
+    # Empty uses the in-memory store (one process, and every offline test).
+    redis_url: str = ""
+    conversation_token_secret: str = ""
+    # When set, the chat limiter reads X-Forwarded-For. Leave off unless the
+    # process is behind a proxy that strips a spoofed header.
+    trust_proxy: bool = False
+    # Kill switch. False answers every new message with the unavailable line
+    # and makes no model call.
+    chat_paid_enabled: bool = True
+    # Release 3. Both stay off until a pilot turns them on. Route C, the
+    # recorded guided path, does not need either flag.
+    voice_route_b_enabled: bool = False
+    voice_route_a_enabled: bool = False
+    # Retailer names and domains, from the deployment secret. Never committed.
+    neutrality_denylist: tuple[str, ...] = ()
+    # Kill switch for the embed. Off, the loader is a no-op and /ws/chat
+    # refuses. Spend stops immediately via chat_paid_enabled; this one
+    # removes the entry point on the next uncached page load.
+    widget_enabled: bool = True
+    # Local staging and browser tests. A scripted reply, never a model call.
+    widget_stub_model: bool = False
+    widget_stub_delay_ms: int = 0
+    # A fixed two-variant handset so "Is this available?" works with no feed.
+    widget_demo_catalogue: bool = False
 
     @property
     def system_instruction(self) -> str:
@@ -132,6 +263,66 @@ class Config:
 
         return system_instruction("chat", self.chat_word_cap)
 
+    @property
+    def widget_instruction(self) -> str:
+        """English on screen. Tamil and Tanglish are understood, not written back."""
+        from src.agent.persona import widget_instruction
+
+        return widget_instruction(self.assistant_name, self.chat_word_cap)
+
+
+_HEX = re.compile(r"^#[0-9A-Fa-f]{6}$")
+
+
+def brand_color(raw: str | None) -> str:
+    """A CSS colour from config. Anything else stays the storefront orange."""
+    value = (raw or "").strip()
+    if _HEX.match(value):
+        return value
+    return "#F36F21"
+
+
+def accent_hover(color: str) -> str:
+    """A slightly deeper orange for hover, fixed for the default accent."""
+    if color.upper() == "#F36F21":
+        return "#D95B12"
+    red = int(color[1:3], 16)
+    green = int(color[3:5], 16)
+    blue = int(color[5:7], 16)
+
+    def deeper(channel: int) -> int:
+        return max(0, int(channel * 0.85))
+
+    return f"#{deeper(red):02X}{deeper(green):02X}{deeper(blue):02X}"
+
+
+def brand_logo(raw: str | None) -> str:
+    """An optional http(s) logo. Anything else is ignored."""
+    value = (raw or "").strip()
+    if len(value) > 500 or " " in value:
+        return ""
+    if value.startswith("https://") or value.startswith("http://"):
+        return value
+    return ""
+
+
+def _brand_name() -> str:
+    named = os.environ.get("BRAND_NAME", "").strip()
+    if named:
+        return named
+    fallback = os.environ.get("ASSISTANT_NAME", "Shopping Assistant").strip()
+    return fallback or "Shopping Assistant"
+
+
+def _flag(name: str) -> bool:
+    """A boolean env var. Anything other than the true-words is off.
+
+    Default off, including when the variable is absent. Memory that turns
+    itself on because a string was non-empty would bill Grok on a deploy
+    that only copied the example file.
+    """
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
 
 def _require(name: str) -> str:
     value = os.environ.get(name, "")
@@ -151,12 +342,27 @@ def load(env: str | None = None) -> Config:
     from src.config import devconfig, prodconfig
 
     defaults = prodconfig if env == "main" else devconfig
+    app_mode = os.environ.get("APP_MODE", "full").strip().lower() or "full"
+    if app_mode not in ("full", "widget"):
+        app_mode = "full"
+    # Paid native voice is off unless a deploy turns it on. A widget process
+    # forces it off again below, even if the variable is set.
+    live_voice = os.environ.get("LIVE_VOICE", "0").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
+    # A widget deployment has no voice entry point. The flag cannot turn it back on.
+    if app_mode == "widget":
+        live_voice = False
 
     return Config(
         gemini_api_key=_require("GEMINI_API_KEY"),
         gemini_live_model=os.environ.get(
             "GEMINI_LIVE_MODEL", defaults.GEMINI_LIVE_MODEL
         ),
+        voice_name=os.environ.get("VOICE_NAME", defaults.VOICE_NAME),
         gemini_text_model=os.environ.get(
             "GEMINI_TEXT_MODEL", defaults.GEMINI_TEXT_MODEL
         ),
@@ -182,12 +388,13 @@ def load(env: str | None = None) -> Config:
         max_session_turns=int(os.environ.get("MAX_SESSION_TURNS", "40")),
         max_session_minutes=float(os.environ.get("MAX_SESSION_MINUTES", "10")),
         max_session_inr=float(os.environ.get("MAX_SESSION_INR", "50")),
-        target_inr_per_minute=float(os.environ.get("TARGET_INR_PER_MINUTE", "2.00")),
+        target_inr_per_minute=float(os.environ.get("TARGET_INR_PER_MINUTE", "1.50")),
         max_inr_per_minute=float(os.environ.get("MAX_INR_PER_MINUTE", "8.00")),
         gst_rate=float(os.environ.get("GST_RATE", "0.18")),
         catalogue_url=os.environ.get("CATALOGUE_URL", defaults.CATALOGUE_URL),
         catalogue_token=os.environ.get("CATALOGUE_TOKEN", ""),
         catalogue_origin=os.environ.get("CATALOGUE_ORIGIN", "bot"),
+        catalogue_key_header=os.environ.get("CATALOGUE_KEY_HEADER", "access-token"),
         estate_backend=os.environ.get("ESTATE_BACKEND", defaults.ESTATE_BACKEND),
         estate_api_env=os.environ.get("ESTATE_API_ENV", defaults.ESTATE_API_ENV),
         estate_src_path=os.environ.get("ESTATE_SRC_PATH", defaults.ESTATE_SRC_PATH),
@@ -224,6 +431,117 @@ def load(env: str | None = None) -> Config:
         release=os.environ.get("APP_RELEASE", "unknown"),
         sentry_dsn=os.environ.get("SENTRY_DSN", ""),
         metrics_token=os.environ.get("METRICS_TOKEN", ""),
+        grok_memory_enabled=_flag("GROK_MEMORY"),
+        xai_api_key=os.environ.get("XAI_API_KEY", ""),
+        # NOT grok-4.3. It is a reasoning model: measured at 8,924 ms on a
+        # four-line transcript against a 4-second timeout, so every summary
+        # this service ever asked for timed out, the handover stayed empty,
+        # and the cost panel showed xAI at zero on every call because nothing
+        # was ever charged. The feature had never once worked.
+        #
+        # The non-reasoning model answers the same prompt in 1,058 ms, on the
+        # same price card, and writes a tidier note - summarising a transcript
+        # is not a task that needs reasoning. See tests/test_grok_live.py.
+        grok_model=os.environ.get("GROK_MODEL", "grok-4.20-0309-non-reasoning"),
+        # Every second caller reply, not every fourth.
+        #
+        # The handover only earns anything at a rotation, and rotation fires
+        # above 400 audio tokens - about sixteen seconds of speech, so every
+        # turn or two on a real call. At four, the first rotations happened
+        # before any summary existed and fell back to the tool note, which is
+        # the fail-safe rather than the point. At two there is a real note by
+        # the second reply.
+        #
+        # One summary is 411 prompt, 128 cached and 72 completion tokens on
+        # the cheap card: about six paise. It is bought to stop the whole
+        # audio context being re-billed on every turn after it.
+        grok_summary_every_turns=int(os.environ.get("GROK_SUMMARY_EVERY_TURNS", "2")),
+        grok_timeout_seconds=float(os.environ.get("GROK_TIMEOUT_SECONDS", "4")),
+        whisper_compare_enabled=_flag("WHISPER_COMPARE"),
+        groq_api_key=os.environ.get("GROQ_API_KEY", ""),
+        whisper_model=os.environ.get("WHISPER_MODEL", "whisper-large-v3-turbo"),
+        whisper_timeout_seconds=float(os.environ.get("WHISPER_TIMEOUT_SECONDS", "8")),
+        cascade_enabled=_flag("CASCADE"),
+        live_voice_enabled=live_voice,
+        # The cascade's mouth: xAI's TTS instead of a second Gemini Live
+        # socket. Billed per character rather than per audio token, and it
+        # needs no keepalive because a TTS socket is not closed for sitting
+        # idle. Only meaningful with CASCADE on.
+        #
+        # Tamil is NOT in xAI's documented twenty languages. It is accepted
+        # and returns audio; whether that is good Tamil is the thing to
+        # listen for. See src/voice/grok_tts.py.
+        grok_mouth_enabled=_flag("GROK_MOUTH"),
+        # How long the caller's turn is held for a prefetch still in
+        # flight, before the model is told they finished.
+        #
+        # Spent only on turns where a prefetch is actually running, and it
+        # buys a tool round trip - two generations and about three seconds.
+        # Measured: a shallow search is 842 ms, so this clears it with room,
+        # and a prefetch slower than this is one we stop waiting for.
+        # Zero turns the wait off and leaves the race as it was.
+        prefetch_wait_seconds=float(os.environ.get("PREFETCH_WAIT_SECONDS", "1.5")),
+        stt_model=os.environ.get("STT_MODEL", "grok-voice-transcribe-2.0"),
+        stt_language=os.environ.get("STT_LANGUAGE", "ta"),
         log_level=os.environ.get("LOG_LEVEL", defaults.LOG_LEVEL),
         env=env,
+        guided_target_inr_per_minute=float(
+            os.environ.get("GUIDED_TARGET_INR_PER_MINUTE", "1.0")
+        ),
+        guided_max_inr_per_minute=float(
+            os.environ.get("GUIDED_MAX_INR_PER_MINUTE", "1.0")
+        ),
+        guided_session_cap_inr=float(os.environ.get("GUIDED_SESSION_CAP_INR", "0.25")),
+        chat_session_cap_inr=float(os.environ.get("CHAT_SESSION_CAP_INR", "1.00")),
+        daily_spend_cap_inr=float(os.environ.get("DAILY_SPEND_CAP_INR", "300")),
+        guided_shelf_ttl_seconds=float(
+            os.environ.get("GUIDED_SHELF_TTL_SECONDS", "900")
+        ),
+        guided_database_url=os.environ.get("GUIDED_DATABASE_URL", ""),
+        guided_userinfo_url=os.environ.get("GUIDED_USERINFO_URL", ""),
+        guided_asr_url=os.environ.get("GUIDED_ASR_URL", ""),
+        guided_voice=os.environ.get("GUIDED_VOICE", "ta-in-techagent-5"),
+        guided_speech_dir=os.environ.get("GUIDED_SPEECH_DIR", "out/guided-speech"),
+        guided_shelf_dir=os.environ.get("GUIDED_SHELF_DIR", "out/guided-shelves"),
+        guided_mic_enabled=_flag("GUIDED_MIC"),
+        app_mode=app_mode,
+        assistant_name=_brand_name(),
+        brand_name=_brand_name(),
+        brand_subtitle=os.environ.get(
+            "BRAND_SUBTITLE", "Your smart shopping guide"
+        ).strip()
+        or "Your smart shopping guide",
+        brand_primary_color=brand_color(os.environ.get("BRAND_PRIMARY_COLOR")),
+        brand_logo_url=brand_logo(os.environ.get("BRAND_LOGO_URL")),
+        widget_host_origins=tuple(
+            origin.strip()
+            for origin in os.environ.get("WIDGET_HOST_ORIGINS", "").split(",")
+            if origin.strip()
+        ),
+        widget_public_origin=os.environ.get("WIDGET_PUBLIC_ORIGIN", "").strip(),
+        chat_client_cap_inr=float(os.environ.get("CHAT_CLIENT_CAP_INR", "3")),
+        chat_max_output_tokens=int(os.environ.get("CHAT_MAX_OUTPUT_TOKENS", "400")),
+        redis_url=os.environ.get("REDIS_URL", "").strip(),
+        conversation_token_secret=os.environ.get("CONVERSATION_TOKEN_SECRET", ""),
+        trust_proxy=_flag("TRUST_PROXY"),
+        chat_paid_enabled=os.environ.get("CHAT_PAID_ENABLED", "1").strip().lower()
+        not in ("0", "false", "no", "off"),
+        voice_route_b_enabled=_flag("VOICE_ROUTE_B"),
+        voice_route_a_enabled=_flag("VOICE_ROUTE_A"),
+        neutrality_denylist=tuple(
+            dict.fromkeys(
+                token.strip().casefold()
+                for token in os.environ.get("NEUTRALITY_DENYLIST", "")
+                .replace(",", "\n")
+                .splitlines()
+                if token.strip()
+            )
+        ),
+        widget_enabled=os.environ.get("WIDGET_ENABLED", "1").strip().lower()
+        not in ("0", "false", "no", "off"),
+        widget_stub_model=_flag("WIDGET_STUB_MODEL"),
+        widget_stub_delay_ms=max(
+            0, int(os.environ.get("WIDGET_STUB_DELAY_MS", "0") or "0")
+        ),
+        widget_demo_catalogue=_flag("WIDGET_DEMO_CATALOGUE"),
     )

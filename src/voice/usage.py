@@ -23,7 +23,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from src.voice.cost import FLASH_LITE, LIVE, Breakdown, Rates, price
+from src.voice.cost import (
+    FLASH_LITE,
+    LIVE,
+    Breakdown,
+    Rates,
+    grok_rates,
+    grok_usd,
+    price,
+)
 
 __all__ = ["FLASH_LITE", "LIVE", "Rates", "SessionUsage", "TurnUsage"]
 
@@ -98,6 +106,18 @@ class SessionUsage:
 
     turns: list[TurnUsage] = field(default_factory=list)
     rates: Rates = LIVE
+    # Grok is not a Live turn. Dollars are accumulated per completion so two
+    # models in one call (a 4.3 summary, then a dearer one) each keep their
+    # own card instead of the last rate being applied to the whole pile.
+    grok_prompt_tokens: int = 0
+    grok_completion_tokens: int = 0
+    _grok_usd: float = 0.0
+    # The cascade's text brain, priced on flash-lite's card by its own
+    # SessionUsage. Same reasoning as Grok above and the same necessity: a
+    # call answered by two models at two rate cards has no single `rates`
+    # that is true of it, and reporting only the half this object holds
+    # would make the cheaper architecture look cheaper than it is.
+    _side_usd: float = 0.0
 
     def record(self, usage_metadata: dict[str, Any]) -> TurnUsage:
         turn = TurnUsage.parse(usage_metadata)
@@ -146,13 +166,54 @@ class SessionUsage:
 
     @property
     def total_usd(self) -> float:
-        return self.input_usd + self.output_usd
+        return self.input_usd + self.output_usd + self._grok_usd + self._side_usd
 
-    def breakdown(self, usd_inr: float, gst_rate: float, minutes: float) -> Breakdown:
-        """The five charge lines, in rupees a connected minute, GST included.
+    @property
+    def side_usd(self) -> float:
+        return self._side_usd
+
+    def add_side(self, usd: float) -> None:
+        """Another model's spend on this call, already priced on its own card.
+
+        Dollars rather than tokens, because the point is that the tokens were
+        charged at rates this object does not hold.
+        """
+        self._side_usd += max(usd, 0.0)
+
+    @property
+    def grok_usd(self) -> float:
+        return self._grok_usd
+
+    @property
+    def grok_tokens(self) -> int:
+        return self.grok_prompt_tokens + self.grok_completion_tokens
+
+    def add_grok(self, prompt: int, cached: int, completion: int, model: str) -> None:
+        """Count one Grok completion the call actually paid for.
+
+        An unknown model id is priced on the dearer card. Under-billing a
+        summary is the failure that makes the screen look inside the cap
+        while the invoice is not.
+        """
+        self.grok_prompt_tokens += prompt
+        self.grok_completion_tokens += completion
+        self._grok_usd += grok_usd(prompt, cached, completion, grok_rates(model))
+
+    def breakdown(
+        self,
+        usd_inr: float,
+        gst_rate: float,
+        minutes: float,
+        *,
+        include_grok: bool = False,
+        grok_tts_chars: int = 0,
+    ) -> Breakdown:
+        """The charge lines, in rupees a connected minute, GST included.
 
         `minutes` is wall-clock connected time, not speaking time - the
-        ceiling we are held to is per connected minute.
+        ceiling we are held to is per connected minute. The Grok line is
+        included when memory is switched on, even before the first summary,
+        so the page shows the row the operator was told to look for.
         """
         return price(
             in_audio_tokens=self.billed_in_audio,
@@ -165,6 +226,11 @@ class SessionUsage:
             rates=self.rates,
             usd_inr=usd_inr,
             gst_rate=gst_rate,
+            grok_tts_chars=grok_tts_chars,
+            brain_usd=self.side_usd,
+            grok_tokens=self.grok_tokens,
+            grok_usd=self._grok_usd,
+            include_grok=include_grok,
         )
 
     def inr_per_minute(self, usd_inr: float, gst_rate: float, minutes: float) -> float:

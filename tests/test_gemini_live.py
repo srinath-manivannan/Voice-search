@@ -14,8 +14,13 @@ from collections import deque
 import pytest
 
 from src.config import load
-from src.voice.events import AudioOut, Transcript, TurnComplete, TurnInterrupted
-from src.voice.gemini_live import GeminiLiveSession, SetupFailed
+from src.voice.events import (
+    AudioOut,
+    Transcript,
+    TurnComplete,
+    TurnInterrupted,
+)
+from src.voice.gemini_live import GeminiLiveSession, SetupFailed, forget_thinking_modes
 
 
 class FakeSocket:
@@ -75,20 +80,42 @@ USAGE = {
 }
 
 
+@pytest.fixture(autouse=True)
+def _no_remembered_thinking_setup():
+    """A refusal learned in one test must not skip the probe in the next."""
+    forget_thinking_modes()
+    yield
+    forget_thinking_modes()
+
+
 @pytest.fixture
 def config(monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "test-key-not-real")
     return load("development")
 
 
-async def test_setup_switches_thinking_off_explicitly(config):
+def legacy_config(monkeypatch):
+    """A model that still takes thinkingBudget. 3.8 Live does not."""
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key-not-real")
+    monkeypatch.setenv(
+        "GEMINI_LIVE_MODEL", "gemini-2.5-flash-native-audio-preview-12-2025"
+    )
+    return load("development")
+
+
+async def test_gemini_3_8_live_omits_thinking_config(config):
+    """thinkingBudget and thinkingLevel both close this model's socket.
+
+    The Live thinking guide says to omit thinkingConfig for gemini-3.8-live.
+    Interleaved thinking still runs. The bill sees it as thoughtsTokenCount,
+    not as a field we can set to zero.
+    """
     sock = FakeSocket([{"setupComplete": {}}])
-    async with GeminiLiveSession(config, connect=connector(sock)):
-        pass
+    async with GeminiLiveSession(config, connect=connector(sock)) as session:
+        assert session.thinking_disabled is False
     generation = sock.sent[0]["setup"]["generationConfig"]
-    # Explicit even when it matches the model default - leaving it out costs
-    # money and latency, and the omission would be invisible in review.
-    assert generation["thinkingConfig"]["thinkingBudget"] == 0
+    assert "thinkingConfig" not in generation
+    assert len(sock.sent) == 1
 
 
 async def test_setup_carries_the_measured_word_cap(config):
@@ -96,7 +123,7 @@ async def test_setup_carries_the_measured_word_cap(config):
     async with GeminiLiveSession(config, connect=connector(sock)):
         pass
     instruction = sock.sent[0]["setup"]["systemInstruction"]["parts"][0]["text"]
-    assert "under 15 words" in instruction
+    assert "under 18 words" in instruction
     assert "Never invent" in instruction
 
 
@@ -225,12 +252,31 @@ async def test_the_greeting_takes_a_turn_id_of_its_own(config):
         assert session.turn_id == 1
 
 
+async def test_a_line_read_for_recording_is_not_greeted_or_answered(config):
+    """Recorded through `greet`, two questions came back with a "vanakkam"
+    in front and one was answered instead of read. Each was a recording
+    that sounded fine and was wrong."""
+    line = "உங்க பட்ஜெட் எவ்வளவு?"
+    sock = FakeSocket([{"setupComplete": {}}])
+    async with GeminiLiveSession(config, connect=connector(sock)) as session:
+        await session.read_aloud(line)
+        assert session.turn_id == 1
+
+    sent = sock.sent[-1]["clientContent"]
+    text = sent["turns"][0]["parts"][0]["text"]
+    assert sent["turnComplete"] is True and text.endswith(line)
+    assert "Greet the customer" not in text
+    for forbidden in ("Do not greet", "do not answer it", "say nothing else"):
+        assert forbidden in text
+    assert "ignore your reply length limit" in text and "do not translate it" in text
+
+
 class RefusingSocket(FakeSocket):
     """Closes the connection the way the server does on a setup it rejects."""
 
-    def __init__(self, refuse_thinking: bool) -> None:
+    def __init__(self, refuse_budget: bool) -> None:
         super().__init__([{"setupComplete": {}}])
-        self.refuse_thinking = refuse_thinking
+        self.refuse_budget = refuse_budget
 
     async def send(self, data: str) -> None:
         import json as _json
@@ -238,42 +284,51 @@ class RefusingSocket(FakeSocket):
         from src.voice.gemini_live import _ClosedSocket
 
         payload = _json.loads(data)
-        wants_thinking = "thinkingConfig" in (
-            payload.get("setup", {}).get("generationConfig", {})
+        thinking = (
+            payload.get("setup", {}).get("generationConfig", {}).get("thinkingConfig")
+            or {}
         )
-        if self.refuse_thinking and wants_thinking:
+        # gemini-3.8-live closes on thinkingBudget. A later level is a
+        # different field and is what the fallback sends.
+        if self.refuse_budget and "thinkingBudget" in thinking:
+            self.sent.append(payload)
             raise _ClosedSocket
         await super().send(data)
 
 
-async def test_a_refused_thinking_config_reconnects_without_it(config):
-    """It was accepted, measured to work, and then refused without notice.
+async def test_a_refused_budget_falls_back_to_the_lowest_level(monkeypatch):
+    """Older models took thinkingBudget. This one closes the socket on it.
 
-    A preview model is entitled to do that. Depending on the capability turned
-    every call into a failed setup and a dead line, so it is attempted and not
-    relied on.
+    The next try is thinkingLevel low, which is the lowest level the Live
+    API still documents. The call connects. A second socket reuses that
+    shape and does not pay the refused setup again.
     """
-    sockets = [
-        RefusingSocket(refuse_thinking=True),
-        RefusingSocket(refuse_thinking=True),
-    ]
-    opened = []
+    config = legacy_config(monkeypatch)
+    opened: list[RefusingSocket] = []
 
-    async def connect(_url):
-        socket = sockets.pop(0)
+    async def connect(_url: str) -> RefusingSocket:
+        socket = RefusingSocket(refuse_budget=True)
         opened.append(socket)
         return socket
 
     async with GeminiLiveSession(config, connect=connect) as session:
-        assert session.thinking_disabled is False, "the fallback was not recorded"
+        assert session.thinking_disabled is False
 
-    assert len(opened) == 2, "it did not reconnect"
-    # The retry went out without the field the server refused.
-    retry = opened[1].sent[0]["setup"]["generationConfig"]
-    assert "thinkingConfig" not in retry
+    assert len(opened) == 2
+    first = opened[0].sent[0]["setup"]["generationConfig"]["thinkingConfig"]
+    assert first == {"thinkingBudget": 0}
+    second = opened[1].sent[0]["setup"]["generationConfig"]["thinkingConfig"]
+    assert second == {"thinkingLevel": "low"}
+
+    async with GeminiLiveSession(config, connect=connect):
+        pass
+    assert len(opened) == 3, "the remembered setup was probed again"
+    reused = opened[2].sent[0]["setup"]["generationConfig"]["thinkingConfig"]
+    assert reused == {"thinkingLevel": "low"}
 
 
-async def test_thinking_config_is_still_sent_when_the_model_accepts_it(config):
+async def test_thinking_budget_is_still_sent_when_the_model_accepts_it(monkeypatch):
+    config = legacy_config(monkeypatch)
     sock = FakeSocket([{"setupComplete": {}}])
     async with GeminiLiveSession(config, connect=connector(sock)) as session:
         assert session.thinking_disabled is True
@@ -298,7 +353,7 @@ async def test_declared_tools_reach_the_setup_message(config):
     setup = sock.sent[0]["setup"]
     assert "tools" in setup
     names = [f["name"] for f in setup["tools"][0]["functionDeclarations"]]
-    assert names == ["search_products", "product_details"]
+    assert names == ["search_products", "product_details", "end_call"]
 
 
 async def test_a_tool_call_is_executed_and_answered_on_the_same_socket(config):
@@ -402,3 +457,111 @@ async def test_compression_can_be_switched_off(config):
         pass
 
     assert "contextWindowCompression" not in sock.sent[0]["setup"]
+
+
+async def test_a_recorded_greeting_is_told_to_the_model_as_its_own_turn(config):
+    """The model did not say it, so it has to be told that it did.
+
+    `opened_with` is what replaces `greet` when the opening line comes off
+    disk. The role is the whole test: `prime` wraps what it is given in a
+    USER turn, and priming the greeting that way would tell the model the
+    customer introduced herself as Poorvika.
+    """
+    from src.agent.persona import GREETING
+
+    sock = FakeSocket([{"setupComplete": {}}])
+    async with GeminiLiveSession(config, connect=connector(sock)) as session:
+        await session.opened_with(GREETING)
+
+    sent = sock.sent[-1]["clientContent"]
+    # False, or the model answers the greeting - and that answer is the
+    # generation this whole change exists to not pay for.
+    assert sent["turnComplete"] is False
+    assert len(sent["turns"]) == 1
+    assert sent["turns"][0]["role"] == "model"
+    assert sent["turns"][0]["parts"][0]["text"] == GREETING
+
+
+async def test_a_recorded_greeting_does_not_take_a_turn_id(config):
+    """It is context, not a turn. The recording carries its own id, and the
+    model's counter must still be at zero so its first reply is turn 1."""
+    sock = FakeSocket([{"setupComplete": {}}])
+    async with GeminiLiveSession(config, connect=connector(sock)) as session:
+        before = session.turn_id
+        await session.opened_with("Vanakkam")
+        assert session.turn_id == before == 0
+
+
+async def test_an_empty_opening_is_not_sent_at_all(config):
+    sock = FakeSocket([{"setupComplete": {}}])
+    async with GeminiLiveSession(config, connect=connector(sock)) as session:
+        before = len(sock.sent)
+        await session.opened_with("   ")
+        assert len(sock.sent) == before
+
+
+async def test_no_voice_is_pinned_unless_one_is_named(config):
+    """Empty means the API's default, and the key must be absent entirely.
+
+    Sending an empty voiceName is not the same request as sending none.
+    """
+    sock = FakeSocket([{"setupComplete": {}}])
+    async with GeminiLiveSession(config, connect=connector(sock)):
+        pass
+
+    assert "speechConfig" not in sock.sent[0]["setup"]["generationConfig"]
+
+
+async def test_a_named_voice_is_pinned_in_the_client_setup(config):
+    """Who the customer hears, stated rather than left to a default.
+
+    It matters because src/agent/greeting.pcm is a RECORDING of this voice.
+    An unpinned default that moves makes the opening line a different person
+    from the rest of the call, and nothing in the service could detect it.
+
+    In the client's own setup message on purpose: a voice set on an
+    ephemeral token is reported not to be honoured at runtime.
+    """
+    from dataclasses import replace
+
+    sock = FakeSocket([{"setupComplete": {}}])
+    async with GeminiLiveSession(
+        replace(config, voice_name="Kore"), connect=connector(sock)
+    ):
+        pass
+
+    speech = sock.sent[0]["setup"]["generationConfig"]["speechConfig"]
+    assert speech["voiceConfig"]["prebuiltVoiceConfig"]["voiceName"] == "Kore"
+
+
+async def test_text_output_is_not_asked_for_by_default(config):
+    """gemini-3.8-live is a native-audio model and refuses TEXT outright.
+
+    Asking anyway closed the socket on setup and killed the call before the
+    greeting, with the server's own words:
+
+        1007 The requested combination of response modalities (TEXT) is not
+             supported by the model
+
+    So the default must stay AUDIO. The flag exists for the cascade's mouth,
+    where the model being spoken to is a different one.
+    """
+    sock = FakeSocket([{"setupComplete": {}}])
+    async with GeminiLiveSession(config, connect=connector(sock)):
+        pass
+
+    setup = sock.sent[0]["setup"]
+    assert setup["generationConfig"]["responseModalities"] == ["AUDIO"]
+    assert "outputAudioTranscription" in setup
+
+
+async def test_a_session_that_does_not_speak_asks_for_no_transcript(config):
+    """A transcript of text output is the server billing us for a copy of
+    what it just sent."""
+    sock = FakeSocket([{"setupComplete": {}}])
+    async with GeminiLiveSession(config, connect=connector(sock), speaks=False):
+        pass
+
+    setup = sock.sent[0]["setup"]
+    assert setup["generationConfig"]["responseModalities"] == ["TEXT"]
+    assert "outputAudioTranscription" not in setup

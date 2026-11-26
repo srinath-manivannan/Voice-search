@@ -96,6 +96,17 @@ log = logging.getLogger(__name__)
 # putting it on every search would buy latency nobody asked for.
 WITH_PRICE: tuple[str, ...] = ("pricing", "stock", "offers")
 
+# What a PREFETCHED search asks for instead. The reason EMI was left out above
+# was latency, and a prefetch has none to spend: it runs while the caller is
+# still talking, so the longer chain finishes before anybody could have asked.
+# A search the model made itself is still shallow - there the latency is real
+# and the customer is waiting through it.
+WITH_EMI: tuple[str, ...] = (*WITH_PRICE, "product", "emi")
+
+# How many of the shortlist get the deep fetch. EMI is only ever asked about a
+# phone the agent has named out loud, and it names two or three.
+EMI_FOR_TOP = 2
+
 
 class ToolSession:
     """The tools, for one conversation.
@@ -114,7 +125,7 @@ class ToolSession:
         self._shortlist: list[Candidate] = []
         # What this conversation has already asked for. Both exist to stop a
         # second round trip for an answer we are already holding.
-        self._searches: dict[str, dict[str, Any]] = {}
+        self._searches: dict[str, tuple[dict[str, Any], list[Candidate]]] = {}
         # Keyed by item code, and carrying which sections were actually
         # asked for. Without that, a Facts fetched for price alone reports
         # EMI as "unknown" - which the agent is told means "nobody could
@@ -126,6 +137,11 @@ class ToolSession:
         # the audio of having been told them. Nothing else reads it.
         self._budget: tuple[int | None, int | None] | None = None
         self._discussed: Candidate | None = None
+        # Set by `end_call` and read by `Conversation` after the agent has
+        # finished speaking. Never acted on here: the closing line is still
+        # being said when the model asks for this.
+        self.hang_up = False
+        self.hang_up_reason = ""
 
     # ── what this conversation is about ───────────────────────────────────
 
@@ -143,6 +159,13 @@ class ToolSession:
         """
         return self._budget
 
+    def stock_for(self, candidate: Candidate) -> bool | None:
+        """Stock the estate confirmed for a shortlisted item, or None."""
+        held = self._facts.get(candidate.item_code)
+        if held is None or held[1].stock.state != estate_api.KNOWN:
+            return None
+        return bool(held[1].stock.in_stock)
+
     @property
     def discussed(self) -> Candidate | None:
         """The one they were last asking about, if they narrowed down."""
@@ -153,26 +176,75 @@ class ToolSession:
             return await self._search(args)
         if name == "product_details":
             return await self._details(args)
+        if name == "end_call":
+            return self._end_call(args)
         log.warning("model asked for an unknown tool: %s", name)
         return {"error": "unknown_tool"}
 
+    def _end_call(self, args: dict[str, Any]) -> dict[str, Any]:
+        """The customer said goodbye. Say the closing line, then hang up.
+
+        A flag rather than an action, because the agent is still speaking
+        when this is called and the socket must not close under a sentence.
+        `Conversation` reads it at the end of the turn and waits for the
+        browser's playback queue before it goes.
+        """
+        self.hang_up = True
+        self.hang_up_reason = str(args.get("reason") or "customer_said_goodbye")
+        return {"ok": True}
+
     # ── discovery ─────────────────────────────────────────────────────────
 
-    async def _search(self, args: dict[str, Any]) -> dict[str, Any]:
+    async def search_ahead(self, args: dict[str, Any]) -> dict[str, Any]:
+        """The search the model is about to make, run first. SHALLOW.
+
+        It used to be `deep=True`, on the reasoning that a prefetch is "off
+        the critical path, so it can afford the EMI chain". It is not off
+        the critical path. It is RACING the model, and the trace of
+        2026-11-16 shows it losing by a second and a half:
+
+            24512  prefetch_started   phone, 20-30k
+            25252  end_of_speech      the caller stopped
+            26786  tool_call          the model searched for itself
+            28321  prefetch_primed    1,535 ms too late
+
+        3,809 ms to prime, against the 1,534 ms the model needed to decide
+        to search.
+
+        The EMI chain is PART of what spent it, and only part. Measured over
+        six cold price bands, alternating so a warming trend could not be
+        read as a difference: shallow 842 ms, deep 1,407 ms. About 565 ms,
+        which is a third of the 1,535 ms the race was lost by.
+
+        It is taken anyway because it is free to take. A customer who goes
+        on to ask about EMI pays for one `product_details`, sometimes; a
+        customer who asks for a search pays for a whole extra generation,
+        always. But this does not on its own make the prefetch win - the
+        other half is WHEN it starts, and on that call it started 740 ms
+        before the caller stopped talking. A budget said at the end of a
+        sentence leaves no head start to spend.
+        """
+        return await self._search(args)
+
+    async def _search(self, args: dict[str, Any], deep: bool = False) -> dict[str, Any]:
         if self._catalogue is None:
             return {"error": "catalogue_not_configured"}
 
-        # The same search, asked again. Answer it from what we already have:
-        # the upstream call is skipped, and - more important than the latency
-        # - the shortlist is NOT rebuilt, so the refs the customer has been
-        # told about keep pointing at the same phones.
         key = search_key(args)
-        if (remembered := self._searches.get(key)) is not None:
-            log.info("search already answered this call: %s", key)
-            return remembered
-
         max_price = money(args.get("max_price"))
         min_price = money(args.get("min_price"))
+        if (remembered := self._searches.get(key)) is not None:
+            result, shortlist = remembered
+            # A -> B -> A reuses A's payload and must also restore the refs
+            # that product_details and the next socket handover will read.
+            if shortlist is not self._shortlist:
+                self._shortlist = shortlist
+                self._discussed = None
+                if min_price is not None or max_price is not None:
+                    self._budget = (min_price, max_price)
+            log.info("search already answered this call: %s", key)
+            return result
+
         asked = str(args.get("query") or "").strip()
         # Only a ceiling can drop a candidate, so only a ceiling earns the
         # extra ones.
@@ -205,7 +277,7 @@ class ToolSession:
             log.warning("catalogue unavailable: %s", down)
             return {"error": "catalogue_unavailable"}
 
-        shortlist, priced, over = await self._price(found.products, max_price)
+        shortlist, priced, over = await self._price(found.products, max_price, deep)
         self._shortlist = shortlist
         if min_price is not None or max_price is not None:
             self._budget = (min_price, max_price)
@@ -248,7 +320,7 @@ class ToolSession:
             # is the answer a salesperson gives.
             out["nothing_inside_budget"] = True
             out["nearest_above_budget"] = over[0]
-        self._searches[key] = out
+        self._searches[key] = (out, shortlist)
         return out
 
     def _already_known(self, candidate: Candidate) -> dict[str, Any]:
@@ -282,10 +354,42 @@ class ToolSession:
             }
         elif facts.offers.state == estate_api.NONE:
             out["best_offer"] = None
+        # Gated on what was ASKED for, not on what came back. The cache
+        # already records the sections for this reason - and a backend that
+        # answers more than it was asked would otherwise put EMI in the result
+        # of a shallow search, which is the latency this was built to avoid
+        # being claimed without being paid for.
+        #
+        # Three fields only: provider, months, and where the instalment
+        # starts, which is the sentence persona.py requires. The rest of what
+        # `spoken` returns for EMI is for a question actually asked, and every
+        # field here is re-billed on every turn.
+        if (
+            "emi" in held[0]
+            and facts.emi.state == estate_api.KNOWN
+            and facts.emi.per_month
+        ):
+            out["emi"] = {
+                "from_inr_per_month": facts.emi.per_month,
+                "months": facts.emi.months,
+                "provider": facts.emi.provider,
+            }
         return out
 
+    @staticmethod
+    def _sections_for(index: int, deep: bool) -> tuple[str, ...]:
+        """What to ask the estate for about the item at this position.
+
+        EMI is the one follow-up the search did not already answer, and it is
+        only ever asked about a phone the agent has named - in practice the
+        first or second. So a deep search asks for it for those two and not
+        for the rest, which keeps the extra work proportional to the question
+        anyone actually asks.
+        """
+        return WITH_EMI if deep and index < EMI_FOR_TOP else WITH_PRICE
+
     async def _price(
-        self, products: list[Product], max_price: int | None
+        self, products: list[Product], max_price: int | None, deep: bool = False
     ) -> tuple[list[Candidate], bool, list[dict[str, Any]]]:
         """Replace index prices with the price in force, and drop the misfits.
 
@@ -310,7 +414,7 @@ class ToolSession:
             )
 
         async def selling(
-            product: Product,
+            product: Product, sections: tuple[str, ...]
         ) -> tuple[Product, estate_api.Price | None]:
             # Stock and offers ride along with the price. The estate answers a
             # list of sections in one request, so this is the same round trip
@@ -318,18 +422,19 @@ class ToolSession:
             # generation of the model.
             try:
                 facts = estate_api.read(
-                    await estate.product(product.item_code, WITH_PRICE)
+                    await estate.product(product.item_code, sections)
                 )
             except estate_api.EstateUnavailable as down:
                 log.info("pricing %s unavailable: %s", product.item_code, down)
                 return product, None
-            self._facts[product.item_code] = (frozenset(WITH_PRICE), facts)
+            self._facts[product.item_code] = (frozenset(sections), facts)
             if facts.price.state != estate_api.KNOWN:
                 return product, None
             return product, facts.price
 
         answered = await asyncio.gather(
-            *(selling(p) for p in products), return_exceptions=False
+            *(selling(p, self._sections_for(i, deep)) for i, p in enumerate(products)),
+            return_exceptions=False,
         )
 
         kept: list[Candidate] = []

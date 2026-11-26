@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>__SA_NAME__</title>
+  <link rel="stylesheet" href="/widget/v1/widget.css">
+  <style>
+    :root {
+      --sa-accent: __SA_COLOR__;
+      --sa-accent-hover: __SA_HOVER__;
+      --brand: __SA_COLOR__;
+    }
+  </style>
+</head>
+<body>
+  <div class="sa-handle" id="sa-handle" aria-hidden="true"></div>
+  <header class="sa-header">
+    __SA_LOGO__
+    <svg class="sa-mark" viewBox="0 0 32 32" aria-hidden="true">
+      <path fill="#fff" d="M7 6h14a5 5 0 0 1 5 5v7a5 5 0 0 1-5 5h-5.2l-3.2 3.4a1 1 0 0 1-1.7-.7V23H7a5 5 0 0 1-5-5v-7a5 5 0 0 1 5-5z"/>
+      <circle cx="12" cy="14.5" r="1.3" fill="#F36F21"/>
+    </svg>
+    <div class="sa-titles">
+      <h1 id="sa-title">__SA_NAME__</h1>
+      <p id="sa-subtitle">__SA_SUBTITLE__</p>
+    </div>
+    <button type="button" id="sa-min" aria-label="Minimise chat">–</button>
+    <button type="button" id="sa-close" aria-label="Close chat">×</button>
+    <button type="button" id="sa-menu" aria-label="Chat options" aria-expanded="false" aria-controls="sa-menu-pop">⋮</button>
+    <div id="sa-menu-pop" class="sa-menu" hidden>
+      <button type="button" id="sa-new">New chat</button>
+      <button type="button" id="sa-clear">Clear</button>
+    </div>
+  </header>
+  <nav id="sa-tabs" class="sa-tabs" hidden aria-label="Guided, voice or chat">
+    <button type="button" data-surface="guided">Guided</button>
+    <button type="button" data-surface="voice">Voice Call</button>
+    <button type="button" data-surface="chat" aria-selected="true">Chat</button>
+  </nav>
+  <div id="sa-stage" class="sa-stage" hidden></div>
+  <div id="sa-chat-root" class="sa-chat-root">
+    <div class="sa-context">
+      <p id="sa-context">Asking about: this page</p>
+      <button type="button" id="sa-back" aria-label="Back to product page">‹ Back to product</button>
+    </div>
+    <div id="sa-log" class="sa-log" role="log" aria-live="polite" aria-relevant="additions">
+      <div class="sa-hero" id="sa-welcome">
+        <p class="sa-day">Today</p>
+        <h2 id="sa-headline">__SA_HEADLINE__</h2>
+        <p class="sa-lead" id="sa-lead">__SA_LEAD__</p>
+      </div>
+    </div>
+    <div id="sa-status" class="sa-status" role="status"></div>
+    <div id="sa-alert" class="sa-alert" role="alert"></div>
+    <div id="sa-chips" class="sa-chips"></div>
+    <div id="sa-cards" class="sa-cards" role="list"></div>
+    <form id="sa-form" class="sa-composer">
+      <label class="sa-sr" for="sa-input">Message the Shopping Assistant</label>
+      <textarea id="sa-input" rows="1" placeholder="__SA_PLACEHOLDER__" autocomplete="off"></textarea>
+      <button type="submit" class="sa-send" aria-label="Send message">➤</button>
+    </form>
+    <p class="sa-foot">AI answers · prices and stock checked live · confirm at checkout</p>
+  </div>
+  <script id="sa-config" type="application/json">__SA_CONFIG_JSON__</script>
+  <script src="/widget/v1/widget.js"></script>
+</body>
+</html>

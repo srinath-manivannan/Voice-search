@@ -28,6 +28,19 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
+    # The Lua money tests open a real Redis. Port 6379 on the runner is this
+    # container; GitHub sets CI=true, so a missing server fails those tests
+    # instead of skipping them.
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -48,6 +61,12 @@ jobs:
             requirements.txt
             requirements-dev.txt
 
+      - name: Install OCR
+        # Real tesseract, so the neutrality scan reads pixels instead of
+        # printing "skipped". The package is the distro one; the scan shells
+        # out to the `tesseract` binary.
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends tesseract-ocr
+
       - name: Install
         # --require-hashes, so a tampered or replaced artefact fails the
         # job rather than reaching a test run that then passes.
@@ -64,10 +83,59 @@ jobs:
         run: mypy src
 
       - name: Tests
-        run: pytest
+        # pythonpath in pytest.ini puts the repo root on sys.path. This
+        # job still skips the browser suite entirely: collecting it imports
+        # Playwright, and that belongs to the e2e job.
+        run: pytest --ignore=tests/e2e
+
+      - name: Neutrality
+        # PY=python because this job has no virtualenv. The target shells
+        # out to tesseract when the binary from the step above is present.
+        run: make neutrality-scan PY=python
 
       - name: Secrets
         run: detect-secrets scan --baseline .secrets.baseline
+
+      # Two questions in one target: does anything we INSTALL have a known
+      # advisory (pip-audit, against both lockfiles), and did WE write a
+      # hole (bandit, against src). AUDIT_BIN= because this job installs
+      # into the system python rather than a venv - the commands and the
+      # ignore list live in the Makefile so this file cannot drift from
+      # GitLab's copy of the same job.
+      - name: Known CVEs and code scan
+        run: make audit AUDIT_BIN=
+
+  e2e:
+    # ubuntu-latest moved to 26.04. Playwright 1.49's --with-deps list still
+    # names Ubuntu 24.04 packages (libicu74, libvpx9, libx264-164), which
+    # 26.04 does not ship. Pin the runner that those package names match.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install
+        run: |
+          pip install --upgrade pip
+          pip install --require-hashes -r requirements.txt -r requirements-dev.txt
+
+      - name: Install Chromium and WebKit
+        run: python -m playwright install --with-deps chromium webkit
+
+      - name: Browser tests
+        # The default pytest addopts deselect e2e so the unit job stays fast.
+        # This job puts that marker back and runs it on both browser engines.
+        run: >
+          pytest -m e2e
+          --browser chromium --browser webkit
+          --override-ini="addopts=-q --strict-markers"
 
   image:
     runs-on: ubuntu-latest
@@ -82,13 +150,13 @@ jobs:
         run: |
           docker build \
             --build-arg APP_RELEASE=${GITHUB_SHA::8} \
-            -t poorvika-voice:${{ github.sha }} .
+            -t shopping-assistant:${{ github.sha }} .
 
       - name: It starts, answers its health check, and knows what it is
         run: |
           docker run -d --name probe -p 8080:8080 \
             -e GEMINI_API_KEY=not-a-real-key \
-            poorvika-voice:${{ github.sha }}
+            shopping-assistant:${{ github.sha }}
           for _ in $(seq 1 30); do
             if curl -fs http://127.0.0.1:8080/healthz > health.json; then
               cat health.json

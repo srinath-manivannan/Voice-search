@@ -3,6 +3,68 @@
 Model cost only. Telephony, hosting and our own compute are not in here.
 All rupee figures are inclusive of 18% GST at ₹89 to the dollar.
 
+## From about ₹3 to about ₹2.40 a minute, 25 November 2026
+
+The owner's meter read ₹3.40 a minute on real calls; the target was ₹2.50.
+`python -m src.tools.measure_live ws://<host>/ws` now measures it the same
+way every time: two fixed Tamil caller lines (a Samsung camera phone under
+₹25,000, then "is the first one in stock, and the EMI?") spoken into the real
+`/ws` at real time, the server's own cost lines read back, and what both
+sides said printed under them. One run is one real Live call, about ₹1.50.
+
+| Setting (each row 3 calls) | ₹/min, each call | Average |
+|---|---|---:|
+| Before: rotate at 400, word cap 18 | 3.27, 2.80, 2.83 | **2.97** |
+| Rotate 300, word cap 12 | 2.18, 2.91, 2.47 | 2.52 |
+| Rotate 300, cap 12, window 3000/2400 | 2.59, 2.64, 2.98 | 2.74 |
+| Rotate 300, cap 12, handover note with refs and stock | 2.48, 2.43, 2.38 | 2.43 |
+| **Shipped: rotate 300, cap 18, handover note with refs and stock** | 2.21, 2.54, 2.41 | **2.39** |
+
+What moved it:
+
+- **Rotation at 300 audio tokens instead of 400.** Retained audio is the
+  dearest thing in the window; a fresh socket after each spoken answer
+  keeps it near the caller's latest line. Reply latency did not change -
+  the EMI answer took about three seconds at both settings - because the
+  spare opens during the tool-call generation.
+- **The handover note carries each shortlisted product's ref and stock.**
+  Before, the note named the phones but not their refs, so after a rotation
+  "the first one in stock?" made the agent run `search_products` again just
+  to find it: one whole extra generation, about ₹0.19. Every run with the
+  new note made exactly one search and one EMI lookup.
+
+What did not:
+
+- **A 12-word reply cap.** Same cost as 18 within the noise, and the
+  persona's two-products-with-price answer does not fit in 12 words. The
+  cap stays at 18.
+- **A smaller context window (3000/2400).** Rotation already keeps the
+  window small; this only added variance.
+
+Still in the bill and not ours to remove: thinking, ₹0.26–0.55 a minute,
+which `gemini-3.8-live` does not let us switch off. Calls vary ±₹0.30 from
+run to run on identical input; a single call is not a measurement.
+
+## Browser voice call measurement, 23 November 2026
+
+A caller asked for a camera phone and then asked whether the first recommendation was in stock. The same two recordings went through the browser WebSocket on the original and updated builds, using Gemini Live and the configured catalogue. Each call produced two spoken answers and one tool generation. The meter uses provider token counts and the configured exchange rate and GST.
+
+| Paired shopping test | Original | Updated |
+|---|---:|---:|
+| Fixed instruction and all three tools, text-model token count | 1,528 | 909 |
+| Live text input across three paid generations | 5,639 | 3,807 |
+| Model spend through the second answer | ₹1.54 | ₹1.41 |
+| Connected time through the second answer | 34.8 s | 33.4 s |
+| Model spend per connected minute | ₹2.65 | ₹2.52 |
+
+The update shortens the shared sales instructions and tool descriptions. Gemini processes that text even on generations that only call a tool. If a model search overtakes a background lookup, the tool handler now joins the matching lookup or cancels the obsolete one. A cached shortlist restores the product references it originally returned. Both behaviours are covered by regression tests. The paired call above used one catalogue search in each build, so it measures no savings from cancelling lookups. [Gemini Live billing](https://ai.google.dev/gemini-api/docs/live-api/best-practices#pricing-billing)
+
+The 61-second trace behind the ₹2.57/min screenshot had five paid generations. The first generation in the paired test used 611 fewer live text tokens with the same search arguments. At the app’s $0.75 per million text-input tokens, that difference over five generations saves about ₹0.24. With the screenshot’s displayed metering interval and identical speech and tool activity, the projected rate is **about ₹2.32/min**. The single paired shopping test measured **₹2.52/min**. Reply length and thinking varied between runs. Both builds also interpreted the synthetic ₹25,000 ceiling as ₹20,000. [Gemini Live pricing](https://ai.google.dev/gemini-api/docs/pricing#gemini-3.8-live)
+
+A separate experiment reduced silent frames during the recorded opening. Gemini reported 281 audio-input tokens with continuous frames and 283 with periodic keepalives. The existing microphone behaviour was retained. Future comparisons should track spend per completed shopping task alongside the connected-minute rate and whether the tool received the caller’s intended budget.
+
+The estimates below describe earlier configurations.
+
 ## The billing rule
 
 One rule explains every number below, and it is Google's, in writing:
@@ -56,6 +118,16 @@ Two things the docs leave open, both flagged on screen rather than buried:
   Priced here at the text rate; if it is the audio rate, that line is 2.7x.
 - **Audio input.** The table prints "$3.00 or $0.005/min", but 25 tok/s × 60 ×
   $3.00/M is $0.0045/min. Unexplained. We price the tokens the API reports.
+- **Transcripts.** `inputAudioTranscription` and `outputAudioTranscription`
+  are both on. Google charges the text they emit at the **text output**
+  rate, $4.50 per million, on top of the audio. The Live Transcribe model
+  is estimated at about 175 text tokens per minute of speech. The measured
+  caller speaks 42% of a connected minute, so the caller line is about
+  75 tokens, or **₹0.03 to ₹0.04** at ₹89 and 18% GST (about ₹0.03 at ₹88).
+  A minute of continuous caller speech would be about ₹0.08. The meter does
+  not estimate this: `response_text` on the usage block is priced as
+  "Transcripts, caller and agent". Output transcription was already in that
+  line. Input transcription is the new part of it.
 
 ## A correction, and why it is at the top
 
@@ -97,8 +169,8 @@ calls that is 8.24 generations, and every one of them re-bills the window.
 An earlier version of this file read 5.73 off the trace and wrote it in this
 column, which understated the rate by about a rupee.
 
-Poorvika's target is Rs 2.00. **We are over it, and over the incumbent's
-Rs 4.85 as well.** The target is Rs 2.00, shown on screen and coloured
+Poorvika's target is Rs 2.50. **We are over it, and over the incumbent's
+Rs 4.85 as well.** The target is Rs 2.50, shown on screen and coloured
 against; the session ceiling that actually ends a call sits at Rs 8, because hanging up on
 a customer mid-sentence does not refund the rupee.
 
@@ -167,7 +239,7 @@ sets the floor under the window, so it cuts twice. Worth about Rs 0.47 if it
 comes down to 700.
 
 Those two together, with a tighter window, reach roughly **Rs 3.40**. They do
-not reach Rs 2.00, and nothing inside this architecture does.
+not reach Rs 2.50, and nothing inside this architecture does.
 
 **3. Stop using native audio for the whole call.** Transcribe the caller,
 reason in text, speak with a TTS engine. History then lives as text at

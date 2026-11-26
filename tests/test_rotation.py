@@ -240,6 +240,22 @@ def test_the_note_carries_the_shortlist_so_the_second_one_still_means_one():
     assert "Realme P4 at 20,999" in carried
 
 
+def test_the_note_carries_refs_so_the_first_one_needs_no_new_search():
+    """Without the refs the agent re-ran search_products after a rotation
+    just to find what 'the first one' was: one more paid generation."""
+    carried = note(
+        tool_session_with(
+            shortlist=(phone("1", "Poco M8 5G", 24999), phone("2", "Realme P4", 20999)),
+        )
+    )
+    assert "ref 1 Poco M8 5G" in carried
+    assert "ref 2 Realme P4" in carried
+    assert "product_details" in carried
+    # The stock the old socket's search result carried, so "stock irukka?"
+    # after a rotation is not a reason to search again either.
+    assert "listed in stock" in carried
+
+
 def test_the_note_says_which_one_they_had_narrowed_to():
     carried = note(
         tool_session_with(

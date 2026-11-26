@@ -2,23 +2,66 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse
 
 from src.agent.persona import GREETING
-from src.config import Config
+from src.chat.copy import SUBTITLE, welcome_line
+from src.config import Config, accent_hover
 
 STATIC = Path(__file__).resolve().parents[1] / "static"
 
 
 def install(app: FastAPI, settings: Config) -> None:
     @app.get("/", include_in_schema=False)
-    async def index() -> FileResponse:
-        return FileResponse(STATIC / "index.html")
+    async def index() -> HTMLResponse:
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        brand = {
+            "name": settings.brand_name,
+            "subtitle": settings.brand_subtitle or SUBTITLE,
+            "headline": welcome_line(settings.brand_name),
+            "color": settings.brand_primary_color,
+            "hover": accent_hover(settings.brand_primary_color),
+            "logo": settings.brand_logo_url,
+        }
+        html = html.replace(
+            "__SA_BRAND_JSON__", json.dumps(brand).replace("<", "\\u003c")
+        )
+        return HTMLResponse(html)
 
+    install_health(app, settings, include_warm=True)
+
+    @app.get("/api/v1/config")
+    async def config_summary() -> dict[str, Any]:
+        """Only what the browser needs to open its audio devices.
+
+        Deliberately no model names, no word caps, no thinking budget. Which
+        vendor and which model runs is commercial information, and a public
+        page has no reason to publish it - this project learned the reference
+        implementation's entire stack by reading exactly such a blob off its
+        page. Not repeating that mistake outward.
+
+        The key is not here and never will be: the browser talks to this
+        server, and only this server talks to the model.
+        """
+        return {
+            "capture_sample_rate": settings.capture_sample_rate,
+            "playback_sample_rate": settings.playback_sample_rate,
+            "greeting": GREETING,
+            # Whether the Voice Call tab may open the paid Live voice. When
+            # not, the tab starts the free Guided conversation with the mic on.
+            "live_voice": settings.live_voice_enabled,
+            # Whether a hosted speech worker exists. Without one the Guided
+            # mic is offered only where the browser can hear itself.
+            "hosted_asr": bool(settings.guided_asr_url),
+        }
+
+
+def install_health(app: FastAPI, settings: Config, *, include_warm: bool) -> None:
     @app.get("/healthz")
     async def healthz() -> dict[str, Any]:
         """Is this process alive? Nothing downstream is contacted.
@@ -34,7 +77,7 @@ def install(app: FastAPI, settings: Config) -> None:
         return {"status": "ok", "env": settings.env, "release": settings.release}
 
     @app.get("/readyz")
-    async def readyz() -> dict[str, Any]:
+    async def readyz(request: Request) -> dict[str, Any]:
         """Is this process configured well enough to take a call?
 
         Reports WHICH capability is missing rather than a bare false, because
@@ -47,23 +90,11 @@ def install(app: FastAPI, settings: Config) -> None:
             "catalogue": bool(settings.catalogue_token),
             "estate": settings.estate_backend != "off",
         }
-        return {"ready": all(checks.values()), "checks": checks}
-
-    @app.get("/api/v1/config")
-    async def config_summary() -> dict[str, Any]:
-        """Only what the browser needs to open its audio devices.
-
-        Deliberately no model names, no word caps, no thinking budget. Which
-        vendor and which model Poorvika runs on is commercial information,
-        and a public page has no reason to publish it - this project learned
-        the reference implementation's entire stack by reading exactly such a
-        blob off its page. Not repeating that mistake outward.
-
-        The key is not here and never will be: the browser talks to this
-        server, and only this server talks to the model.
-        """
-        return {
-            "capture_sample_rate": settings.capture_sample_rate,
-            "playback_sample_rate": settings.playback_sample_rate,
-            "greeting": GREETING,
-        }
+        body: dict[str, Any] = {"ready": all(checks.values()), "checks": checks}
+        if include_warm:
+            # The phone shelf is checked and held, so a recommendation will
+            # not wait on the build. Widget mode has no shelves, so it does
+            # not report this.
+            flow = getattr(request.app.state, "guided", None)
+            body["warm"] = bool(flow is not None and flow.warm_enough())
+        return body

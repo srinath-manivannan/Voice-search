@@ -24,6 +24,8 @@ installed in, and holds no rule of its own:
 
 from __future__ import annotations
 
+from src.web.services.spend_ledger import DailyLedger
+
 import logging
 
 from dotenv import load_dotenv
@@ -35,6 +37,9 @@ from src.config import Config, load
 from src.observability.reporting import build as build_reporter
 from src.web import errors, middleware, routes
 from src.web.routes.pages import STATIC
+from src.guided.directory import MemoryDirectory
+from src.web.services.chat_v2 import SocketFanout
+from src.web.services.conversation_store import build_store
 
 log = logging.getLogger(__name__)
 
@@ -43,9 +48,14 @@ def create_app(config: Config | None = None) -> FastAPI:
     load_dotenv()
     settings = config or load()
     logging.basicConfig(level=settings.log_level)
+    # Each inventory refresh makes hundreds of HTTP calls. Keep request
+    # traces available at DEBUG and show shelf summaries at INFO.
+    logging.getLogger("httpx").setLevel(
+        logging.WARNING if settings.log_level == "INFO" else settings.log_level
+    )
 
     app = FastAPI(
-        title="Poorvika voice agent",
+        title=settings.assistant_name,
         version="1.0.0",
         # The schema describes one internal tool. Publishing it from a public
         # host advertises the shape of every endpoint for nothing in return.
@@ -68,10 +78,31 @@ def create_app(config: Config | None = None) -> FastAPI:
     # log as well - never instead.
     reporter = build_reporter(settings)
     app.state.reporter = reporter
+    # One ceiling on everything paid, per day, for the whole process.
+    app.state.ledger = DailyLedger(settings.daily_spend_cap_inr)
 
+    app.state.settings = settings
+    app.state.conversations = build_store(settings)
+    app.state.guided_directory = MemoryDirectory()
+    # Attached here so a reconnect during a reply shares the generation
+    # instead of starting another one. See SocketFanout.
+    app.state.widget_fanout = SocketFanout()
+    if settings.widget_stub_model:
+        from src.chat.stub_model import StubTextModel
+
+        app.state.widget_model = StubTextModel(
+            delay_s=settings.widget_stub_delay_ms / 1000.0
+        )
+    if settings.widget_demo_catalogue:
+        from src.chat.demo_catalogue import DemoCatalogue
+
+        app.state.widget_catalogue = DemoCatalogue()
     middleware.install(app)
     errors.install(app, reporter)
 
-    app.mount("/static", StaticFiles(directory=STATIC), name="static")
+    # The developer page. A widget deployment does not ship it, so opening
+    # that origin cannot start Guided, voice, or a microphone prompt.
+    if settings.app_mode != "widget":
+        app.mount("/static", StaticFiles(directory=STATIC), name="static")
     routes.install(app, settings)
     return app

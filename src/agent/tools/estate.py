@@ -54,17 +54,39 @@ backends behind one method and no second copy of the logic:
 
 `apis.host()` refuses a stage host under `API_ENV=production` and the reverse,
 because the failure worth designing against is a mixed answer - production
-pricing spoken beside staging stock, both equally confident. That leaves a
-real gap rather than a hidden one:
+pricing spoken beside staging stock, both equally confident.
 
     stage        stock OK           EMI not_configured  (no staging twin)
-    production   EMI + offers OK    stock not_configured (no working token)
+    production   all four OK        since 2026-11-15
 
-Production Central Inventory does answer, behind the storefront, with an
-authorization the storefront holds and we do not; the published "production"
-token is staging's and is refused there under every mode. So stock is
-answered on stage and reported honestly as unknown on production, and
-`UNKNOWN` is never spoken as "none".
+## Production stock, and what it took
+
+This section used to say production stock was impossible: *"the published
+'production' token is staging's and is refused there under every mode."* That
+was true of the documentation as it stood. It is not true of the
+documentation as it stands.
+
+The Postman collection's Production folder now carries a **CI - Stock Check
+API** of its own, at `ci-gateway.poorvika.com/central-inv/v1`, with a token
+whose payload is the same `{"username":"test"}` as staging's and whose
+**signature is different** - which is exactly the shape the gateway's own
+behaviour predicted, since it verifies with a secret chosen by the `mode`
+header. Same claim, different signing key, and the production one is now
+published.
+
+Measured 2026-11-15 with `CI_HOST` and that token set together: item 54486
+answered `in stock, 34 across 24 branches` in 491 ms, item 48849 answered a
+genuine `out of stock`, and `unanswered` came back empty for both.
+
+**`CI_HOST` is a base URL, not a hostname.** The estate table holds full URLs
+with scheme and path, so a bare `ci-gateway.poorvika.com` reaches the request
+builder and fails there with *"Request URL is missing an 'http://' or
+'https://' protocol"* - configured, ready, and unable to answer. `make
+estate ARGS=--live` is the thing that tells those two apart.
+
+`UNKNOWN` is still never spoken as "none", and that rule is what made this
+gap survivable: for as long as stock could not be asked, every customer was
+told it could not be confirmed rather than told there was none.
 """
 
 from __future__ import annotations
@@ -128,7 +150,7 @@ class Emi:
 class Offer:
     """One card offer, with the condition that makes it apply.
 
-    `condition` is not decoration. "HDFC card-la 2,000 off irukku" is true and
+    `condition` is not decoration. "Bank A card-la 2,000 off irukku" is true and
     "2,000 off irukku" is not, and a customer who hears the second quotes it
     back at the counter.
     """
@@ -172,6 +194,7 @@ class Facts:
     offers: Offers = field(default_factory=lambda: Offers(UNKNOWN))
     emi: Emi = field(default_factory=lambda: Emi(UNKNOWN))
     took_ms: int = 0
+    specifications: tuple[tuple[str, str], ...] = ()
 
     @property
     def unanswered(self) -> tuple[str, ...]:
@@ -237,11 +260,25 @@ def read(payload: dict[str, Any]) -> Facts:
     return Facts(
         item_code=str(payload.get("item_code") or ""),
         name=_name(sections),
+        specifications=_specifications(sections),
         price=_price(sections, summary),
         stock=_stock(sections),
         offers=_offers(sections, summary),
         emi=_emi(sections, summary),
         took_ms=_int(payload.get("took_ms")) or 0,
+    )
+
+
+def _specifications(sections: dict[str, Any]) -> tuple[tuple[str, str], ...]:
+    state, product, _ = _state(sections.get(PRODUCT))
+    if state != KNOWN:
+        return ()
+    return tuple(
+        (str(a["name"])[:100], str(a["value"])[:240])
+        for group in product.get("specification_groups") or []
+        if isinstance(group, dict)
+        for a in group.get("attributes") or []
+        if isinstance(a, dict) and a.get("name") and a.get("value")
     )
 
 

@@ -68,7 +68,7 @@ def test_the_latency_buckets_bracket_the_targets_we_promise():
 
 
 def test_the_rupee_buckets_bracket_the_target_and_the_ceiling():
-    assert 2.0 in RUPEE_BUCKETS, "the Rs 2 target is not a bucket edge"
+    assert 2.5 in RUPEE_BUCKETS, "the Rs 2.50 target is not a bucket edge"
     assert 8.0 in RUPEE_BUCKETS, "the Rs 8 session ceiling is not a bucket edge"
 
 
@@ -94,7 +94,7 @@ def test_a_caller_cut_off_by_a_ceiling_wakes_somebody(metrics):
 
 
 def test_being_over_the_rupee_TARGET_does_not_wake_anybody(metrics):
-    """Every call is over Rs 2.00 today. An alert that fires every time is
+    """Every call is over Rs 2.50 today. An alert that fires every time is
     one people turn off, and the real ones go with it."""
     for _ in range(10):
         metrics.observe("voice_rupees_per_minute", "cost", 5.28, RUPEE_BUCKETS)

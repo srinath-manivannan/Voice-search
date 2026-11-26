@@ -395,3 +395,61 @@ def test_thinking_priced_at_the_audio_rate_would_still_be_visible():
     assert text_rate.line(THINKING).inr_per_min > 0
     # Under a rupee a minute: real, worth flagging on screen, not ruinous.
     assert 0.1 < extra < 1.0
+
+
+class TestSpeechBilledByTheCharacter:
+    """xAI charges TTS per million CHARACTERS, Gemini charges audio per
+    million tokens, and the two are about four times apart. Folding one into
+    the other's column would make the panel wrong in the direction nobody
+    checks - cheaper than reality."""
+
+    def test_a_character_is_not_a_token(self):
+        from src.voice.cost import USD_PER_MILLION_TTS_CHARS, grok_tts_usd
+
+        assert grok_tts_usd(1_000_000) == pytest.approx(USD_PER_MILLION_TTS_CHARS)
+        assert grok_tts_usd(0) == 0.0
+        assert grok_tts_usd(-5) == 0.0
+
+    def test_the_line_appears_only_when_something_was_spoken(self):
+        from src.voice.cost import GROK_TTS, price
+
+        quiet = price(
+            in_audio_tokens=100,
+            in_text_tokens=100,
+            out_audio_tokens=0,
+            out_text_tokens=0,
+            thinking_tokens=0,
+            minutes=1.0,
+            turns=1,
+            usd_inr=89.0,
+            gst_rate=0.18,
+        )
+        assert GROK_TTS not in [line.key for line in quiet.lines]
+
+        spoken = price(
+            in_audio_tokens=100,
+            in_text_tokens=100,
+            out_audio_tokens=0,
+            out_text_tokens=0,
+            thinking_tokens=0,
+            minutes=1.0,
+            turns=1,
+            usd_inr=89.0,
+            gst_rate=0.18,
+            grok_tts_chars=350,
+        )
+        line = spoken.line(GROK_TTS)
+        assert line.tokens == 350
+        assert line.usd == pytest.approx(350 / 1e6 * 15.0)
+
+    def test_it_is_cheaper_than_speaking_the_same_thing_on_live(self):
+        """The whole reason for the swap, as arithmetic rather than a claim.
+
+        25 seconds of speech is 625 audio tokens at Gemini's 25 a second, and
+        about 350 characters. Measured on the call of 2026-11-16.
+        """
+        from src.voice.cost import LIVE, grok_tts_usd
+
+        live = 625 / 1e6 * LIVE.response_audio
+        grok = grok_tts_usd(350)
+        assert grok < live

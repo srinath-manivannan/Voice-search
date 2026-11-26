@@ -10,6 +10,12 @@
 
 pytest==9.1.1
 pytest-asyncio==1.3.0
+# Browser tests live under tests/e2e and are deselected from the default
+# pytest run. The package is installed with the rest of the dev tools so the
+# suite can be collected; the browsers themselves are downloaded only by the
+# e2e job (`playwright install chromium webkit`).
+pytest-playwright==0.7.2
+playwright==1.49.1
 ruff==0.14.3
 mypy==1.18.2
 detect-secrets==1.5.0
@@ -17,3 +23,25 @@ detect-secrets==1.5.0
 # Compiles the two lockfiles. Pinned like everything else, because a resolver
 # that changes under you produces a lockfile diff nobody can explain.
 pip-tools==7.6.2
+
+# --- security scanning -----------------------------------------------------
+#
+# Two different questions, which is why there are two tools and not one.
+#
+# pip-audit asks "does anything we INSTALL have a known hole?" - it reads the
+# compiled lockfile and checks every pin, transitive ones included, against
+# the PyPI advisory database. Nothing else in this repo looks at that; the
+# hashes prove we got the artefact that was reviewed, not that the artefact
+# is safe.
+#
+# bandit asks "did WE write a hole?" - it reads src/ and flags the patterns
+# that are nearly always wrong in a service: shell=True, a bare except that
+# swallows a security check, a hardcoded credential, an unverified TLS call.
+pip-audit==2.10.1
+bandit==1.9.4
+
+# Runs the checks above BEFORE a commit exists rather than after it is
+# pushed. Configured in .pre-commit-config.yaml against the tools in this
+# venv - see the note there on why the hooks are `local` and not pinned a
+# second time in that file.
+pre-commit==4.6.2

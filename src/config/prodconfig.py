@@ -6,12 +6,39 @@ environments is a bug that only shows up in one of them.
 """
 
 GEMINI_LIVE_MODEL = "gemini-3.8-live"
+
+# Which prebuilt voice the agent speaks in. Empty means the API's own
+# default, which is where this started and is a liability: src/agent/
+# greeting.pcm is a recording of this voice, and a default that moves makes
+# the opening line sound like a different person from the rest of the call.
+# Name it here and the two cannot drift. Re-run `make greeting` after
+# changing it - the recording is of the OLD voice until you do.
+VOICE_NAME = ""
 GEMINI_TEXT_MODEL = "gemini-3.5-flash-lite"
 
 # Product List API. Staging for now - production needs its own URL
 # and token, and neither has been confirmed.
 CATALOGUE_URL = "https://stage-proxy.poorvika.in/mMBVOUVdxJWP"
-REPLY_WORD_CAP = 15
+# 18, chosen 2026-11-15 after 25 was tried and measured.
+#
+# The reply docs/CASCADE.md asks for - two products, a reason each, one
+# question - is about 18 words at its shortest, and the persona's own worked
+# example had been over the old cap of 15 since long before it was noticed.
+#
+# 25 was the first answer and it cost too much. Output audio is charged once
+# and nothing discounts it, and the model writes TO the cap rather than under
+# it: replies measured 5.1 s at 15, modelled 8.5 s at 25.
+#
+#     cap   s/reply   Rs/min   vs Rs 2.50
+#      15       5.1     2.58        +0.08
+#      18       6.1     2.82        +0.32   <- here
+#      25       8.5     3.37        +0.87
+#
+# A fuller answer does avoid follow-up turns and an avoided turn pays for
+# 5.6 s of extra speech, but 25 added 25 s a minute - it would have had to
+# avoid 4.5 turns out of 7.4 to pay for itself. 18 buys the room the reply
+# actually needs and leaves the rest.
+REPLY_WORD_CAP = 18
 CHAT_WORD_CAP = 45
 THINKING_BUDGET = 0
 LOG_LEVEL = "INFO"
@@ -27,7 +54,9 @@ ESTATE_API_ENV = "production"
 # POST /product on a deployed one; "off" disables per-item facts entirely.
 ESTATE_BACKEND = "worker"
 # Relative to this repository's root, not the working directory.
-ESTATE_SRC_PATH = "../../Search-proxy/products-search-engine"
+# The estate code shipped with this repo (make vendor-estate refreshes it);
+# point ESTATE_SRC_PATH at a Search-proxy checkout to develop against it.
+ESTATE_SRC_PATH = "vendor/estate"
 
 # Context window compression, and the floor underneath it.
 #
@@ -81,16 +110,43 @@ ESTATE_SRC_PATH = "../../Search-proxy/products-search-engine"
 # In-spec compression is built for long sessions, not for making a short
 # call cheaper. If another 1007 ever appears, raise this to 5,000 first -
 # and expect the bill to go up, not down.
-CONTEXT_TRIGGER_TOKENS = 3000
-CONTEXT_TARGET_TOKENS = 2400
+# Raised from 3000/2400 when the prompt grew.
+#
+# The target has to leave room for a few exchanges AFTER the prompt is kept,
+# or compression hands the model a window with nothing in it but its own
+# instructions - the failure this guard was written for, where the agent
+# asked "Endha model pathi kekureenga?" four turns running because every
+# turn emptied the window of what it had just said.
+#
+# Opening the shelves up and teaching it to narrow cost about 240 prompt
+# tokens, and at 2,400 that left 931 for the conversation. The 400 here buys
+# the room back. It is not free: once the trigger fires, up to 400 more
+# tokens are carried and re-billed on each turn after it. Rotation at 400
+# audio tokens is what actually keeps this call small, and compression
+# almost never fires behind it - this is the floor under that, and a floor
+# that breaks the conversation is not one.
+CONTEXT_TRIGGER_TOKENS = 3400
+CONTEXT_TARGET_TOKENS = 2800
 
 # Browsers allowed to open a socket here. Set to the real host before this
 # environment is used - an empty list refuses every cross-origin page, which
 # is the safe way to be misconfigured.
 ALLOWED_ORIGINS = ""
 
-# Session rotation. 600 audio tokens is about twenty-four seconds of retained
-# speech, which measured as roughly two exchanges - the point at which
-# re-billing the history costs more than carrying a summary. Zero switches it
-# off and leaves one socket for the whole call.
-ROTATE_ABOVE_AUDIO_TOKENS = 600
+# Session rotation. A measured call accumulated 195 audio tokens a generation
+# - the caller's speech and the agent's both stay in the window - so 400 is a
+# rotation about every two generations, and 600 was about every three.
+#
+# 400 rather than lower because the spare socket takes 1,735 ms to open and is
+# opened while the agent is still speaking: at two generations there is a whole
+# reply to hide it in, and at 200 - one rotation per generation - there is not.
+# Worth Rs 0.25 a connected minute against 600. Zero switches rotation off and
+# leaves one socket for the whole call. See docs/COST.md.
+#
+# 300 since 2026-11-25, measured with src/tools/measure_live (same two Tamil
+# lines every run): Rs 2.97 a minute at 400, Rs 2.39 at 300 - together with
+# the handover note now carrying refs and stock, without which the fresh
+# socket re-ran a search to find "the first one". The spare is still hidden:
+# it opens on the tool-call generation and the EMI answer took about three
+# seconds at both settings.
+ROTATE_ABOVE_AUDIO_TOKENS = 300

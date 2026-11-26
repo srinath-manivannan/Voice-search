@@ -1,7 +1,7 @@
-# poorvika-voice
+# shopping-assistant
 
 Inbound telephone voice agent for Poorvika. Tamil, English and Tanglish, over a
-real phone call, under ₹2 per connected minute all-in.
+real phone call, under ₹2.50 per connected minute all-in.
 
 Phase 1 of six. See `../PHASE0-REPORT.md` for the architecture decision and
 `../COST-MODEL.md` for the measurements everything here rests on.
@@ -10,6 +10,7 @@ Phase 1 of six. See `../PHASE0-REPORT.md` for the architecture decision and
 
 ```bash
 make install            # venv + dependencies
+make hooks              # the checks, wired into git (once per clone)
 cp .env.example .env    # then put the real GEMINI_API_KEY in it
 make test
 ```
@@ -24,6 +25,8 @@ make test
 | `make audio` | device tests — needs a microphone and speaker |
 | `make live` | real Gemini Live calls — spends a few cents |
 | `make check` | everything CI runs, in the same order |
+| `make audit` | known CVEs in what we install, holes in what we wrote — needs the network |
+| `make hooks` | install the pre-commit hooks (run once per clone) |
 | `make lock` | recompile the lockfiles after editing a `.in` |
 | `make alerts` | regenerate `deploy/alerts.yml` from the rule definitions |
 | `make profile` | what one call costs in CPU — no network, no money |
@@ -83,9 +86,12 @@ true, the thing in the wrong place is the one to move.
 | `.env.example` | every setting there is, with no value |
 | `requirements.in` / `.txt` | intent, and the hashed lockfile compiled from it |
 | `Dockerfile` / `.dockerignore` | multistage, non-root, no secret in any layer |
-| `.github/workflows/ci.yml` | format, types, tests, secrets, and a container that must answer its own health check |
+| `.github/workflows/ci.yml` | format, types, tests, secrets, CVE + code scan, and a container that must answer its own health check |
 | `.gitlab-ci.yml` | the same checks, plus the deploy stage |
 | `mypy.ini` | `strict = True` |
+| `bandit.yaml` | what the code scan reads, and the one check deliberately off |
+| `.pip-audit-ignore` | every advisory passed over, with the reason and the way out |
+| `.pre-commit-config.yaml` | the same checks, before the commit exists |
 | `pytest.ini` | paid and device tests excluded by default |
 | `Makefile` | the things we actually run |
 
@@ -104,6 +110,27 @@ true, the thing in the wrong place is the one to move.
 `docs/RULES.md` checks this repository against the full-stack rules one by
 one, including the two gaps that are still open.
 
+## Grok memory
+
+Live stays the voice. Grok, when switched on, writes a short handover after every fourth caller reply and the next rotated socket receives it alongside the tool note. It never runs on the way to the first audio byte. A timeout or an error leaves the tool note in place and the call continues.
+
+```bash
+# in .env
+GROK_MEMORY=1
+XAI_API_KEY=your-xai-key-here
+# optional: GROK_MODEL=grok-4.20-0309-non-reasoning
+```
+
+`make ui`, take a call long enough for four caller replies. The cost panel grows a **Grok memory** row on the update after that summary, and again on the end-of-call summary. With the flag off, or with no key, that row is absent and the handover is only the tool note.
+
+The live check calls Grok for real and is not part of `make test`:
+
+```bash
+XAI_API_KEY=your-xai-key-here .venv/bin/python -m pytest -m live tests/test_grok_live.py
+```
+
+At grok-4.3, every fourth caller turn, about 750 input tokens and 120 output tokens a summary, that row is about **₹0.20 per connected minute** at ₹88 to the dollar and 18% GST when the caller speaks about six times a minute. `grok-4.20-0309-non-reasoning` is the same card. `grok-4.5` and newer are dearer.
+
 
 ## Status
 
@@ -111,7 +138,10 @@ one, including the two gaps that are still open.
 |---|---|
 | Config, per-environment split | ✅ |
 | Cost meter, priced per charge line | ✅ validated against a real metered bill |
-| CI: format, strict types, tests, secret scan | ✅ GitHub and GitLab, same four |
+| CI: format, strict types, tests, secret scan | ✅ GitHub and GitLab, same checks |
+| CVE gate on what ships | ✅ `pip-audit --strict` on the runtime lockfile, no exceptions, blocks |
+| Static security scan of our own code | ✅ `bandit` on `src/`, 0 findings |
+| Checks run before the commit, not after the push | ✅ `.pre-commit-config.yaml`, all hooks local |
 | Routes / services split, versioned API | ✅ `/api/v1`, no rules in a route file |
 | Health, readiness, request ids, rate limits | ✅ 15 tests |
 | Container image | ✅ multistage, non-root; built and probed in CI |
@@ -156,13 +186,13 @@ ours are committed. And it has no container story at all — ours is a root
 
 ## Known limitations
 
-1. **Over the cost target.** Poorvika wants ₹2.00 a connected minute; a real
+1. **Over the cost target.** Poorvika wants ₹2.50 a connected minute; a real
    call runs at about ₹5.28. `docs/COST.md` says where every paisa goes.
    `docs/PIPELINE.md` carries the decision: **not** the cascade, whose
    reasoning leg measured ~1,100 ms to first token and would make the agent
    about three times slower for 60 paise. Rotating the Live session onto a
    fresh socket carrying a text summary instead of audio history reaches
-   ₹2.70–3.82 at unchanged speed. **Not built yet.** ₹2.00 with a fast agent
+   ₹2.70–3.82 at unchanged speed. **Not built yet.** ₹2.50 with a fast agent
    is not available from anything measured: ₹1.19 of it is the agent's own
    voice, and the replies are not being shortened. The session ceiling that
    ends a call sits at ₹8, well above the target, because hanging up on a

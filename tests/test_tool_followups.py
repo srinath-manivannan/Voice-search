@@ -9,6 +9,7 @@ testing for are all in the shapes.
 from __future__ import annotations
 
 
+from src.agent.tools.declarations import PRODUCT_DETAILS
 from src.agent.tools.runner import ToolSession
 from tests.payloads import ANSWERED
 from tests.fakes import (
@@ -132,3 +133,90 @@ async def test_a_section_nobody_asked_for_is_never_reported_as_unknown():
     # EMI was not prefetched, so it was fetched - not answered as "unknown".
     assert len(estate.asked) > upstream
     assert answer["emi"]["from_inr_per_month"] == 992
+
+
+async def test_the_model_cannot_ask_product_details_for_what_search_already_sent():
+    """The waste was the CALL, not the round trip.
+
+    Across 22 traces the model called product_details three times and one of
+    them asked for offers. The runner answered that out of its cache without
+    going upstream - and it still cost a whole generation, because the call
+    itself is a turn and a turn re-bills the entire context window.
+
+    Prose had already asked it not to. So the value is gone from the enum: the
+    model is no longer told that `offers` is something this tool accepts.
+    """
+    want = PRODUCT_DETAILS["parameters"]["properties"]["want"]
+    assert want["items"]["enum"] == ["emi"]
+
+    # The runner stays tolerant on purpose. A model that sends one of the old
+    # values anyway gets an answer rather than an error - it is simply never
+    # invited to.
+    estate = FakeEstate({"53952": ANSWERED})
+    tools = ToolSession(
+        catalogue_of(document("53952", "Vivo Y51 Pro 5G", 34999)), estate=estate
+    )
+    await tools.run("search_products", {"query": "vivo"})
+    answer = await tools.run("product_details", {"ref": "1", "want": ["offers"]})
+    assert "error" not in answer
+
+
+async def test_a_prefetch_is_shallow_because_it_is_racing_the_model():
+    """These two tests asserted the opposite, and the trace overruled them.
+
+    The prefetch used to ask for the EMI chain, on the reasoning that it
+    runs "while the caller is still talking, so there is no wait to spend".
+    There is: it is racing the model's own tool call, and on 2026-11-16 it
+    lost by a second and a half -
+
+        24512  prefetch_started   phone, 20-30k
+        25252  end_of_speech      the caller stopped
+        26786  tool_call          the model searched for itself
+        28321  prefetch_primed    1,535 ms too late
+
+    3,809 ms to prime against the 1,534 ms the model needed. The EMI chain
+    spent the difference and bought a round trip the model then paid for
+    anyway, so the prefetch cost money instead of saving it.
+
+    The trade is now the other way round and it is the right way round: a
+    customer who asks about EMI pays for one product_details, sometimes; a
+    customer who asks for a search pays for an extra generation, always.
+
+    If traces start showing EMI round trips, the answer is to prime shallow
+    and deepen the cache behind it - not to make the prefetch slow again.
+    """
+    estate = FakeEstate({"53952": ANSWERED})
+    tools = ToolSession(
+        catalogue_of(document("53952", "Vivo Y51 Pro 5G", 34999)), estate=estate
+    )
+
+    ahead = await tools.search_ahead({"category": "phone", "max_price": 40000})
+
+    assert "emi" not in estate.asked[0][1], "the EMI chain is what lost the race"
+    assert ahead["products"][0]["price_inr"] == 34999, "the price still arrives"
+
+
+async def test_returning_to_a_cached_budget_restores_its_refs_and_needs_no_lookup():
+    estate = FakeEstate(
+        {"45902": priced("45902", 22999), "53952": priced("53952", 31999)}
+    )
+    tools = ToolSession(
+        catalogue_of(
+            document("53952", "Vivo Y51 Pro", 31999),
+            document("45902", "Vivo Y200 Pro", 22999),
+        ),
+        estate=estate,
+    )
+    narrower = {"category": "phone", "max_price": 25000}
+    first = await tools.run("search_products", narrower)
+    await tools.run("search_products", {"category": "phone", "max_price": 35000})
+    second = await tools.run("product_details", {"ref": "1", "want": ["price"]})
+    assert second["product"] == "Vivo Y51 Pro"
+    lookups = len(estate.asked)
+
+    assert await tools.run("search_products", narrower) == first
+    assert tools.discussed is None
+    restored = await tools.run("product_details", {"ref": "1", "want": ["price"]})
+    assert restored["product"] == first["products"][0]["name"]
+    assert tools.budget == (None, 25000)
+    assert len(estate.asked) == lookups

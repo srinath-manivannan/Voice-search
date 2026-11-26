@@ -263,3 +263,46 @@ class _Estate:
     async def product(self, item_code: str, sections: tuple[str, ...]) -> dict:
         self.asked.append((item_code, sections))
         return self.payload
+
+
+# --- a whole shelf, for the guided call ---------------------------------------
+
+
+async def test_a_whole_shelf_is_asked_for_in_stock_only_and_comes_back_as_documents():
+    """Documents, not Products: the guided call reads fields a voice reply never needs."""
+    poster = FakePoster(FakeResponse(PAYLOAD))
+    catalogue = Catalogue(
+        "https://example.invalid", "token", poster_factory=lambda: poster
+    )
+
+    documents = await catalogue.shelf("tv")
+
+    (search,) = poster.calls[0]["json"]["searches"]
+    assert "categories:=Television" in search["filter_by"]
+    assert "stock_status:=`In Stock`" in search["filter_by"]
+    assert search["q"] == "*" and search["per_page"] <= 250
+    assert [d["item_code"] for d in documents] == [
+        h["document"]["item_code"] for h in PAYLOAD["results"][0]["hits"]
+    ]
+
+
+async def test_a_shelf_that_cannot_be_filtered_is_refused_not_answered_with_everything():
+    """An unknown shelf builds no category filter - which matches the whole shop."""
+    poster = FakePoster(FakeResponse(PAYLOAD))
+    catalogue = Catalogue(
+        "https://example.invalid", "token", poster_factory=lambda: poster
+    )
+
+    with pytest.raises(ValueError, match="not a shelf"):
+        await catalogue.shelf("everything")
+    assert poster.calls == []
+
+
+async def test_fewer_answers_than_searches_is_an_outage_not_a_short_list():
+    poster = FakePoster(FakeResponse({"results": []}))
+    catalogue = Catalogue(
+        "https://example.invalid", "token", poster_factory=lambda: poster
+    )
+
+    with pytest.raises(CatalogueUnavailable, match="asked 1 searches, got 0"):
+        await catalogue.shelf("phone")

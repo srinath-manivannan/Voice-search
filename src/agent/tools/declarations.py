@@ -25,6 +25,20 @@ five of twenty-four generations said nothing at all. Three of those were
 searches for a phone the session had already found, and one asked for stock
 that the search had already fetched. So the descriptions now say what the
 search result already contains, and that it stays valid.
+
+## Why `want` has one value in it
+
+Saying it in prose was not enough. Across 22 traces the model called
+product_details three times, and one of those asked for OFFERS - which the
+search result already carried, and which the runner answered out of its cache
+with no round trip at all. The round trip was saved and the generation was
+not: the call itself is a whole turn, and a turn re-bills the entire context
+window.
+
+So the enum is now `["emi"]` and the wasted call is unavailable rather than
+discouraged. The runner stays tolerant of the other values on purpose - a
+model that sends one anyway gets an answer instead of an error - but it is no
+longer told they exist.
 """
 
 from __future__ import annotations
@@ -33,37 +47,45 @@ from typing import Any
 
 SEARCH_PRODUCTS = {
     "name": "search_products",
-    "description": (
-        "Search Poorvika's live catalogue. Each result carries a `ref`, its "
-        "price, its stock and its best card offer - so do not call "
-        "product_details for those. Results stay valid for the whole call: "
-        "never search again for a product you have already found."
-    ),
+    "description": "Search once per request. Reuse returned refs, prices, stock and offers.",
     "parameters": {
         "type": "object",
         "properties": {
             "query": {
                 "type": "string",
-                "description": (
-                    "Brand or model words only, e.g. 'Samsung', 'iPhone 15'. "
-                    "Empty when they gave only a budget and a category."
-                ),
+                "description": "Brand, model or item name across all shelves. Omit for category/budget alone.",
             },
             "category": {
                 "type": "string",
-                "enum": ["phone", "laptop", "tablet", "watch", "tv"],
-                "description": "'phone' covers mobiles.",
+                # The big shelves only. Every one of these is a thing a
+                # customer names and then wants a BUDGET applied to, which is
+                # what a facet filter is for. Chargers, cases, geysers and
+                # the kitchen are still sold and still findable - the query
+                # reaches the whole catalogue - and listing them here would
+                # cost prompt tokens on every generation of every call to
+                # filter shelves nobody puts a price range on.
+                "enum": [
+                    "phone",
+                    "laptop",
+                    "tablet",
+                    "watch",
+                    "tv",
+                    "ac",
+                    "fridge",
+                    "washing machine",
+                    "fan",
+                    "headphones",
+                    "speaker",
+                ],
+                "description": "Optional shelf. For unlisted shelves use query.",
             },
             "min_price": {
                 "type": "integer",
-                "description": "Rupees, when they gave a range.",
+                "description": "Rupee floor. For a range set both min_price and max_price.",
             },
             "max_price": {
                 "type": "integer",
-                "description": (
-                    "Rupees. Set whenever they say under, below, within, "
-                    "kulla, or give a range."
-                ),
+                "description": "Rupee ceiling: under, below, within, kulla.",
             },
         },
         "required": [],
@@ -73,30 +95,17 @@ SEARCH_PRODUCTS = {
 
 PRODUCT_DETAILS = {
     "name": "product_details",
-    "description": (
-        "EMI for ONE product already shown by search_products - the monthly "
-        "instalment, which search results do not carry. Price, stock and "
-        "offers are already in the search result; asking here for those "
-        "costs the customer a wait and tells you nothing new."
-    ),
+    "description": "Look up EMI for a search result.",
     "parameters": {
         "type": "object",
         "properties": {
             "ref": {
                 "type": "string",
-                "description": (
-                    "Which product from your last search: '1' is the first "
-                    "one you told the customer about, '2' the second. 'the "
-                    "second one' and 'that Samsung' both mean one of these."
-                ),
+                "description": "Shortlist ref: '1' for first, '2' for second.",
             },
             "want": {
                 "type": "array",
-                "items": {
-                    "type": "string",
-                    "enum": ["price", "stock", "offers", "emi"],
-                },
-                "description": "Only what they actually asked about.",
+                "items": {"type": "string", "enum": ["emi"]},
             },
         },
         "required": ["ref", "want"],
@@ -104,5 +113,27 @@ PRODUCT_DETAILS = {
 }
 
 
+# The call ends when the customer says it does, and only then. Described in
+# terms of what they said rather than what the agent feels, because "the
+# conversation seems finished" is a judgement and "they said thanks" is not.
+END_CALL = {
+    "name": "end_call",
+    "description": (
+        "Only on customer sign-off (thank you, nandri, sari podhum, vechidunga). "
+        "Never on silence or an open question. Speak the closing line first."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "reason": {
+                "type": "string",
+                "enum": ["customer_said_goodbye", "handing_to_customer_care"],
+            },
+        },
+        "required": ["reason"],
+    },
+}
+
+
 def tool_config() -> dict[str, Any]:
-    return {"functionDeclarations": [SEARCH_PRODUCTS, PRODUCT_DETAILS]}
+    return {"functionDeclarations": [SEARCH_PRODUCTS, PRODUCT_DETAILS, END_CALL]}

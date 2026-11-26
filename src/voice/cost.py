@@ -116,14 +116,83 @@ IN_TEXT = "in_text"
 OUT_AUDIO = "out_audio"
 OUT_TEXT = "out_text"
 THINKING = "thinking"
+GROK = "grok"
+GROK_TTS = "grok_tts"
+BRAIN = "brain"
 
 LABELS = {
     IN_AUDIO: "Caller voice + audio history",
     IN_TEXT: "Prompt + tools + text history",
     OUT_AUDIO: "Agent voice",
-    OUT_TEXT: "Transcription",
+    OUT_TEXT: "Transcripts, caller and agent",
     THINKING: "Thinking",
+    GROK: "Grok memory",
+    GROK_TTS: "Agent voice, spoken by Grok",
+    BRAIN: "Working it out on the text model",
 }
+
+
+@dataclass(frozen=True)
+class GrokRates:
+    """USD per 1M tokens for one Grok text model.
+
+    Short-context rates. A handover is a few hundred tokens, so the
+    long-context tier (200k and above) does not apply. Cached input is
+    priced on its own because xAI reports it separately and bills it at
+    a fraction of the fresh-input rate.
+    """
+
+    input: float
+    cached: float
+    output: float
+
+
+# docs.x.ai/developers/pricing, read 2026-11-13. 4.3 and the 4.20 snapshots
+# share a card. 4.5 and newer are the dearer one. An unknown id is priced
+# as 4.7 so a typo cannot make the meter look cheaper than the invoice.
+# Text-to-speech is billed per MILLION CHARACTERS, not per token, which is
+# why it cannot go through GrokRates with the rest. Reporting characters in
+# a token column would be wrong by roughly four times, in the one panel
+# whose job is to be checkable against a bill.
+# https://docs.x.ai/developers/model-capabilities/audio/voice (read 2026-11-16)
+USD_PER_MILLION_TTS_CHARS = 15.0
+
+
+def grok_tts_usd(characters: int) -> float:
+    """What speaking this many characters costs."""
+    return max(characters, 0) / 1e6 * USD_PER_MILLION_TTS_CHARS
+
+
+_GROK_CHEAP = GrokRates(input=1.25, cached=0.20, output=2.50)
+_GROK_DEAR = GrokRates(input=2.00, cached=0.50, output=6.00)
+
+GROK_RATES: dict[str, GrokRates] = {
+    "grok-4.3": _GROK_CHEAP,
+    "grok-4.20-0309-non-reasoning": _GROK_CHEAP,
+    "grok-4.20-0309-reasoning": _GROK_CHEAP,
+    "grok-4.5": _GROK_DEAR,
+    "grok-4.6": _GROK_DEAR,
+    "grok-4.7": _GROK_DEAR,
+}
+
+
+def grok_rates(model: str) -> GrokRates:
+    """The card for this model, or the dearer card when the id is unknown."""
+    return GROK_RATES.get(model, _GROK_DEAR)
+
+
+def grok_usd(prompt: int, cached: int, completion: int, rates: GrokRates) -> float:
+    """USD for one Grok completion.
+
+    `prompt` is the total input, cached tokens included, which is how the
+    API reports it. Cached is capped at prompt so a malformed usage block
+    cannot bill a negative number of fresh tokens.
+    """
+    cached = min(max(cached, 0), max(prompt, 0))
+    fresh = max(prompt, 0) - cached
+    return (
+        fresh * rates.input + cached * rates.cached + max(completion, 0) * rates.output
+    ) / 1e6
 
 
 @dataclass(frozen=True)
@@ -214,12 +283,23 @@ def price(
     rates: Rates = LIVE,
     usd_inr: float,
     gst_rate: float,
+    grok_tokens: int = 0,
+    grok_usd: float = 0.0,
+    include_grok: bool = False,
+    grok_tts_chars: int = 0,
+    brain_usd: float = 0.0,
 ) -> Breakdown:
     """Price already-counted tokens. Token counts are BILLED counts.
 
     For the prompt lines that means summed across turns, not the last turn's
     cumulative figure - the docs say each turn is charged for everything then
     in the window, so the sum is the charge.
+
+    Grok is a separate vendor. Its dollars are passed in already priced,
+    because the rate depends on which Grok model answered and on how many
+    of the input tokens were cached. The line is omitted unless memory is
+    on or a summary has already been billed, so a call that never asked
+    Grok does not grow a zero row.
     """
     if minutes <= 0:
         raise ValueError("minutes must be positive")
@@ -233,7 +313,27 @@ def price(
         THINKING: (thinking_tokens, rates.thinking),
     }
     priced = {key: tokens * rate / 1e6 for key, (tokens, rate) in raw.items()}
-    total = sum(priced.values())
+    order = [IN_AUDIO, IN_TEXT, OUT_AUDIO, OUT_TEXT, THINKING]
+    if include_grok or grok_tokens or grok_usd:
+        raw[GROK] = (grok_tokens, 0.0)
+        priced[GROK] = grok_usd
+        order.append(GROK)
+    if brain_usd:
+        # The cascade's brain prices itself on flash-lite's card, so what
+        # crosses is dollars rather than tokens. It was reaching
+        # `total_usd` and no line, which put it in the headline and nowhere
+        # a reader could find it - and left "Google - Gemini" reading zero
+        # on a call Gemini had done all the thinking for.
+        raw[BRAIN] = (0, 0.0)
+        priced[BRAIN] = brain_usd
+        order.append(BRAIN)
+    if grok_tts_chars:
+        # Characters, in a field the rest of the table fills with tokens.
+        # They are not the same unit and the label says which one this is.
+        raw[GROK_TTS] = (grok_tts_chars, 0.0)
+        priced[GROK_TTS] = grok_tts_usd(grok_tts_chars)
+        order.append(GROK_TTS)
+    total = sum(priced[key] for key in order)
 
     lines = tuple(
         Line(
@@ -244,7 +344,7 @@ def price(
             share=(priced[key] / total if total else 0.0),
         )
         # Fixed order, so a column does not move between renders.
-        for key in (IN_AUDIO, IN_TEXT, OUT_AUDIO, OUT_TEXT, THINKING)
+        for key in order
     )
     return Breakdown(
         lines=lines,

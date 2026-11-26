@@ -80,6 +80,26 @@ def test_the_prompt_is_charged_on_every_turn_not_once():
     assert s.output_usd == one.output_usd() + two.output_usd()
 
 
+def test_thoughts_token_count_is_on_the_bill_even_though_total_omits_it():
+    """totalTokenCount is prompt + response. thoughtsTokenCount sits outside it.
+
+    A meter that trusted the total would drop these tokens. They are billed,
+    including on gemini-3.8-live, which cannot switch thinking off.
+    """
+    counted = SessionUsage()
+    counted.record(TURN_1)
+    blind = SessionUsage()
+    blind.record(
+        {key: value for key, value in TURN_1.items() if key != "thoughtsTokenCount"}
+    )
+
+    thinking = counted.breakdown(88.0, 0.18, 1.0).line("thinking")
+    assert thinking.tokens == TURN_1["thoughtsTokenCount"]
+    assert thinking.usd == pytest.approx(90 * 4.50 / 1e6)
+    assert counted.total_usd == pytest.approx(blind.total_usd + thinking.usd)
+    assert counted.billed_thinking == 90
+
+
 def test_billed_prompt_tokens_are_summed_and_responses_are_not():
     s = SessionUsage()
     s.record(TURN_1)

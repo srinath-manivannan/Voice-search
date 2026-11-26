@@ -211,13 +211,14 @@ async function start() {
       case 'barge_in':   flushPlayback(); log('— you interrupted —', 'dim'); break;
       case 'transcript': log(message.text, 'agent'); break;
       case 'state':
-        if (message.agent_speaking) { setStatus('Poorvika is speaking', 'agent'); }
+        if (message.agent_speaking) { setStatus('Shopping Assistant is speaking', 'agent'); }
         else if (message.caller_speaking !== undefined) {
           setStatus(message.caller_speaking ? 'listening to you' : 'listening', 'live');
           setOrb(message.caller_speaking ? 'caller' : 'listening');
         }
         break;
       case 'turn':    addTurn(message); break;
+      case 'cost':    showCost(message.cost); break;
       case 'summary':
         showCost(message.cost);
         showTrace(message.trace, message.trace_file);
@@ -226,7 +227,11 @@ async function start() {
     }
   };
 
-  state.socket.onclose = () => { if (state.running) stop(); };
+  state.socket.onclose = (event) => {
+    // A refusal says why ("voice calls are paused for today"); show it.
+    if (event && event.reason) setStatus(event.reason, 'bad');
+    if (state.running) stop();
+  };
   state.socket.onerror = () => setStatus('connection failed', 'bad');
 
   state.socket.onopen = () => {
@@ -243,6 +248,7 @@ async function start() {
     };
     sourceNode.connect(worklet);
     state.running = true;
+    startMeter();
     el('toggle').disabled = false;
     setCtaLabel('End Call');
     el('toggle').classList.add('stop');
@@ -252,6 +258,7 @@ async function start() {
 
 function stop() {
   state.running = false;
+  stopMeter();
   stopLevelLoop();
   flushPlayback();
   if (state.socket) state.socket.close();
@@ -346,12 +353,173 @@ function showTrace(trace, file) {
   el('t-file').textContent = file || '—';
 }
 
+// What the call cost, for someone who has never heard of a token.
+//
+// The developer table below says "Prompt + tools + text history". That is
+// accurate and it is unreadable, and the person who has to decide whether
+// this agent is affordable is not the person who wrote it. So the same
+// numbers, in words about the CALL rather than about the API - and in
+// rupees, because rupees is what the shop is billed in.
+//
+// Nothing here is a second calculation. Every figure comes off the same
+// payload the table uses; a cost panel that disagreed with the cost panel
+// would be worse than no panel.
+const PLAIN = {
+  in_audio:  'Listening to you',
+  in_text:   'Remembering the chat',
+  thinking:  'Working out the answer',
+  out_audio: 'Speaking back',
+  out_text:  'Putting it on screen',
+  grok:      'Writing itself notes',
+  grok_tts:  'Speaking back',
+  brain:     'Working out the answer',
+};
+// Which side of the meter each line sits on. Said as "taking in" and
+// "giving back" rather than input and output, which mean nothing to anyone
+// who has not read a pricing page.
+const TAKES_IN = ['in_audio', 'in_text'];
+// Who the money actually goes to. Two companies one letter apart, so they
+// are named by company and not by model: "Grok" and "Groq" in the same list
+// would be a bill nobody could check. Every charge line that is not the
+// memory note is the Gemini socket - it hears, decides, speaks and thinks on
+// one connection, so one vendor carries almost all of it.
+const VENDORS = [
+  // `brain` is the cascade's text model, which is also Gemini. It prices
+  // itself on flash-lite's card and crosses as dollars rather than tokens,
+  // so it has its own key - but the money still goes to the same company.
+  { who: 'Google · Gemini', keys: ['in_audio', 'in_text', 'out_audio', 'out_text', 'thinking', 'brain'] },
+  { who: 'xAI · Grok', keys: ['grok', 'grok_tts'] },
+];
+
+function showSpend(cost) {
+  el('spend').hidden = false;
+  const minutes = cost.minutes > 0 ? cost.minutes : 1 / 60;
+  const rupees = (n) => '₹' + n.toFixed(2);
+
+  el('spend-total').textContent = rupees(cost.total_inr);
+  el('spend-rate').textContent = rupees(cost.total_inr_per_min);
+  el('spend-rate').className = rateClass(cost.total_inr_per_min, cost.target_inr_per_min);
+
+  const over = cost.total_inr_per_min - cost.target_inr_per_min;
+  el('spend-cap').textContent = over > 0.005
+    ? rupees(over) + ' a minute over the ' + rupees(cost.target_inr_per_min) + ' target'
+    : 'inside the ' + rupees(cost.target_inr_per_min) + ' a minute target';
+
+  // Rupees for the WHOLE call, not per minute: the headline is what this
+  // call cost, and rows that did not add up to it would invite the one
+  // question the panel exists to answer.
+  //
+  // Split as a share of the headline rather than rate x minutes. Each
+  // inr_per_min arrives rounded to three places, so multiplying them out
+  // left the rows a paisa above the total - true to the arithmetic and
+  // unanswerable to anyone reading it.
+  const perMin = cost.lines.reduce((sum, line) => sum + line.inr_per_min, 0) || 1;
+  const rows = cost.lines
+    .map((line) => ({
+      key: line.key,
+      what: PLAIN[line.key] || line.label,
+      inr: cost.total_inr * (line.inr_per_min / perMin),
+      share: line.share,
+    }))
+    .filter((row) => row.inr >= 0.005)
+    .sort((a, b) => b.inr - a.inr);
+
+  const widest = Math.max(...rows.map((r) => r.share), 0.001);
+  el('spend-rows').innerHTML = rows.map((row) =>
+    '<div class="row"><span class="what">' + row.what + '</span>' +
+    '<span class="bar"><i style="width:' +
+      Math.round((row.share / widest) * 100) + '%"></i></span>' +
+    '<span class="amt">' + rupees(row.inr) + '</span></div>'
+  ).join('');
+
+  const side = (keys) => rupees(rows
+    .filter((row) => keys.includes(row.key) === true)
+    .reduce((sum, row) => sum + row.inr, 0));
+  el('spend-in').textContent = side(TAKES_IN);
+  el('spend-out').textContent = rupees(rows
+    .filter((row) => !TAKES_IN.includes(row.key))
+    .reduce((sum, row) => sum + row.inr, 0));
+
+  // A vendor with nothing on the clock is still shown. "Grok: 0.00" answers
+  // the question; a missing row leaves someone wondering whether it was
+  // billed somewhere they could not see.
+  el('spend-vendors').innerHTML = VENDORS.map((vendor) => {
+    const paid = rows
+      .filter((row) => vendor.keys.includes(row.key))
+      .reduce((sum, row) => sum + row.inr, 0);
+    return '<div class="row"><span class="what">' + vendor.who + '</span>' +
+      '<span class="amt">' + rupees(paid) + '</span></div>';
+  }).join('');
+
+  // Every figure above includes GST, because that is the number the shop is
+  // held to and the target is set in. Split out here because the tax may be
+  // reclaimable as input credit, and if it is, the real cost of this call is
+  // the first of these three lines and not the last.
+  const net = cost.total_inr / (1 + cost.gst_rate);
+  el('spend-net').textContent = rupees(net);
+  el('spend-gst-label').textContent = 'GST ' + Math.round(cost.gst_rate * 100) + '%';
+  el('spend-gst').textContent = rupees(cost.total_inr - net);
+  el('spend-gross').textContent = rupees(cost.total_inr);
+}
+
 // The cost panel. One row per charge line, because "the call costs ₹2.40" is
 // not actionable and "₹1.19 of it is the agent's voice and ₹0.56 is the
 // standing prompt being re-processed" is: the first number is physics, the
 // second is a setting. The bar widths are each line's share of the total, so
 // the thing to go and fix is the widest one.
+// --- the meter ------------------------------------------------------------
+//
+// Two numbers, on screen for the whole call. They are kept by DIFFERENT
+// clocks on purpose.
+//
+// The time ticks locally, every second, because the browser knows exactly
+// how long the call has been up and nothing has to be asked for it.
+//
+// The rupees do NOT tick. They step, when the server sends a figure it has
+// actually counted. Smoothing them between updates - rate x elapsed, say -
+// would read better and would put a number on screen that nobody charged,
+// in the one panel whose entire job is to be checkable against a bill. So
+// between updates it holds the last real figure, and before the first one
+// it says nothing rather than zero: a call that has cost something and
+// reads "Rs 0.00" is worse than one that admits it does not know yet.
+
+const meter = { started: 0, timer: null };
+
+function meterClock() {
+  const seconds = Math.floor((Date.now() - meter.started) / 1000);
+  const mm = Math.floor(seconds / 60);
+  const ss = seconds % 60;
+  el('meter-time').textContent = mm + ':' + String(ss).padStart(2, '0');
+}
+
+function startMeter() {
+  meter.started = Date.now();
+  el('meter').hidden = false;
+  el('meter-time').textContent = '0:00';
+  el('meter-rs').textContent = '\u2014';
+  el('meter-rs').className = 'rs waiting';
+  el('meter-rate').innerHTML = '&nbsp;';
+  meterClock();
+  meter.timer = setInterval(meterClock, 1000);
+}
+
+function stopMeter() {
+  if (meter.timer) clearInterval(meter.timer);
+  meter.timer = null;
+  // Left on screen, not hidden. The last thing you want after hanging up is
+  // for the figure you were watching to vanish before you have read it.
+}
+
+function meterCost(cost) {
+  el('meter-rs').textContent = '\u20b9' + cost.total_inr.toFixed(2);
+  el('meter-rs').className = 'rs';
+  el('meter-rate').textContent = '\u20b9' + cost.total_inr_per_min.toFixed(2) + ' a minute';
+  el('meter-rate').className = 'per ' + rateClass(cost.total_inr_per_min, cost.target_inr_per_min);
+}
+
 function showCost(cost) {
+  meterCost(cost);
+  showSpend(cost);
   el('cost').hidden = false;
   const target = cost.target_inr_per_min;
 
@@ -385,7 +553,29 @@ function showCost(cost) {
   }
 }
 
-el('toggle').addEventListener('click', () => (state.running ? stop() : start()));
+const VOICE_OFF = 'Live voice calling is currently disabled. ' +
+  'To enable it locally, start the server with LIVE_VOICE=1 and VOICE_ROUTE_B=1. ' +
+  'You can switch to Chat or Guided yourself if you want to keep going.';
+
+el('toggle').addEventListener('click', async () => {
+  if (state.running) return stop();
+  if (!state.config) await loadConfig().catch(() => null);
+  // Stay on this tab. Live voice is off unless the server says otherwise.
+  if (!state.config?.live_voice) {
+    const note = el('voice-notice');
+    if (note) {
+      note.hidden = false;
+      note.textContent = VOICE_OFF;
+    }
+    setStatus('');
+    return;
+  }
+  const note = el('voice-notice');
+  if (note) note.hidden = true;
+  return start();
+});
+// Known before the first click, so that click opens the right voice at once.
+loadConfig().catch(() => null);
 
 el('share').addEventListener('click', async () => {
   await navigator.clipboard.writeText(location.href).catch(() => {});
@@ -405,41 +595,45 @@ loadConfig().catch(() => setStatus('cannot reach the server', 'bad'));
 // it a keyboard user tabs into the list and cannot leave it except by tabbing
 // through every tab, and a screen reader is never told how many there are.
 
-const TABS = ['tab-voice', 'tab-chat'];
+const TABS = ['tab-guided', 'tab-voice', 'tab-chat'];
+const NAMES = { 'tab-guided': 'guided', 'tab-voice': 'voice', 'tab-chat': 'chat' };
 
 function showTab(which, focusPanel) {
-  const voice = which === 'voice';
-  el('voice-panel').hidden = !voice;
-  el('chat-panel').hidden = voice;
   TABS.forEach((id) => {
-    const selected = (id === 'tab-voice') === voice;
+    const selected = NAMES[id] === which;
+    el(NAMES[id] + '-panel').hidden = !selected;
     const tab = el(id);
     tab.setAttribute('aria-selected', String(selected));
     // Roving tabindex: only the selected tab is in the page's tab order, so
     // Tab moves past the whole list rather than through it.
     tab.tabIndex = selected ? 0 : -1;
   });
-  // Said once, here, rather than reached for from the chat module.
-  // focusPanel is false when the arrow keys brought us here: in a tablist
-  // the arrows move between TABS, and the panel is entered with Tab. Moving
-  // focus into the panel on an arrow press traps a keyboard user, who
-  // cannot then reach the other tab at all.
-  if (!voice) {
-    document.dispatchEvent(
-      new CustomEvent('tab:chat', { detail: { focusPanel: Boolean(focusPanel) } })
-    );
-  }
+  // Said once, here, rather than reached for from the modules that own the
+  // panels. focusPanel is false when the arrow keys brought us here: in a
+  // tablist the arrows move between TABS, and the panel is entered with
+  // Tab. Moving focus into the panel on an arrow press traps a keyboard
+  // user, who cannot then reach the other tabs at all.
+  document.dispatchEvent(
+    new CustomEvent('tab:' + which, { detail: { focusPanel: Boolean(focusPanel) } })
+  );
 }
 
 function focusTab(index) {
   const id = TABS[(index + TABS.length) % TABS.length];
-  showTab(id === 'tab-voice' ? 'voice' : 'chat', false);
+  showTab(NAMES[id], false);
   // After showTab, so the panel it reveals cannot take the focus back.
   el(id).focus();
 }
 
+const embedQuery = new URLSearchParams(location.search);
+if (embedQuery.get('embed') === '1') document.body.classList.add('sa-embed');
+const initialPanel = embedQuery.get('panel');
+if (initialPanel === 'guided' || initialPanel === 'voice' || initialPanel === 'chat') {
+  showTab(initialPanel, false);
+}
+
 TABS.forEach((id, index) => {
-  el(id).addEventListener('click', () => showTab(id === 'tab-voice' ? 'voice' : 'chat', true));
+  el(id).addEventListener('click', () => showTab(NAMES[id], true));
   el(id).addEventListener('keydown', (event) => {
     const moves = {
       ArrowRight: index + 1, ArrowLeft: index - 1,

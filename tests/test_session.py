@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import struct
+from typing import Any
 
-from src.voice.events import AudioOut, TurnComplete, TurnInterrupted
+from src.voice.events import AudioOut, Transcript, TurnComplete, TurnInterrupted
 from src.voice.session import Conversation
 from src.voice.usage import TurnUsage
 from src.voice.vad import EnergyVad
@@ -479,3 +480,220 @@ async def test_the_trace_records_what_the_prompt_cost():
     assert turn["prompt_audio"] == 4400
     assert turn["prompt_text"] == 1100
     assert turn["response_tokens"] == 150
+
+
+async def test_only_a_spoken_reply_to_the_caller_counts_as_their_turn():
+    """Grok runs after the caller's reply, not after the greeting or a tool.
+
+    A silent tool generation comes back with no audio. The caller turn stays
+    open until the spoken answer, so four replies are four summaries-worth
+    of turns and not eight.
+    """
+    seen: list[dict[str, Any]] = []
+
+    async def collect(payload: dict[str, Any]) -> None:
+        seen.append(payload)
+
+    usage = TurnUsage()
+    spoken = TurnUsage(response_audio=80)
+    model = StubModel(
+        [
+            TurnComplete(turn_id=1, usage=spoken, first_audio_ms=400.0),
+            Transcript(turn_id=2, text="Poco, "),
+            Transcript(turn_id=2, text="19999."),
+            TurnComplete(turn_id=3, usage=usage, first_audio_ms=None),
+            TurnComplete(turn_id=4, usage=spoken, first_audio_ms=500.0),
+        ]
+    )
+    conversation = Conversation(model, FakeSource([]), FakeSink(), on_update=collect)
+    await conversation._pump_model()
+
+    replies = [item for item in seen if item.get("type") == "turn"]
+    assert [item["caller_reply"] for item in replies] == [False, False, False]
+
+    conversation._reply_belongs_to_caller = True
+    model._events = [
+        TurnComplete(turn_id=5, usage=usage, first_audio_ms=None),
+        TurnComplete(turn_id=6, usage=spoken, first_audio_ms=450.0),
+    ]
+    # The stub already exhausted its script. Drive the two completions by a
+    # fresh model pump on the same conversation.
+    conversation._model = StubModel(model._events)
+    await conversation._pump_model()
+    replies = [item for item in seen if item.get("type") == "turn"]
+    assert [item["caller_reply"] for item in replies] == [
+        False,
+        False,
+        False,
+        False,
+        True,
+    ]
+    texts = [item["text"] for item in seen if item.get("type") == "transcript"]
+    assert texts == ["Poco, ", "19999."]
+
+
+# --- holding the line -----------------------------------------------------
+#
+# What "voice cut agi agi ketkuthu" turned out to be. Across six traced
+# calls, every one that answered within about two seconds had zero
+# barge-ins; both that made the caller wait past five seconds were cut off
+# mid-reply. The caller heard nothing, spoke again, and that read - quite
+# correctly - as an interruption, so the agent's own answer was flushed.
+# Seventeen chunks of it on the call of 2026-11-16.
+#
+# The barge-in was never wrong. The silence was.
+
+HOLDING = b"\x01\x02" * 100
+
+
+class AnswersWhenAsked:
+    """A model that generates only after the caller's turn has ended.
+
+    StubModel replays its script the moment it is iterated, which on a real
+    call is never: nothing is generated until the caller stops talking. The
+    ordering is the whole point here - the holding line exists because the
+    caller is already waiting - so it has to be a model that waits too.
+    """
+
+    def __init__(self, events: list) -> None:
+        self._events = list(events)
+        self._asked = asyncio.Event()
+        self.turn_id = 1
+        self.sent: list[bytes] = []
+        self.ends = 0
+
+    async def send_audio(self, pcm: bytes) -> None:
+        self.sent.append(pcm)
+
+    async def end_of_speech(self) -> None:
+        self.turn_id += 1
+        self.ends += 1
+        self._asked.set()
+
+    async def events(self):
+        await self._asked.wait()
+        for event in self._events:
+            yield event
+            await asyncio.sleep(0)
+
+
+def silent_turn(turn_id: int) -> TurnComplete:
+    """A generation that called a tool and said nothing."""
+    return TurnComplete(turn_id=turn_id, usage=TurnUsage(), first_audio_ms=None)
+
+
+def spoken_turn(turn_id: int) -> TurnComplete:
+    return TurnComplete(
+        turn_id=turn_id,
+        usage=TurnUsage(response_audio=120),
+        first_audio_ms=400.0,
+    )
+
+
+async def ask_and_wait(events: list, holding: bytes | None = HOLDING) -> FakeSink:
+    """A caller finishes a sentence; the model then does what it was given."""
+    sink = FakeSink()
+    source = FakeSource([SILENCE] * 5 + [SPEECH] * 12 + [SILENCE] * 40)
+    await Conversation(
+        AnswersWhenAsked(events), source, sink, vad=EnergyVad(), holding=holding
+    ).run()
+    return sink
+
+
+def heard(sink: FakeSink) -> list[bytes]:
+    """Everything that reached the caller, flushed or not."""
+    return sink.written + sink.discarded
+
+
+async def test_a_tool_round_trip_says_it_is_checking():
+    sink = await ask_and_wait([silent_turn(2), spoken_turn(2)])
+
+    assert HOLDING in heard(sink), (
+        "the caller asked something, the model went to a tool, and the line "
+        "went dead - which is what makes them talk over the answer"
+    )
+
+
+async def test_it_is_said_once_however_many_tools_are_called():
+    """Two searches back to back is one wait, not two announcements."""
+    sink = await ask_and_wait([silent_turn(2), silent_turn(2), spoken_turn(2)])
+
+    assert heard(sink).count(HOLDING) == 1
+
+
+async def test_a_reply_that_speaks_does_not_say_it_first():
+    """Nothing is owed when the answer arrives on the first generation."""
+    sink = await ask_and_wait([spoken_turn(2)])
+
+    assert HOLDING not in heard(sink)
+
+
+async def test_the_next_question_gets_its_own():
+    """The flag is per caller turn, not per call."""
+    sink = await ask_and_wait([silent_turn(2), spoken_turn(2)])
+    assert heard(sink).count(HOLDING) == 1
+
+
+async def test_the_greeting_does_not_trigger_it():
+    """The opening turn is owed to nobody - no one has asked anything yet."""
+    sink = FakeSink()
+    model = StubModel([silent_turn(0)], keep_open=False)
+    await Conversation(
+        model, FakeSource([]), sink, agent_opens=True, holding=HOLDING
+    ).run()
+
+    assert HOLDING not in heard(sink)
+
+
+async def test_without_a_recording_the_call_runs_exactly_as_before():
+    """A fresh clone has no holding.pcm. Silence, not a crash."""
+    sink = await ask_and_wait([silent_turn(2), spoken_turn(2)], holding=None)
+
+    assert heard(sink) == []
+
+
+async def test_a_mouth_that_reports_no_tokens_still_counts_as_having_spoken():
+    """The bug that made "oru nimisham" play eight times in one call.
+
+    The Grok mouth is billed per CHARACTER and reports no tokens at all, so
+    a usage-based test called every one of its turns silent: the holding
+    line fired on every turn, and the caller - who had just been answered -
+    was told the agent was still checking. On the cascade call of
+    2026-11-16 the agent answered twice and said it was checking eight
+    times.
+
+    What the question means is whether the caller heard anything.
+    """
+    sink = FakeSink()
+    source = FakeSource([SILENCE] * 5 + [SPEECH] * 12 + [SILENCE] * 40)
+    spoke_without_tokens = [
+        AudioOut(turn_id=2, pcm=b"\x01\x02" * 200),
+        TurnComplete(turn_id=2, usage=TurnUsage(), first_audio_ms=300.0),
+    ]
+    await Conversation(
+        AnswersWhenAsked(spoke_without_tokens),
+        source,
+        sink,
+        vad=EnergyVad(),
+        holding=HOLDING,
+    ).run()
+
+    assert HOLDING not in heard(sink), (
+        "it answered the caller and then told them it was still checking"
+    )
+
+
+async def test_a_turn_that_really_said_nothing_still_holds_the_line():
+    """The other half: a tool round trip emits no audio at all, and that
+    is the case the holding line exists for."""
+    sink = FakeSink()
+    source = FakeSource([SILENCE] * 5 + [SPEECH] * 12 + [SILENCE] * 40)
+    await Conversation(
+        AnswersWhenAsked([silent_turn(2), spoken_turn(2)]),
+        source,
+        sink,
+        vad=EnergyVad(),
+        holding=HOLDING,
+    ).run()
+
+    assert HOLDING in heard(sink)
