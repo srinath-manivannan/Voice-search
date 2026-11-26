@@ -193,7 +193,7 @@ function speakText(text) {
 }
 
 function readView(view) {
-  const prompt = view.say || view.question?.ask;
+  const prompt = (view.display && view.display.text) || view.say || view.question?.ask;
   // "சரிங்க." first when a typed or spoken turn was understood; the
   // overview sentence itself is on screen.
   if (view.overview?.audio) speak(view.overview.audio);
@@ -500,7 +500,7 @@ function draw(view, quietly) {
     const box = el('g-answer');
     box.hidden = false;
     box.classList.remove('unsure');
-    box.textContent = view.say;
+    box.textContent = (view.display && view.display.text) || view.say;
     // One line per shop holding stock, each with the way there. The estate
     // gives no phone number, so directions are the handover we can make.
     (view.branches || []).forEach((shop) => {
@@ -508,7 +508,9 @@ function draw(view, quietly) {
       row.appendChild(document.createTextNode('\u2022 ' + shop.name
         + (shop.state ? ' \u2014 ' + shop.state : '')
         + (shop.quantity ? ' (' + shop.quantity + ')' : '') + ' '));
-      const where = [shop.name, shop.area, shop.city].filter(Boolean).join(' ');
+      const where = shop.geo
+        ? shop.geo.lat + ',' + shop.geo.lng
+        : [shop.name, shop.address, shop.area, shop.city].filter(Boolean).join(' ');
       const link = node('a', 'g-way', SAYS.directions);
       link.href = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(where);
       link.target = '_blank';
@@ -538,7 +540,7 @@ function draw(view, quietly) {
     readView(view);
     const box = el('g-answer');
     box.hidden = false;
-    box.textContent = view.say;
+    box.textContent = (view.display && view.display.text) || view.say;
     box.classList.toggle('unsure', !view.known);
     if (view.left === 0) el('g-questions').hidden = true;
     document.querySelectorAll('.g-chip-btn').forEach((b) => { b.disabled = false; });
@@ -593,14 +595,14 @@ function draw(view, quietly) {
   if (view.step === 'ready') {
     // Nothing left to ask. Said, shown, and asked for in the same breath:
     // a "show me" button here would be one more tap with only one answer.
-    el('g-ask').textContent = view.say;
+    el('g-ask').textContent = (view.display && view.display.text) || view.say;
     waiting(view.say);
     guided.busy = false;
     return guidedStep('recommend', { session: view.session }, view.say, true);
   }
 
   if (view.step === 'nothing') {
-    el('g-ask').textContent = view.say;
+    el('g-ask').textContent = (view.display && view.display.text) || view.say;
     drawRelax(view);
     el('g-back').hidden = false;
     el('g-restart').hidden = false;
@@ -609,7 +611,7 @@ function draw(view, quietly) {
 
   if (view.step === 'result') {
     guided.result = view;
-    el('g-ask').textContent = view.say;
+    el('g-ask').textContent = (view.display && view.display.text) || view.say;
     view.picks.forEach((pick, index) => el('g-picks').appendChild(pickButton(view, pick, index)));
     (view.more || []).forEach((way) => {
       const button = node('button', 'g-choice any', way.label);
@@ -626,7 +628,7 @@ function draw(view, quietly) {
   }
 
   if (view.step === 'card') {
-    el('g-ask').textContent = view.say;
+    el('g-ask').textContent = (view.display && view.display.text) || view.say;
     drawCard(view.product);
     drawQuestions(view);
     el('g-restart').hidden = false;
@@ -798,7 +800,10 @@ function micFailure() {
   convo.on = false;
   stopListening();
   convoLabel();
-  showHeard({text: ''}, SAYS.micBlocked);
+  const label = el('g-mic-label');
+  if (label) label.textContent = 'Microphone off — type instead';
+  el('g-mic').setAttribute('aria-label', 'Microphone off — type instead');
+  showHeard({text: ''}, 'Microphone off — type instead');
 }
 
 async function listenSoon() {
@@ -808,7 +813,7 @@ async function listenSoon() {
   try {
     const language = convo.lang === 'en' ? 'en-IN' : 'ta-IN';
     // On-device first, when the device has the language pack; otherwise
-    // the browser's own recognition, which is free to Poorvika too. The
+    // the browser's own recognition, which is free. The
     // hosted worker is the last resort, for a browser with neither - a
     // machine without it installed must still hear (owner, 2026-11-24:
     // "ennala pesa mudiyatha").
@@ -1024,10 +1029,8 @@ window.addEventListener('pagehide', leaveGuided);
 
 el('g-back').addEventListener('click', () => guidedStep('back', { session: guided.session }));
 el('g-restart').addEventListener('click', () => guidedStart());
+const begin = el('g-begin');
+if (begin) begin.addEventListener('click', () => guidedStart());
 
-// The shell owns the tabs; this only reacts to its own becoming visible.
-document.addEventListener('tab:guided', () => { if (!guided.started) guidedStart(); });
-
-// The guided tab is the one the page opens on, so it starts with the page.
-// Starting costs nothing: it opens a session and puts the first question.
-if (!el('guided-panel').hidden) guidedStart();
+// Guided starts when the shopper taps Start. Opening the page, or the tab
+// becoming visible, does not open a session and does not play audio.

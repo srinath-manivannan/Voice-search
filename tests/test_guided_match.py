@@ -209,6 +209,7 @@ def test_unmatched_words_on_the_card_become_the_one_governed_question(monkeypatc
     model = OneAnswer()
     rig = Rig(monkeypatch, answerer=Answerer(model))
     view = rig.walk(*NARROW)
+    rig.verify(view["session"])
     rig.post("recommend", session=view["session"])
     rig.post("pick", session=view["session"], ref="1")
     rig.now[0] += 120

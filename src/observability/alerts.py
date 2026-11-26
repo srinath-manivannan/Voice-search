@@ -217,7 +217,7 @@ def rules_yaml() -> str:
         "# Do not edit: change the rule there and regenerate, so the",
         "# threshold that fires is the one that was reviewed.",
         "groups:",
-        "  - name: poorvika-voice",
+        "  - name: shopping-assistant",
         "    rules:",
     ]
     for rule in RULES:

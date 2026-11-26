@@ -110,6 +110,50 @@ def scan_widget(widget: Path = WIDGET) -> list[str]:
     return hits
 
 
+def scan_svg(root: Path) -> list[str]:
+    """Executable content inside an SVG. Text deny-list hits are caught by scan_text."""
+    if not root.exists():
+        return []
+    hits: list[str] = []
+    for path in root.rglob("*.svg"):
+        if any(part in {".git", ".venv"} for part in path.parts):
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace").lower()
+        if "<script" in text:
+            hits.append(f"{path.name}: script element")
+    return hits
+
+
+def scan_audio_metadata(root: Path) -> list[str]:
+    """A URL stuffed into a RIFF or ID3 header. Recorded prompts are skipped."""
+    if not root.exists():
+        return []
+    hits: list[str] = []
+    for pattern in ("*.wav", "*.mp3"):
+        for path in root.rglob(pattern):
+            if any(part in {".git", ".venv", "recordings"} for part in path.parts):
+                continue
+            try:
+                blob = path.read_bytes()[:4096]
+            except OSError:
+                continue
+            decoded = blob.decode("latin-1", errors="ignore")
+            if "http://" in decoded or "https://" in decoded:
+                hits.append(f"{path.name}: url in metadata")
+    return hits
+
+
+def optional_tools() -> list[str]:
+    """OCR and audio decode are used when the binary is installed, and named when it is not."""
+    import shutil
+
+    notes = []
+    for binary, purpose in (("tesseract", "image OCR"), ("ffmpeg", "audio decode")):
+        if shutil.which(binary) is None:
+            notes.append(f"skipped: {binary} is not installed ({purpose})")
+    return notes
+
+
 def collect(root: Path = ROOT, denylist: tuple[str, ...] | None = None) -> list[str]:
     tokens = denylist_from_env() if denylist is None else denylist
     files: list[Path] = []
@@ -117,12 +161,17 @@ def collect(root: Path = ROOT, denylist: tuple[str, ...] | None = None) -> list[
         target = root / name
         if target.exists():
             files.extend(_iter_text_files(target))
-    return scan_text(files, tokens) + scan_widget(
-        root / "src" / "web" / "static" / "widget"
+    return (
+        scan_text(files, tokens)
+        + scan_widget(root / "src" / "web" / "static" / "widget")
+        + scan_svg(root / "src")
+        + scan_audio_metadata(root / "src")
     )
 
 
 def main() -> int:
+    for note in optional_tools():
+        print(note)
     hits = collect()
     if not hits:
         print("neutrality scan: no hits")

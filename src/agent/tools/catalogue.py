@@ -317,7 +317,7 @@ class Catalogue:
                     self._key_header: self._token,
                     # Cloudflare in front of the production proxy refuses a
                     # library's default agent (error 1010); a named one passes.
-                    "User-Agent": "poorvika-voice/1.0",
+                    "User-Agent": "shopping-assistant/1.0",
                 },
                 json={"searches": searches},
             )

@@ -174,12 +174,12 @@ def test_a_bare_yes_on_the_brand_question_presses_nothing(monkeypatch):
 # ── the Voice Call tab is the guided voice now (owner, 2026-11-24) ──────────
 
 
-def test_the_live_voice_is_on_by_default_for_demos(monkeypatch):
-    """The owner keeps the Live Voice Call tab for demos (2026-11-24)."""
+def test_paid_live_voice_is_off_unless_a_deploy_turns_it_on(monkeypatch):
+    """Paid voice stays off. LIVE_VOICE=1 is the explicit opt-in."""
     monkeypatch.delenv("LIVE_VOICE", raising=False)
     rig = Rig(monkeypatch)
 
-    assert rig.client.get("/api/v1/config").json()["live_voice"] is True
+    assert rig.client.get("/api/v1/config").json()["live_voice"] is False
 
 
 def test_live_voice_off_refuses_the_paid_socket(monkeypatch):

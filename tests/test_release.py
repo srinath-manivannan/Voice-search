@@ -59,7 +59,7 @@ def test_deploy_prints_what_a_rollback_would_go_back_to():
 def test_the_tag_names_a_commit_and_there_is_no_latest():
     """An immutable tag per commit IS the rollback mechanism. A moving
     `:latest` would mean the old image is simply gone."""
-    assert "poorvika-voice:${ENV}-${SHORT}" in DEPLOY
+    assert "shopping-assistant:${ENV}-${SHORT}" in DEPLOY
     # Only the lines that run. The comment above the tag says ":latest" in
     # the course of explaining why there is not one.
     commands = [
@@ -74,7 +74,7 @@ def test_the_runbook_says_who_decides_and_what_rollback_does_not_fix():
     for section in ("Who decides", "What rolling back does not undo"):
         assert section in ROLLBACK, f"ROLLBACK.md has no '{section}' section"
     # The parts that survive a rollback, each named.
-    for survives in ("environment variables", "traces", "Poorvika's own services"):
+    for survives in ("environment variables", "traces", "the store's own services"):
         assert survives in ROLLBACK
 
 

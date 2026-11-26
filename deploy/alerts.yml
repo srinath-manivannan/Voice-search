@@ -2,7 +2,7 @@
 # Do not edit: change the rule there and regenerate, so the
 # threshold that fires is the one that was reviewed.
 groups:
-  - name: poorvika-voice
+  - name: shopping-assistant
     rules:
       - alert: CallersAreBeingCutOff
         expr: increase(voice_calls_stopped_by_budget_total[15m]) > 0

@@ -174,6 +174,10 @@ def read(reply: dict[str, Any]) -> tuple[str, tuple[Press, ...], str] | None:
 
 
 class Listener:
+    # A real ear spends money. Tests use a fake whose ``paid`` is false, so
+    # the button-pressing checks keep running without a verified account.
+    paid = True
+
     def __init__(self, ear: Calls) -> None:
         self._ear = ear
 

@@ -146,9 +146,8 @@ class Config:
     # why it is a flag and not a change. Needs GROQ_API_KEY; without one it
     # logs and stays on the Live path. See docs/CASCADE.md.
     cascade_enabled: bool
-    # The paid Live voice (Voice Call tab). ON by default: the owner keeps it
-    # for demos (2026-11-24, "நாளைக்கு டெமோ காட்டணும்"). LIVE_VOICE=0 turns it
-    # off, and the tab then opens the free Guided voice instead.
+    # The paid Live voice. Off unless LIVE_VOICE=1. The Voice Call tab then
+    # opens the free Guided voice. Widget mode forces this off as well.
     live_voice_enabled: bool
     grok_mouth_enabled: bool
     prefetch_wait_seconds: float
@@ -223,6 +222,10 @@ class Config:
     # Kill switch. False answers every new message with the unavailable line
     # and makes no model call.
     chat_paid_enabled: bool = True
+    # Release 3. Both stay off until a pilot turns them on. Route C, the
+    # recorded guided path, does not need either flag.
+    voice_route_b_enabled: bool = False
+    voice_route_a_enabled: bool = False
     # Retailer names and domains, from the deployment secret. Never committed.
     neutrality_denylist: tuple[str, ...] = ()
 
@@ -285,7 +288,9 @@ def load(env: str | None = None) -> Config:
     app_mode = os.environ.get("APP_MODE", "full").strip().lower() or "full"
     if app_mode not in ("full", "widget"):
         app_mode = "full"
-    live_voice = os.environ.get("LIVE_VOICE", "1").strip().lower() not in (
+    # Paid native voice is off unless a deploy turns it on. A widget process
+    # forces it off again below, even if the variable is set.
+    live_voice = os.environ.get("LIVE_VOICE", "0").strip().lower() not in (
         "0",
         "false",
         "no",
@@ -458,6 +463,8 @@ def load(env: str | None = None) -> Config:
         trust_proxy=_flag("TRUST_PROXY"),
         chat_paid_enabled=os.environ.get("CHAT_PAID_ENABLED", "1").strip().lower()
         not in ("0", "false", "no", "off"),
+        voice_route_b_enabled=_flag("VOICE_ROUTE_B"),
+        voice_route_a_enabled=_flag("VOICE_ROUTE_A"),
         neutrality_denylist=tuple(
             dict.fromkeys(
                 token.strip().casefold()

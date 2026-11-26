@@ -94,13 +94,13 @@ jobs:
         run: |
           docker build \
             --build-arg APP_RELEASE=${GITHUB_SHA::8} \
-            -t poorvika-voice:${{ github.sha }} .
+            -t shopping-assistant:${{ github.sha }} .
 
       - name: It starts, answers its health check, and knows what it is
         run: |
           docker run -d --name probe -p 8080:8080 \
             -e GEMINI_API_KEY=not-a-real-key \
-            poorvika-voice:${{ github.sha }}
+            shopping-assistant:${{ github.sha }}
           for _ in $(seq 1 30); do
             if curl -fs http://127.0.0.1:8080/healthz > health.json; then
               cat health.json

@@ -388,6 +388,9 @@ class Flow:
                 return False  # today's paid ceiling: rank by rule, free
             if not self._governor.allows(session, WORST_CASE_USD):
                 return False
+            directory = getattr(self, "directory", None)
+            if directory is not None and not directory.reserve_rank(session.id).ok:
+                return False
             session.rank_attempted = True
             session.reserved_usd = WORST_CASE_USD
             return True
@@ -401,10 +404,17 @@ class Flow:
         )
         if chosen.usd and self.ledger is not None:
             self.ledger.add(self._governor.inr(chosen.usd))
+        directory = getattr(self, "directory", None)
         if chosen.usd:
             session.reserved_usd = 0.0
             session.spent_usd += chosen.usd
             session.thinks += 1
+            if directory is not None:
+                directory.settle_rank(session.id)
+        elif session.reserved_usd:
+            session.reserved_usd = 0.0
+            if directory is not None:
+                directory.release_rank(session.id)
         # The ranking is worked out once; the customer is handed ONE, the
         # way a salesperson hands over one phone - "இது சரியா, வேற
         # பாக்கட்டுமா?" - and "show me another" walks forward from it.
@@ -495,7 +505,7 @@ class Flow:
 
         if kind == LIST:
             session.at = 0
-            session.shown = left[:LIST_SHOW]
+            session.shown = self._capped(left, LIST_SHOW)
             return self._result(
                 session, Recommendation(session.shown, "rules"), say_key="say_list"
             )
@@ -507,7 +517,8 @@ class Flow:
                     Recommendation(session.shown, "rules"),
                     say_key="say_no_more",
                 )
-            session.shown = left[: len(session.shown) + engine.SHOW]
+            # Four more at a time, and never more than ten distinct cards.
+            session.shown = self._capped(left, len(session.shown) + engine.SHOW)
             return self._result(
                 session, Recommendation(session.shown, "rules"), say_key="say_more"
             )
@@ -526,6 +537,24 @@ class Flow:
     @staticmethod
     def _not_rejected(session: Session) -> tuple[Pick, ...]:
         return tuple(p for p in session.ranked if p.ref not in session.rejected)
+
+    @staticmethod
+    def _capped(picks: tuple[Pick, ...], limit: int) -> tuple[Pick, ...]:
+        """At most ``limit`` cards, one per model and storage."""
+        seen: set[tuple[str, str]] = set()
+        chosen: list[Pick] = []
+        for pick in picks:
+            item = pick.item
+            attributes = getattr(item, "attributes", {}) or {}
+            storage = str(attributes.get("storage") or attributes.get("ram") or "")
+            key = (getattr(item, "name", "") or "", storage)
+            if key in seen:
+                continue
+            seen.add(key)
+            chosen.append(pick)
+            if len(chosen) >= limit:
+                break
+        return tuple(chosen)
 
     async def pick(self, session_id: str, ref: str) -> dict[str, Any]:
         session = self._sessions.get(session_id)
@@ -666,6 +695,16 @@ class Flow:
             return self._answered(
                 session, Answer(line("say_enough", lang), False, CAPPED)
             )
+        if not session.verified:
+            from src.observability.metrics import METRICS
+
+            METRICS.count(
+                "guided_guest_blocked_total",
+                "Paid guided calls refused for a guest",
+            )
+            return self._answered(
+                session, Answer(line("say_unsure", lang), False, "guest")
+            )
         given = await self._answerer.answer(
             session.picked,
             await session.facts,
@@ -801,6 +840,12 @@ class Flow:
             view["overview"] = {
                 "text": engine.overview(
                     BY_SHELF[session.shelf], session.answers, lang, session.pending
+                ),
+                "display": engine.overview(
+                    BY_SHELF[session.shelf], session.answers, "en", session.pending
+                ),
+                "speech": engine.overview(
+                    BY_SHELF[session.shelf], session.answers, "ta", session.pending
                 ),
                 "audio": self._recordings.for_line(line("say_ack", lang)),
             }
@@ -1029,6 +1074,14 @@ class Flow:
         session = self._sessions.get(session_id)
         lang = self._lang(session)
         if self._listener is None:
+            return self._unheard(session, "say_tap", "")
+        if getattr(self._listener, "paid", True) and not session.verified:
+            from src.observability.metrics import METRICS
+
+            METRICS.count(
+                "guided_guest_blocked_total",
+                "Paid guided calls refused for a guest",
+            )
             return self._unheard(session, "say_tap", "")
         if not LEAST_BYTES <= len(pcm) <= MOST_BYTES:
             return self._unheard(session, "say_again", "")

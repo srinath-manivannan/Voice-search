@@ -569,6 +569,9 @@ def asking_rig(monkeypatch) -> tuple[Rig, dict]:
     answers = OneAnswer()
     rig = Rig(monkeypatch, answerer=Answerer(answers))
     view = rig.walk(*NARROW)
+    # A paid question is for a verified shopper. A guest is answered without
+    # a model call.
+    rig.verify(view["session"])
     rig.post("recommend", session=view["session"])
     card = rig.post("pick", session=view["session"], ref="1")
     rig.model = answers  # type: ignore[attr-defined]

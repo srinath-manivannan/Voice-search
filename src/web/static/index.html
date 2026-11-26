@@ -507,6 +507,7 @@
        page is declared English and a screen reader would otherwise
        pronounce Tamil script with English rules. -->
   <div class="stage" id="guided-panel" role="tabpanel" aria-labelledby="tab-guided" tabindex="0" lang="ta">
+    <button type="button" id="g-begin" style="min-height:44px;min-width:44px">Start</button>
     <div class="g-trail" id="g-trail"></div>
     <p class="g-overview" id="g-overview" hidden aria-live="polite"></p>
     <h1 id="g-ask" aria-live="polite">&nbsp;</h1>
@@ -525,7 +526,7 @@
       <label class="sr-only" for="g-text" id="g-text-label">டைப் பண்ணுங்க</label>
       <input id="g-text" placeholder="டைப் பண்ணுங்க… உதா: Samsung போன், ₹25,000 வரை" enterkeyhint="send" maxlength="300">
       <button class="g-send" id="g-send" type="submit">அனுப்பு</button>
-      <button class="g-mic" id="g-mic" type="button" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span id="g-mic-label">பேசுங்க</span></button>
+      <button class="g-mic" id="g-mic" type="button" aria-pressed="false" aria-label="Speak your answer" style="min-width:44px;min-height:44px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span id="g-mic-label">Speak</span></button>
     </form>
     <div class="g-foot">
       <button class="g-link" id="g-back" hidden>&larr; பின்னாடி</button>

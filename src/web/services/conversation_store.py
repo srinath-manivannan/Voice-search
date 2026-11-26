@@ -396,6 +396,9 @@ async def _read_resp(reader: asyncio.StreamReader) -> Any:
     raise RuntimeError(f"unexpected redis reply {kind!r}")
 
 
+# One EVAL, so two workers cannot both pass a cap. The hold records the three
+# scope keys and the time it was taken, which is what settle, release and the
+# reaper need. A repeated rid returns the first result and moves no counters.
 _RESERVE_LUA = """
 local existing = redis.call('GET', KEYS[4])
 if existing then return existing end
@@ -411,40 +414,69 @@ if not room(KEYS[3], ARGV[4]) then return '0|client' end
 redis.call('INCRBY', 'rsv:'..KEYS[1], amount)
 redis.call('INCRBY', 'rsv:'..KEYS[2], amount)
 redis.call('INCRBY', 'rsv:'..KEYS[3], amount)
-local saved = '1|ok|'..ARGV[1]
+local saved = '1|ok|'..ARGV[1]..'|'..KEYS[1]..'|'..KEYS[2]..'|'..KEYS[3]..'|'..ARGV[5]
 redis.call('SET', KEYS[4], saved)
-return saved
+redis.call('SADD', 'holdids', KEYS[4])
+return '1|ok'
 """
 
 _SETTLE_LUA = """
 local saved = redis.call('GET', KEYS[1])
 if not saved then return '0|missing' end
-local ok, reason, amount = string.match(saved, '([^|]*)|([^|]*)|([^|]*)')
-if ok ~= '1' or reason == 'settled' or reason == 'released' then return saved end
+local ok, state, amount, k1, k2, k3 = string.match(
+  saved, '^([^|]*)|([^|]*)|([^|]*)|([^|]*)|([^|]*)|([^|]*)')
+if ok ~= '1' or state ~= 'ok' then return saved end
 local actual = tonumber(ARGV[1])
 local reserved = tonumber(amount)
-for i = 2, 4 do
-  local key = KEYS[i]
+for _, key in ipairs({k1, k2, k3}) do
   redis.call('DECRBY', 'rsv:'..key, reserved)
   redis.call('INCRBY', 'spent:'..key, actual)
 end
-local flag = actual > reserved and 'over' or 'ok'
-local nxt = '1|settled|'..ARGV[1]..'|'..flag
-redis.call('SET', KEYS[1], nxt)
-return nxt
+local flag = 'ok'
+if actual > reserved then flag = 'over' end
+redis.call('SET', KEYS[1], '1|settled|'..ARGV[1]..'|'..k1..'|'..k2..'|'..k3..'|'..flag)
+redis.call('SREM', 'holdids', KEYS[1])
+return '1|'..flag
 """
 
 _RELEASE_LUA = """
 local saved = redis.call('GET', KEYS[1])
 if not saved then return '0|missing' end
-local ok, reason, amount = string.match(saved, '([^|]*)|([^|]*)|([^|]*)')
-if ok ~= '1' or reason == 'settled' or reason == 'released' then return saved end
+local ok, state, amount, k1, k2, k3 = string.match(
+  saved, '^([^|]*)|([^|]*)|([^|]*)|([^|]*)|([^|]*)|([^|]*)')
+if ok ~= '1' or state ~= 'ok' then return saved end
 local reserved = tonumber(amount)
-for i = 2, 4 do
-  redis.call('DECRBY', 'rsv:'..KEYS[i], reserved)
+for _, key in ipairs({k1, k2, k3}) do
+  redis.call('DECRBY', 'rsv:'..key, reserved)
 end
-redis.call('SET', KEYS[1], '1|released|'..amount)
+redis.call('SET', KEYS[1], '1|released|'..amount..'|'..k1..'|'..k2..'|'..k3)
+redis.call('SREM', 'holdids', KEYS[1])
 return '1|released'
+"""
+
+_REAP_LUA = """
+local now = tonumber(ARGV[1])
+local stale = tonumber(ARGV[2])
+local n = 0
+for _, id in ipairs(redis.call('SMEMBERS', 'holdids')) do
+  local saved = redis.call('GET', id)
+  if not saved then
+    redis.call('SREM', 'holdids', id)
+  else
+    local ok, state, amount, k1, k2, k3, ts = string.match(
+      saved, '^([^|]*)|([^|]*)|([^|]*)|([^|]*)|([^|]*)|([^|]*)|([^|]*)')
+    if ok == '1' and state == 'ok' and ts and (now - tonumber(ts)) > stale then
+      local reserved = tonumber(amount)
+      for _, key in ipairs({k1, k2, k3}) do
+        redis.call('DECRBY', 'rsv:'..key, reserved)
+      end
+      redis.call('SET', id, '1|released|'..amount..'|'..k1..'|'..k2..'|'..k3)
+      redis.call('SREM', 'holdids', id)
+      n = n + 1
+    end
+  end
+end
+return n
 """
 
 
@@ -503,59 +535,45 @@ class RedisStore(MemoryStore):
             str(self._caps.conversation_paise),
             str(self._caps.day_paise),
             str(self._caps.client_paise),
+            str(int(time.time())),
         )
         if not isinstance(raw, str):
             return ReserveResult(False, "store_unavailable")
-        ok, _, reason = (raw + "||").split("|", 2)
-        if ok == "1":
-            await self._safe("SET", f"holdkeys:{rid}", "|".join(keys[:3]))
+        if raw == "1|ok" or raw.startswith("1|ok|"):
             return ReserveResult(True, "ok")
+        _ok, _, reason = (raw + "||").split("|", 2)
         return ReserveResult(False, reason or "conversation")
 
     async def settle(self, rid: str, actual: int) -> ReserveResult:
-        hold = await self._safe("GET", f"hold:{rid}")
-        if not isinstance(hold, str):
-            return ReserveResult(False, "store_unavailable")
-        parts = hold.split("|")
-        if len(parts) < 3 or parts[0] != "1":
-            return ReserveResult(False, "missing")
-        # The scope keys were stored beside the hold by the caller via the
-        # rid's conversation. They are recovered from the hold record written
-        # as `1|ok|amount` plus the three keys appended below on first reserve.
-        return await self._settle_loaded(rid, actual, hold)
-
-    async def _settle_loaded(self, rid: str, actual: int, hold: str) -> ReserveResult:
-        # Holds written by EVAL are `1|ok|amount`. The three scope keys travel
-        # in a sidecar so settle does not have to guess them.
-        sidecar = await self._safe("GET", f"holdkeys:{rid}")
-        if not isinstance(sidecar, str):
-            return ReserveResult(False, "store_unavailable")
-        keys = sidecar.split("|")
-        if len(keys) != 3:
-            return ReserveResult(False, "missing")
         raw = await self._safe(
-            "EVAL",
-            _SETTLE_LUA,
-            "4",
-            f"hold:{rid}",
-            *keys,
-            str(max(0, actual)),
+            "EVAL", _SETTLE_LUA, "1", f"hold:{rid}", str(max(0, actual))
         )
         if not isinstance(raw, str):
             return ReserveResult(False, "store_unavailable")
-        overrun = raw.endswith("|over")
+        overrun = raw == "1|over"
         if overrun:
             self.overruns += 1
-        return ReserveResult(raw.startswith("1"), "ok", overrun)
+        return ReserveResult(
+            raw.startswith("1"), "ok" if raw.startswith("1") else raw, overrun
+        )
 
     async def release(self, rid: str) -> None:
-        sidecar = await self._safe("GET", f"holdkeys:{rid}")
-        if not isinstance(sidecar, str):
-            return
-        keys = sidecar.split("|")
-        if len(keys) != 3:
-            return
-        await self._safe("EVAL", _RELEASE_LUA, "4", f"hold:{rid}", *keys)
+        await self._safe("EVAL", _RELEASE_LUA, "1", f"hold:{rid}")
+
+    async def reap(
+        self, *, now: float | None = None, stale: float = HOLD_SECONDS
+    ) -> int:
+        moment = time.time() if now is None else now
+        raw = await self._safe(
+            "EVAL", _REAP_LUA, "0", str(int(moment)), str(int(stale))
+        )
+        return int(raw) if isinstance(raw, int) else 0
+
+    async def spent_key(self, key: str) -> int:
+        raw = await self._safe("GET", f"spent:{key}")
+        if isinstance(raw, str) and raw.lstrip("-").isdigit():
+            return int(raw)
+        return 0
 
     async def create(
         self,

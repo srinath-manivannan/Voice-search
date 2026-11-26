@@ -39,7 +39,7 @@ def test_a_ceiling_of_zero_lets_nothing_paid_start():
 
 
 def test_a_live_call_is_refused_with_its_reason_once_the_day_is_spent(monkeypatch):
-    monkeypatch.delenv("LIVE_VOICE", raising=False)
+    monkeypatch.setenv("LIVE_VOICE", "1")
     fresh = Rig(monkeypatch)
     fresh.client.app.state.ledger.add(10_000.0)
 

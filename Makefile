@@ -111,13 +111,13 @@ vendor-estate:           ## refresh vendor/estate from the Search-proxy checkout
 
 image:                   ## build the container and check it answers /healthz
 	docker build --build-arg APP_RELEASE=$$(git rev-parse --short HEAD) \
-	  -t poorvika-voice:local .
-	docker run -d --rm --name poorvika-voice-check -p 8081:8080 \
-	  -e GEMINI_API_KEY=not-a-real-key poorvika-voice:local
+	  -t shopping-assistant:local .
+	docker run -d --rm --name shopping-assistant-check -p 8081:8080 \
+	  -e GEMINI_API_KEY=not-a-real-key shopping-assistant:local
 	@for i in $$(seq 1 30); do \
 	  curl -fs http://127.0.0.1:8081/healthz && break || sleep 1; \
 	done; echo
-	docker rm -f poorvika-voice-check
+	docker rm -f shopping-assistant-check
 
 greeting:                ## record the opening line once - costs a few paise
 	# Run after changing GREETING in persona.py, the Live model, or the
