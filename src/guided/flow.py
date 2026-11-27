@@ -1679,7 +1679,7 @@ class Flow:
     def _prefetch(self, codes: tuple[str, ...]) -> None:
         """Ask the estate about these now, without waiting and without fuss.
 
-        Poorvika's own services, so nothing is billed; the estate keeps each
+        the retailer's own services, so nothing is billed; the estate keeps each
         answer for a while, which is what makes the later tap instant. Each
         code is asked at most once in PREFETCH_SECONDS, so walking back and
         forth through the list does not ask again.

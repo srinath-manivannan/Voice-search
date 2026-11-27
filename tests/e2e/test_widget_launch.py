@@ -26,7 +26,9 @@ STATIC = {
 
 
 def _frame(page):  # noqa: ANN001
-    page.locator("iframe[title='Shopping Assistant chat']").wait_for(state="attached")
+    page.frame_locator("iframe[title='Shopping Assistant chat']").locator(
+        "html[data-ready='1']"
+    ).wait_for(state="attached")
     for frame in page.frames:
         if "/widget/v1" in (frame.url or ""):
             return frame
@@ -37,8 +39,6 @@ def _open(page):  # noqa: ANN001
     button = page.get_by_role("button", name="Open Shopping Assistant chat")
     button.click()
     frame = _frame(page)
-    frame.locator("#sa-welcome").wait_for(state="visible")
-    frame.locator("html[data-ready='1']").wait_for(state="attached")
     return button, frame
 
 
@@ -87,10 +87,13 @@ def test_dormant_panel_creates_no_socket_audio_or_permission(
     page.set_viewport_size({"width": 1280, "height": 800})
     page.goto(stack.storefront)
     button = page.get_by_role("button", name="Open Shopping Assistant chat")
-    for _ in range(3):
+    for attempt in range(3):
         button.click()
         frame = _frame(page)
-        frame.locator("#sa-welcome").wait_for(state="visible")
+        # The greeting is for the first visit only; later opens go straight
+        # to the conversation.
+        state = "visible" if attempt == 0 else "hidden"
+        frame.locator("#sa-welcome").wait_for(state=state)
         button.click()
         expect(button).to_have_attribute("aria-expanded", "false")
     gum = _probe(page, "gum")
@@ -99,7 +102,7 @@ def test_dormant_panel_creates_no_socket_audio_or_permission(
     page.reload()
     button = page.get_by_role("button", name="Open Shopping Assistant chat")
     button.click()
-    _frame(page).locator("#sa-welcome").wait_for(state="visible")
+    _frame(page).locator("#sa-welcome").wait_for(state="hidden")
     button.click()
     assert watched.sockets == [], browser_name
     assert _widget_urls(watched.requests, stack.widget) == [], browser_name
@@ -183,8 +186,8 @@ def test_mobile_sheet_traps_focus_and_meets_touch_size(watched, stack: Stack) ->
     assert launcher["width"] >= 44 and launcher["height"] >= 44
     frame.locator(".sa-send").focus()
     page.keyboard.press("Tab")
-    assert frame.locator("#sa-min").evaluate("el => document.activeElement === el")
-    frame.locator("#sa-min").focus()
+    assert frame.locator("#sa-menu").evaluate("el => document.activeElement === el")
+    frame.locator("#sa-menu").focus()
     page.keyboard.press("Shift+Tab")
     assert frame.locator(".sa-send").evaluate("el => document.activeElement === el")
     page.keyboard.press("Escape")
@@ -241,7 +244,7 @@ def test_bad_messages_and_foreign_origins_are_ignored(watched, stack: Stack) -> 
         nonce,
     )
     expect(frame.locator("#sa-welcome")).to_be_visible()
-    expect(frame.locator("#sa-context")).to_contain_text("this page")
+    expect(frame.locator("#sa-context")).to_have_count(0)
     page.evaluate(
         """(nonce) => {
           const frame = document.querySelector('#sa-launcher-root').shadowRoot.querySelector('iframe');
@@ -334,11 +337,93 @@ def test_availability_follows_the_variant_and_back_returns_to_the_product(
     expect(frame.locator(".sa-msg.assistant").last).to_contain_text(
         "8 GB + 128 GB, Black is in stock", timeout=10000
     )
-    frame.get_by_role("button", name="Back to product page").click()
+    frame.get_by_role("button", name="Close chat").click()
     expect(page.locator("iframe[title='Shopping Assistant chat']")).to_be_hidden()
     assert _focused_label(page) == "Open Shopping Assistant chat"
-    nav = page.evaluate("() => window.__saNav")
-    assert nav["product_id"] == "SKU-DEMO-A1"
-    assert nav["variant_id"] == "VAR-128-BLK"
     assert button.get_attribute("aria-expanded") == "false"
+    assert watched.errors == []
+
+
+@pytest.mark.parametrize("error_code", ["upstream", "store_unavailable"])
+def test_retry_after_transient_error_reuses_message_id_and_draws_one_bubble(
+    watched, stack: Stack, error_code: str
+) -> None:
+    page = watched.page
+    page.set_viewport_size({"width": 1280, "height": 800})
+    page.goto(stack.storefront)
+    _button, frame = _open(page)
+    # Force an error frame on the first send, then let the retry through.
+    frame.evaluate(
+        """({ errorCode }) => {
+          const Orig = window.WebSocket;
+          let failNextSend = true;
+          function InterceptWS(url, protocols) {
+            const ws = protocols === undefined ? new Orig(url) : new Orig(url, protocols);
+            const origSend = ws.send.bind(ws);
+            ws.send = function (raw) {
+              const body = JSON.parse(raw);
+              if (failNextSend && body.type === 'user_message') {
+                failNextSend = false;
+                window.__saSentIds = (window.__saSentIds || []).concat(body.message_id);
+                setTimeout(() => {
+                  ws.dispatchEvent(new MessageEvent('message', {
+                    data: JSON.stringify({
+                      type: 'error',
+                      code: errorCode,
+                      message_id: body.message_id,
+                      message: "Sorry, something went wrong on our side. You weren't charged. [Try again]",
+                      retryable: true
+                    })
+                  }));
+                }, 20);
+                return;
+              }
+              if (body.type === 'user_message') {
+                window.__saSentIds = (window.__saSentIds || []).concat(body.message_id);
+              }
+              return origSend(raw);
+            };
+            return ws;
+          }
+          InterceptWS.prototype = Orig.prototype;
+          InterceptWS.CONNECTING = Orig.CONNECTING;
+          InterceptWS.OPEN = Orig.OPEN;
+          InterceptWS.CLOSING = Orig.CLOSING;
+          InterceptWS.CLOSED = Orig.CLOSED;
+          window.WebSocket = InterceptWS;
+        }""",
+        {"errorCode": error_code},
+    )
+    frame.locator("#sa-input").fill("What is your return policy?")
+    frame.locator(".sa-send").click()
+    retry_btn = frame.get_by_role("button", name="Retry sending your message")
+    expect(retry_btn).to_be_visible(timeout=5000)
+    assert frame.locator(".sa-msg.user").count() == 1
+    retry_btn.click()
+    reply = frame.locator(".sa-msg.assistant", has_text="return window")
+    expect(reply).to_have_count(1, timeout=15000)
+    assert frame.locator(".sa-msg.user").count() == 1
+    ids = frame.evaluate("() => window.__saSentIds || []")
+    assert len(ids) == 2 and ids[0] == ids[1]
+    assert watched.errors == []
+
+
+def test_refresh_after_reply_does_not_duplicate_history_on_next_send(
+    watched, stack: Stack
+) -> None:
+    page = watched.page
+    page.set_viewport_size({"width": 1280, "height": 800})
+    page.goto(stack.storefront)
+    _button, frame = _open(page)
+    frame.locator("#sa-input").fill("hello")
+    frame.locator(".sa-send").click()
+    expect(frame.locator(".sa-msg.assistant")).to_have_count(1, timeout=10000)
+    page.reload()
+    _button, frame = _open(page)
+    expect(frame.locator(".sa-msg.user")).to_have_count(1, timeout=10000)
+    expect(frame.locator(".sa-msg.assistant")).to_have_count(1, timeout=10000)
+    frame.locator("#sa-input").fill("What is your return policy?")
+    frame.locator(".sa-send").click()
+    expect(frame.locator(".sa-msg.assistant")).to_have_count(2, timeout=15000)
+    expect(frame.locator(".sa-msg.user")).to_have_count(2)
     assert watched.errors == []

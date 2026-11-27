@@ -91,7 +91,7 @@ def test_the_rate_ceiling_is_the_whole_bill_not_just_the_voice():
 def test_being_over_the_commercial_target_does_not_hang_up_on_a_customer():
     """The thing this guards against is a runaway, not an expensive call.
 
-    Poorvika's target is Rs 2.50 a connected minute and we are over it: a
+    The retailer's target is Rs 2.50 a connected minute and we are over it: a
     working window costs around Rs 4. Enforcing the target here would cut
     every real caller off sixty seconds in, mid-sentence, which loses the
     sale and does not refund the rupee. The target is shown on screen, where

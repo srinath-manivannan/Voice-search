@@ -106,10 +106,10 @@ class TestWhatItSends:
         accepted and silently ignored.
         """
         post, sent = responder(200, {"text": "sari"})
-        ear = GrokEar("k", keyterms=("Poorvika", "Redmi"), post=post)
+        ear = GrokEar("k", keyterms=("Acme", "Redmi"), post=post)
         await ear.hear(silence(1.0), rate=RATE)
 
-        assert sent[0]["data"]["keyterm"] == ["Poorvika", "Redmi"]
+        assert sent[0]["data"]["keyterm"] == ["Acme", "Redmi"]
 
     async def test_key_terms_are_capped_where_the_api_caps_them(self):
         post, sent = responder(200, {"text": "sari"})

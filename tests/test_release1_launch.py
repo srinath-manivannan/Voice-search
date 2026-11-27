@@ -181,6 +181,7 @@ def test_the_canary_script_passes_against_a_widget_process(monkeypatch):
     monkeypatch.setenv("WIDGET_HOST_ORIGINS", HOST)
     monkeypatch.setenv("WIDGET_PUBLIC_ORIGIN", f"http://127.0.0.1:{port}")
     monkeypatch.setenv("CONVERSATION_TOKEN_SECRET", "test-conversation-secret")
+    monkeypatch.setenv("CATALOGUE_URL", "https://catalogue.example/search")
     monkeypatch.setenv("CATALOGUE_TOKEN", "present")
     monkeypatch.setenv("ESTATE_BACKEND", "worker")
     app = create_app(load("development"))

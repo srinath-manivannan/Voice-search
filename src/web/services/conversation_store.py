@@ -104,9 +104,27 @@ class ReserveResult:
 
 @dataclass
 class Claim:
+    """What a ``message_id`` means when it arrives.
+
+    ``accepted`` starts work. ``attempt`` counts how many times this id has
+    been accepted: a retry after a failure, or after the worker that held it
+    stopped answering, is attempt 1, 2, ... Reservation ids carry it, so a
+    retry reserves afresh instead of finding the released hold of the
+    failed attempt and spending nothing against the cap.
+    """
+
     status: str
     text_hash: str = ""
     final_events: list[dict[str, Any]] = field(default_factory=list)
+    attempt: int = 0
+
+
+# A message still "accepted" this long after it started has lost its worker.
+# Matches the hold reaper, so the money and the message give up together.
+STALE_CLAIM_SECONDS = HOLD_SECONDS
+# How often a Redis worker sweeps abandoned holds. The sweep runs inside
+# reserve, so an idle process does no work at all.
+REAP_EVERY_SECONDS = 30.0
 
 
 @dataclass
@@ -210,6 +228,7 @@ class MemoryStore:
 
     async def claim_message(self, conv_id: str, message_id: str, text: str) -> Claim:
         digest = hashlib.sha256(text.encode()).hexdigest()
+        now = time.time()
         async with self._lock:
             key = (conv_id, message_id)
             existing = self._messages.get(key)
@@ -218,20 +237,33 @@ class MemoryStore:
                     "status": "accepted",
                     "hash": digest,
                     "charge": 0,
+                    "attempt": 0,
+                    "started": now,
                 }
                 return Claim("accepted", digest)
             if existing["hash"] != digest:
                 return Claim("reused", existing["hash"])
             status = existing["status"]
-            events = [
-                event
-                for event in self._events.get(conv_id, [])
-                if event.get("message_id") == message_id
-                and event.get("type") in {"final", "done"}
-            ]
             if status == "done":
-                return Claim("done", digest, events)
-            return Claim("in_progress", digest, events)
+                events = [
+                    event
+                    for event in self._events.get(conv_id, [])
+                    if event.get("message_id") == message_id
+                    and event.get("type") in {"final", "done"}
+                ]
+                return Claim("done", digest, events, int(existing.get("attempt", 0)))
+            stale = (
+                status == "accepted"
+                and now - float(existing.get("started", now)) > STALE_CLAIM_SECONDS
+            )
+            if status == "failed" or stale:
+                # The shopper pressed Retry, or the attempt lost its worker.
+                # Same id, same text: start again as the next attempt.
+                existing["status"] = "accepted"
+                existing["attempt"] = int(existing.get("attempt", 0)) + 1
+                existing["started"] = now
+                return Claim("accepted", digest, [], existing["attempt"])
+            return Claim("in_progress", digest, [], int(existing.get("attempt", 0)))
 
     async def finish_message(
         self, conv_id: str, message_id: str, charge_paise: int
@@ -251,7 +283,7 @@ class MemoryStore:
     async def append_event(self, conv_id: str, body: dict[str, Any]) -> int:
         async with self._lock:
             events = self._events.setdefault(conv_id, [])
-            seq = len(events) + 1
+            seq = events[-1]["seq"] + 1 if events else 1
             stored = dict(body)
             stored["seq"] = seq
             events.append(stored)
@@ -266,6 +298,12 @@ class MemoryStore:
                 for event in self._events.get(conv_id, [])
                 if int(event["seq"]) > seq
             ]
+
+    async def last_seq(self, conv_id: str) -> int:
+        """The newest event number, so a redrawn history can skip its replay."""
+        async with self._lock:
+            events = self._events.get(conv_id) or []
+            return int(events[-1]["seq"]) if events else 0
 
     async def reserve(
         self, conv: Conversation, client_key: str, rid: str, amount: int
@@ -349,6 +387,9 @@ class MemoryStore:
             self.secret, conv.id, conv.host_origin, int(conv.absolute_exp)
         )
 
+    async def subscribe_live(self, conv_id: str, fanout: Any) -> None:
+        return None
+
     def _reap_locked(self) -> None:
         now = time.time()
         for hold in list(self._holds.values()):
@@ -420,6 +461,18 @@ redis.call('SADD', 'holdids', KEYS[4])
 return '1|ok'
 """
 
+# Allocate, log and publish in one operation so all workers see the same
+# order. Keep the original JSON payload intact, including empty arrays.
+_APPEND_EVENT_LUA = """
+local seq = redis.call('INCR', KEYS[1])
+local fields = string.sub(ARGV[2], 2, -2)
+local body = '{"seq":' .. seq .. (fields == '' and '' or ',' .. fields) .. '}'
+redis.call('RPUSH', KEYS[2], body)
+redis.call('LTRIM', KEYS[2], -200, -1)
+redis.call('PUBLISH', ARGV[1], body)
+return seq
+"""
+
 _SETTLE_LUA = """
 local saved = redis.call('GET', KEYS[1])
 if not saved then return '0|missing' end
@@ -479,6 +532,33 @@ end
 return n
 """
 
+# The message claim in one EVAL, for the same reason as reserve: two workers
+# receiving the same retry must not both start a generation. A failed
+# attempt, or one whose worker went quiet, is taken again as the next one.
+_CLAIM_LUA = """
+local raw = redis.call('GET', KEYS[1])
+local now = tonumber(ARGV[2])
+if not raw then
+  redis.call('SET', KEYS[1], cjson.encode({status='accepted', hash=ARGV[1],
+    charge=0, attempt=0, started=now}), 'EX', 86400)
+  return 'accepted|0'
+end
+local row = cjson.decode(raw)
+if row.hash ~= ARGV[1] then return 'reused|0' end
+local attempt = tonumber(row.attempt or 0)
+if row.status == 'done' then return 'done|'..attempt end
+local stale = row.status == 'accepted'
+  and (now - tonumber(row.started or 0)) > tonumber(ARGV[3])
+if row.status == 'failed' or stale then
+  row.status = 'accepted'
+  row.attempt = attempt + 1
+  row.started = now
+  redis.call('SET', KEYS[1], cjson.encode(row), 'EX', 86400)
+  return 'accepted|'..row.attempt
+end
+return 'in_progress|'..attempt
+"""
+
 
 class RedisStore(MemoryStore):
     """Same records as the memory store, with money moved in one Lua call.
@@ -496,6 +576,7 @@ class RedisStore(MemoryStore):
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
         self._io = asyncio.Lock()
+        self._last_reap = 0.0
 
     async def _call(self, *parts: str) -> Any:
         async with self._io:
@@ -520,6 +601,13 @@ class RedisStore(MemoryStore):
     async def reserve(
         self, conv: Conversation, client_key: str, rid: str, amount: int
     ) -> ReserveResult:
+        # A worker that died between reserve and settle leaves its hold in
+        # Redis. Any worker that is still reserving sweeps those, at most
+        # every REAP_EVERY_SECONDS, so no timer runs in an idle process.
+        moment = time.time()
+        if moment - self._last_reap >= REAP_EVERY_SECONDS:
+            self._last_reap = moment
+            await self.reap(now=moment)
         keys = (
             conv.scope_key,
             f"day:{ist_day()}",
@@ -535,7 +623,7 @@ class RedisStore(MemoryStore):
             str(self._caps.conversation_paise),
             str(self._caps.day_paise),
             str(self._caps.client_paise),
-            str(int(time.time())),
+            str(int(moment)),
         )
         if not isinstance(raw, str):
             return ReserveResult(False, "store_unavailable")
@@ -657,31 +745,33 @@ class RedisStore(MemoryStore):
     async def claim_message(self, conv_id: str, message_id: str, text: str) -> Claim:
         digest = hashlib.sha256(text.encode()).hexdigest()
         key = f"msg:{conv_id}:{message_id}"
-        created = await self._safe(
-            "SET",
+        raw = await self._safe(
+            "EVAL",
+            _CLAIM_LUA,
+            "1",
             key,
-            json.dumps({"status": "accepted", "hash": digest, "charge": 0}),
-            "NX",
-            "EX",
-            "86400",
+            digest,
+            str(int(time.time())),
+            str(int(STALE_CLAIM_SECONDS)),
         )
-        if created == "OK":
-            return Claim("accepted", digest)
-        raw = await self._safe("GET", key)
         if not isinstance(raw, str):
+            return Claim("unavailable")
+        status, _, attempt_text = raw.partition("|")
+        attempt = int(attempt_text) if attempt_text.isdigit() else 0
+        if status == "accepted":
+            return Claim("accepted", digest, [], attempt)
+        if status == "reused":
             return Claim("reused", "")
-        existing = json.loads(raw)
-        if existing.get("hash") != digest:
-            return Claim("reused", str(existing.get("hash") or ""))
-        events = await self.events_after(conv_id, 0)
-        own = [
-            event
-            for event in events
-            if event.get("message_id") == message_id
-            and event.get("type") in {"final", "done"}
-        ]
-        status = "done" if existing.get("status") == "done" else "in_progress"
-        return Claim(status, digest, own)
+        if status == "done":
+            events = await self.events_after(conv_id, 0)
+            own = [
+                event
+                for event in events
+                if event.get("message_id") == message_id
+                and event.get("type") in {"final", "done"}
+            ]
+            return Claim("done", digest, own, attempt)
+        return Claim("in_progress", digest, [], attempt)
 
     async def finish_message(
         self, conv_id: str, message_id: str, charge_paise: int
@@ -706,14 +796,50 @@ class RedisStore(MemoryStore):
             await self._safe("SET", key, json.dumps(existing), "EX", "86400")
 
     async def append_event(self, conv_id: str, body: dict[str, Any]) -> int:
-        seq = await self._safe("INCR", f"seq:{conv_id}")
-        if not isinstance(seq, int):
-            return 0
-        stored = dict(body)
-        stored["seq"] = seq
-        await self._safe("RPUSH", f"events:{conv_id}", json.dumps(stored))
-        await self._safe("LTRIM", f"events:{conv_id}", "-200", "-1")
-        return seq
+        seq = await self._safe(
+            "EVAL",
+            _APPEND_EVENT_LUA,
+            "2",
+            f"seq:{conv_id}",
+            f"events:{conv_id}",
+            f"conv:{conv_id}:live",
+            json.dumps(body),
+        )
+        return seq if isinstance(seq, int) else 0
+
+    async def subscribe_live(self, conv_id: str, fanout: Any) -> None:
+        """Forward events emitted by other workers on ``conv:{id}:live`` to local sockets."""
+        channel = f"conv:{conv_id}:live"
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(self._host, self._port), 0.3
+            )
+        except Exception:
+            return
+        try:
+            writer.write(_encode(("SUBSCRIBE", channel)))
+            await writer.drain()
+            while True:
+                frame = await _read_resp(reader)
+                if (
+                    isinstance(frame, list)
+                    and len(frame) == 3
+                    and frame[0] == "message"
+                    and isinstance(frame[2], str)
+                ):
+                    try:
+                        event = json.loads(frame[2])
+                    except json.JSONDecodeError:
+                        log.warning("Ignoring malformed Redis chat event")
+                        continue
+                    if isinstance(event, dict):
+                        await fanout.send(conv_id, event)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            return
+        finally:
+            writer.close()
 
     async def events_after(self, conv_id: str, seq: int) -> list[dict[str, Any]]:
         raw = await self._safe("LRANGE", f"events:{conv_id}", "0", "-1")
@@ -726,6 +852,12 @@ class RedisStore(MemoryStore):
                 if int(event.get("seq") or 0) > seq:
                     events.append(event)
         return events
+
+    async def last_seq(self, conv_id: str) -> int:
+        raw = await self._safe("GET", f"seq:{conv_id}")
+        if isinstance(raw, str) and raw.isdigit():
+            return int(raw)
+        return 0
 
     async def spent_paise(self, conv: Conversation) -> int:
         raw = await self._safe("GET", f"spent:{conv.scope_key}")

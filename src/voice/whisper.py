@@ -74,9 +74,13 @@ class Heard:
     # What Groq charges for, which is never less than MIN_BILLED_SECONDS.
     billed_seconds: float
     model: str
+    # Token-priced transcription reports its own charge, including on an empty result.
+    token_usd: float | None = None
 
     @property
     def usd(self) -> float:
+        if self.token_usd is not None:
+            return self.token_usd
         return self.billed_seconds / 3600 * USD_PER_AUDIO_HOUR
 
 

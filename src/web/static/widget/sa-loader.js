@@ -103,7 +103,7 @@
     if (narrow) {
       frame.style.cssText = "position:fixed;inset:0;width:100%;height:100dvh;z-index:2147483000;border:0;background:#fff;";
     } else {
-      frame.style.cssText = "position:fixed;right:20px;bottom:96px;width:380px;height:min(600px,80vh);z-index:2147483000;border:0;border-radius:16px;box-shadow:0 16px 48px rgba(20,34,38,.18);background:#fff;";
+      frame.style.cssText = "position:fixed;right:20px;bottom:88px;width:360px;height:min(560px,78vh);z-index:2147483000;border:0;border-radius:16px;box-shadow:0 16px 48px rgba(20,34,38,.18);background:#fff;";
     }
   }
 
@@ -120,6 +120,7 @@
     }
     frame.hidden = false;
     open = true;
+    if (nonce) post({ type: "sa.embed", v: 1, nonce: nonce, embed: embedMode(), open: true });
     button.setAttribute("aria-expanded", "true");
     place();
     try { localStorage.setItem("sa_ask_seen", "1"); } catch (err) { /* ignore */ }
@@ -128,6 +129,7 @@
 
   function closePanel() {
     open = false;
+    if (nonce) post({ type: "sa.embed", v: 1, nonce: nonce, embed: embedMode(), open: false });
     if (frame) frame.hidden = true;
     button.setAttribute("aria-expanded", "false");
     setInert(false);
@@ -180,7 +182,7 @@
       } catch (err) { /* partitioned */ }
     } else if (data.type === "sa.layout") {
       setInert(!!data.modal);
-      if (data.mode === "closed" && frame) frame.hidden = true;
+      if (data.mode === "closed" && open) closePanel();
       if (data.unread) {
         button.setAttribute("aria-label", "Open Shopping Assistant chat, " + data.unread + " new reply");
       }

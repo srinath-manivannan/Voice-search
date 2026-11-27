@@ -33,9 +33,10 @@ def install(app: FastAPI, settings: Config) -> None:
         html = (WIDGET / "index.html").read_text(encoding="utf-8")
         name = settings.brand_name or settings.assistant_name
         color = settings.brand_primary_color
-        surfaces = (
-            ["guided", "voice", "chat"] if settings.app_mode == "full" else ["chat"]
-        )
+        # The embed is the chat and nothing else. Release 1 has no voice and
+        # no Guided (docs/RELEASE1_RUNBOOK.md); the developer app at / keeps
+        # those tabs for demos, and this page never shows them.
+        surfaces = ["chat"]
         config = {
             "v": 1,
             "assistant_name": name,
@@ -96,13 +97,15 @@ def install(app: FastAPI, settings: Config) -> None:
             return {"messages": [], "context_label": "this page"}
         resumed = await request.app.state.conversations.resume(token, host)
         if resumed is None:
-            return {"messages": [], "context_label": "this page"}
+            return {"messages": [], "context_label": "this page", "last_seq": 0}
         conv, rotated = resumed
+        last_seq = await request.app.state.conversations.last_seq(conv.id)
         return {
             "messages": [
                 {
                     "role": item.get("role"),
                     "text": item.get("text", ""),
+                    "message_id": item.get("message_id", ""),
                     "cards": item.get("cards") or [],
                     "products": item.get("products")
                     or products_from_cards(list(item.get("cards") or [])),
@@ -112,5 +115,6 @@ def install(app: FastAPI, settings: Config) -> None:
                 if item.get("role") in {"user", "assistant"} and item.get("text")
             ],
             "token": rotated,
+            "last_seq": last_seq,
             "context_label": conv.context_label,
         }

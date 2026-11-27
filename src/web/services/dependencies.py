@@ -28,7 +28,7 @@ from src.guided.thinker import GeminiThinker
 
 def catalogue_for(settings: Config) -> Catalogue | None:
     """Product search, when a token for it exists."""
-    if not settings.catalogue_token:
+    if not settings.catalogue_configured:
         return None
     return Catalogue(
         settings.catalogue_url,
@@ -89,7 +89,7 @@ def declarations_for(settings: Config) -> dict[str, Any] | None:
     promises to look something up and then reports a failure, which is worse
     than one that says plainly it cannot check.
     """
-    return tool_config() if settings.catalogue_token else None
+    return tool_config() if settings.catalogue_configured else None
 
 
 def tool_outcome(result: dict[str, Any]) -> dict[str, Any]:

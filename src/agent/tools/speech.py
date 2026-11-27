@@ -98,7 +98,7 @@ def spoken(
                 "provider": emi.provider,
                 "plan": emi.kind,
                 "banks": emi.provider_count,
-                "quoted_by": "the bank, through Poorvika's own calculator",
+                "quoted_by": "the bank, through the retailer's own calculator",
             }
             if emi.state == estate_api.KNOWN
             else why(emi.state, emi.reason)

@@ -43,6 +43,7 @@ from src.voice.budget import BudgetExceeded, SessionBudget
 from src.voice.guard import worst_case_inr
 from src.voice.route_b import HashCachedMouth, RoutedBrain
 from src.agent.prefetch import Prefetcher
+from src.voice.gemini_stt import GeminiEar
 from src.voice.grok_tts import GrokMouth
 from src.voice.spoken_by_grok import SpokenByGrok
 from src.voice.opening import HOLDING_RECORDING, SpeaksTheOpening, load_recording
@@ -113,6 +114,18 @@ def remember(memory: CallMemory | None, payload: dict[str, Any]) -> None:
 # Gitignored. Traces hold decisions and timings, never audio or speech, but
 # they are still call records and belong on the machine that made them.
 TRACES = Path(__file__).resolve().parents[3] / "out" / "traces"
+
+
+class _Routed:
+    """A tool session whose calls go through one given runner."""
+
+    def __init__(
+        self, run: Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]]
+    ) -> None:
+        self._run = run
+
+    async def run(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
+        return await self._run(name, args)
 
 
 class VoiceCall:
@@ -319,7 +332,7 @@ class VoiceCall:
         already does.
         """
         settings = self._settings
-        if not settings.grok_memory_enabled:
+        if settings.voice_gemini_only or not settings.grok_memory_enabled:
             return None
         if not settings.xai_api_key:
             log.warning(
@@ -347,6 +360,12 @@ class VoiceCall:
         fallback for the other.
         """
         settings = self._settings
+        if settings.voice_gemini_only:
+            return GeminiEar(
+                settings.gemini_api_key,
+                settings.gemini_text_model,
+                settings.stt_language,
+            )
         if settings.xai_api_key:
             return GrokEar(
                 settings.xai_api_key,
@@ -395,17 +414,21 @@ class VoiceCall:
                 system_instruction=settings.system_instruction,
                 tools=dependencies.declarations_for(settings),
             ),
-            tools=tools,
+            # The same traced runner as the Live path. Handing the brain the
+            # bare ToolSession left its searches out of the trace, and let it
+            # search without waiting for the prefetch that was already running.
+            tools=_Routed(self._tool_runner(tools)),
         )
         mouth: Any = self._mouth()
         if settings.voice_route_b_enabled:
-            # Route C is the deterministic line. Open questions stay on the
-            # bounded flash-lite session. Identical lines replay from a hash.
-            brain = RoutedBrain(
-                brain,
-                route_b=True,
-                route_a=settings.voice_route_a_enabled,
-            )
+            # The Gemini conversation keeps each shopper turn in its history so a
+            # stock or EMI follow-up resolves against the preceding shortlist.
+            if not settings.voice_gemini_only:
+                brain = RoutedBrain(
+                    brain,
+                    route_b=True,
+                    route_a=settings.voice_route_a_enabled,
+                )
             mouth = HashCachedMouth(mouth)
         return CascadeSession(
             ear,
@@ -425,7 +448,7 @@ class VoiceCall:
         than refusing the call.
         """
         settings = self._settings
-        if not settings.grok_mouth_enabled:
+        if settings.voice_gemini_only or not settings.grok_mouth_enabled:
             return False
         if not settings.xai_api_key:
             log.warning("GROK_MOUTH is on but XAI_API_KEY is empty; using Gemini")
@@ -506,7 +529,7 @@ class VoiceCall:
         forgot the key loses a measurement, not a customer.
         """
         settings = self._settings
-        if not settings.whisper_compare_enabled:
+        if settings.voice_gemini_only or not settings.whisper_compare_enabled:
             return None
         if not settings.groq_api_key:
             log.warning(

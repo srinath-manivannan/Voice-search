@@ -141,6 +141,11 @@ class FakeTools:
             raise self._result
         return self._result
 
+    emi: dict[str, Any] | None = None
+
+    async def emi_ahead(self) -> dict[str, Any] | None:
+        return self.emi
+
 
 FOUND = {
     "total_matching": 4,
@@ -344,6 +349,36 @@ async def test_the_note_carries_the_specs_or_the_model_invents_a_reason():
     assert "5500mAh" in said[0]
 
 
+def test_the_note_carries_stock_as_the_search_said_it():
+    """On the cascade this note is all the brain sees of the search. Without
+    stock, "stock irukka?" got persona.py's own example back word for word:
+    "Ippo confirm panna mudiyathu" (2026-11-26)."""
+    from src.agent.prefetch import note
+
+    found = {
+        "products": [
+            {
+                "ref": "1",
+                "name": "Poco M8 5G",
+                "stock": {"state": "known", "available": True},
+            },
+            {
+                "ref": "2",
+                "name": "Realme P4",
+                "stock": {"state": "known", "available": False},
+            },
+            {"ref": "3", "name": "Galaxy A07", "in_stock_hint": True},
+            {"ref": "4", "name": "Moto G06", "stock": {"state": "unknown"}},
+        ]
+    }
+    said = note(found, Intent(category="phone", min_price=None, max_price=25000))
+    assert "1) Poco M8 5G (in stock)" in said
+    assert "2) Realme P4 (out of stock)" in said
+    assert "3) Galaxy A07 (listed in stock)" in said
+    # Could not ask and no hint: nothing is claimed either way.
+    assert "4) Moto G06\n" in said
+
+
 class TestTheBudgetSaidInWords:
     """A budget spoken as Tamil words, which is how a caller says it.
 
@@ -392,7 +427,7 @@ class TestTheBudgetSaidInWords:
 
 
 class TestTheWiderShelves:
-    """Poorvika is not a phone shop, and for a while this code thought it was.
+    """The retailer is not a phone shop, and for a while this code thought it was.
 
     The tool's category was an enum of five, so a customer asking for an AC
     or a washing machine got nothing the model could look for. These are the
@@ -717,3 +752,47 @@ async def test_prefetched_index_prices_keep_the_catalogue_qualification():
     pre.heard("25k kulla phone")
     assert await pre.settle(2)
     assert result["price_note"] in said[0]
+
+
+async def test_the_emi_for_the_top_phone_is_primed_after_the_shortlist():
+    """The brain answered EMI from memory on about half the calls (2026-11-26,
+    quoting ₹48 and ₹904 for a phone whose EMI was ₹652 a month). The figure
+    is now primed unasked, as its own line after the shortlist, so the brain
+    does not have to choose to look it up."""
+    tools = FakeTools(FOUND)
+    tools.emi = {
+        "ref": "1",
+        "name": "Poco M8 5G",
+        "per_month": 652,
+        "months": 48,
+        "provider": "HDFC Bank Debit Card",
+    }
+    said, prime = primer()
+    pre = Prefetcher(tools, prime)
+
+    pre.heard("20-25k kulla phone")
+    assert pre.task is not None
+    await pre.task
+    assert pre._emi is not None
+    await pre._emi
+
+    assert said[0].startswith("search_products has already run")
+    assert (
+        "EMI for ref 1, Poco M8 5G: HDFC Bank Debit Card, 48 months, from 652 rupees a month."
+        in said[1]
+    )
+    assert len(said) == 2
+
+
+async def test_no_emi_means_no_extra_line():
+    tools = FakeTools(FOUND)
+    said, prime = primer()
+    pre = Prefetcher(tools, prime)
+
+    pre.heard("20-25k kulla phone")
+    assert pre.task is not None
+    await pre.task
+    assert pre._emi is not None
+    await pre._emi
+
+    assert len(said) == 1

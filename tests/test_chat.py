@@ -156,7 +156,7 @@ def test_both_surfaces_share_one_persona_differing_only_in_delivery():
     for text in (voice, chat):
         assert "Never invent a price" in text
         # Tamil script by default, Tanglish when they write in Latin letters,
-        # English never - Poorvika's customers are Tamil speakers.
+        # English never - the retailer's customers are Tamil speakers.
         assert "NEVER REPLY IN ENGLISH" in text
         assert "Tanglish" in text
         # The word cap used to carry an exemption for the greeting, so that
@@ -269,3 +269,46 @@ def test_trimming_keeps_a_call_and_its_answer_together():
         "functionResponse"
     )
     assert session._history[0]["parts"][0].get("text") == "recent"
+
+
+async def test_a_cancelled_reply_leaves_no_half_turn_in_the_history():
+    """The voice cascade cancels a reply when the caller carries on talking
+    before it is spoken. Cancelled inside a tool call, the history kept a
+    functionCall with no response after it - and every later request was a
+    400, so the brain went silent for the rest of the call."""
+    import asyncio
+    from types import SimpleNamespace
+
+    started = asyncio.Event()
+
+    class AsksForASearch:
+        async def stream(self, history, temperature):  # noqa: ANN001
+            call = {"name": "search_products", "args": {"query": "Samsung"}}
+            yield (
+                "",
+                SimpleNamespace(
+                    usage=None, function_call=call, function_call_part=None
+                ),
+            )
+
+    class SlowTools:
+        async def run(self, name, args):  # noqa: ANN001
+            started.set()
+            await asyncio.sleep(10)
+            return {}
+
+    session = ChatSession(AsksForASearch(), tools=SlowTools())
+    session.remember("Earlier: they want a phone.")
+    before = list(session.history)
+
+    async def ask() -> None:
+        async for _ in session.send("Samsung phone venum"):
+            pass
+
+    task = asyncio.create_task(ask())
+    await asyncio.wait_for(started.wait(), 1)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert session.history == before

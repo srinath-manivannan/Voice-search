@@ -94,7 +94,7 @@ def test_the_emi_headline_is_the_one_the_shop_quotes():
 
     A No Cost plan over 6 months has the largest instalment and is the
     cheapest offer on the page, so "smallest wins" is wrong. The upstream
-    picks Standard, which is what poorvika.com prints.
+    picks Standard, which is what the storefront prints.
     """
     emi = estate_api.read(ANSWERED).emi
 

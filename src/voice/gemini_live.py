@@ -473,7 +473,7 @@ class GeminiLiveSession:
 
         Deliberately NOT `prime()`, which wraps what it is given in a USER
         turn. Priming the greeting that way would tell the model the customer
-        said "Vanakkam, naan Poorvika pesuren" - which is both wrong and the
+        said "Vanakkam, naan kadai saarbaaga pesuren" - which is both wrong and the
         sort of wrong that reads as plausible for several turns.
         """
         if not text.strip():

@@ -11,6 +11,7 @@ actual usage after, including the rounds that only exist to run a tool.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -57,23 +58,51 @@ class SocketFanout:
     The generation keeps running after the shopper's first socket drops.
     The socket they open to reconnect has to see the rest of the reply,
     or the screen stays on "Checking…" and a retry looks like a second answer.
+    When Redis is configured, each worker subscribes to ``conv:{id}:live``
+    while a socket is attached, and skips events whose ``seq`` it already sent.
     """
 
     def __init__(self) -> None:
         self._sockets: dict[str, list[WebSocket]] = {}
+        self._tasks: dict[str, asyncio.Task[None]] = {}
+        self._last_sent: dict[str, int] = {}
 
-    def add(self, conv_id: str, socket: WebSocket) -> None:
+    def add(
+        self,
+        conv_id: str,
+        socket: WebSocket,
+        store: MemoryStore | None = None,
+    ) -> None:
         current = self._sockets.setdefault(conv_id, [])
         if socket not in current:
             current.append(socket)
+        if store is not None and conv_id not in self._tasks:
+            self._tasks[conv_id] = asyncio.create_task(
+                store.subscribe_live(conv_id, self)
+            )
 
     def discard(self, conv_id: str, socket: WebSocket) -> None:
         current = self._sockets.get(conv_id)
         if not current:
             return
-        self._sockets[conv_id] = [item for item in current if item is not socket]
+        remaining = [item for item in current if item is not socket]
+        if remaining:
+            self._sockets[conv_id] = remaining
+            return
+        self._sockets.pop(conv_id, None)
+        self._last_sent.pop(conv_id, None)
+        task = self._tasks.pop(conv_id, None)
+        if task is not None:
+            task.cancel()
 
     async def send(self, conv_id: str, body: dict[str, Any]) -> None:
+        if conv_id not in self._sockets:
+            return
+        seq = body.get("seq")
+        if isinstance(seq, int) and seq > 0:
+            if seq <= self._last_sent.get(conv_id, 0):
+                return
+            self._last_sent[conv_id] = seq
         dead: list[WebSocket] = []
         for socket in list(self._sockets.get(conv_id, ())):
             try:
@@ -190,6 +219,7 @@ class _Meter:
         message_id: str,
         settings: Config,
         session_box: dict[str, ChatSession],
+        attempt: int = 0,
     ) -> None:
         self._store = store
         self._conv = conv
@@ -197,9 +227,13 @@ class _Meter:
         self._message_id = message_id
         self._settings = settings
         self._box = session_box
+        self._attempt = attempt
         self.generations = 0
+        self._held: list[str] = []
 
     def _rid(self, round_index: int) -> str:
+        if self._attempt:
+            return f"{self._message_id}:{self._attempt}:{round_index}"
         return f"{self._message_id}:{round_index}"
 
     async def before(self, round_index: int) -> bool:
@@ -215,14 +249,14 @@ class _Meter:
             self._settings.usd_inr,
             self._settings.gst_rate,
         )
-        result = await self._store.reserve(
-            self._conv, self._client_key, self._rid(round_index), amount
-        )
+        rid = self._rid(round_index)
+        result = await self._store.reserve(self._conv, self._client_key, rid, amount)
         if not result.ok:
             METRICS.count(
                 "cap_reached_total", "Paid chat refused because a cap was reached"
             )
             return False
+        self._held.append(rid)
         self.generations += 1
         return True
 
@@ -240,6 +274,10 @@ class _Meter:
 
     async def failed(self, round_index: int) -> None:
         await self._store.release(self._rid(round_index))
+
+    async def release_all(self) -> None:
+        for rid in list(self._held):
+            await self._store.release(rid)
 
 
 class WidgetRelay:
@@ -291,7 +329,7 @@ class WidgetRelay:
                 "context_label": conv.context_label,
             }
         )
-        self._fanout.add(conv.id, self._socket)
+        self._fanout.add(conv.id, self._socket, self._store)
         try:
             while True:
                 incoming = await self._socket.receive_json()
@@ -380,6 +418,17 @@ class WidgetRelay:
             "chat_send_total", "Shopper messages accepted onto a widget socket"
         )
         claim = await self._store.claim_message(conv.id, message_id, text)
+        if claim.status == "unavailable":
+            await self._socket.send_json(
+                {
+                    "type": "error",
+                    "code": "store_unavailable",
+                    "message_id": message_id,
+                    "message": SERVICE_ERROR,
+                    "retryable": True,
+                }
+            )
+            return
         if claim.status == "reused":
             await self._socket.send_json(
                 {"type": "error", "code": "message_id_reused", "message_id": message_id}
@@ -409,10 +458,7 @@ class WidgetRelay:
             turn = await guide.respond(Slots.from_dict(conv.slots), text, conv.product)
         except Exception as failed:
             self._reporter.capture(failed, where="widget-guide")
-            await self._finish_text(
-                conv, message_id, text, SERVICE_ERROR, [], ["Try again"]
-            )
-            await self._store.fail_message(conv.id, message_id)
+            await self._fail_turn(conv, message_id)
             return
         if turn.context_invalid:
             METRICS.count(
@@ -422,7 +468,7 @@ class WidgetRelay:
         elif turn.context_label:
             conv.context_label = turn.context_label
         if turn.model_needed:
-            await self._model(conv, message_id, text)
+            await self._model(conv, message_id, text, claim.attempt)
             return
         allowed = _card_tokens(turn.cards)
         shown, blocked = guard_display(
@@ -440,13 +486,12 @@ class WidgetRelay:
             conv, message_id, text, shown, turn.cards, turn.suggestions
         )
 
-    async def _model(self, conv: Conversation, message_id: str, text: str) -> None:
+    async def _model(
+        self, conv: Conversation, message_id: str, text: str, attempt: int = 0
+    ) -> None:
         model = self._model_client()
         if model is None:
-            await self._finish_text(
-                conv, message_id, text, SERVICE_ERROR, [], ["Try again"]
-            )
-            await self._store.fail_message(conv.id, message_id)
+            await self._fail_turn(conv, message_id)
             return
         box: dict[str, ChatSession] = {}
         meter = _Meter(
@@ -456,6 +501,7 @@ class WidgetRelay:
             message_id,
             self._settings,
             box,
+            attempt=attempt,
         )
         session = ChatSession(
             model,
@@ -478,16 +524,16 @@ class WidgetRelay:
                     )
         except Exception as failed:
             self._reporter.capture(failed, where="widget-model")
-            await self._store.release(f"{message_id}:0")
-            await self._finish_text(
-                conv, message_id, text, SERVICE_ERROR, [], ["Try again"]
-            )
-            await self._store.fail_message(conv.id, message_id)
+            await meter.release_all()
+            await self._fail_turn(conv, message_id)
             return
         if session.stopped == "cap":
             await self._finish_text(conv, message_id, text, LIMIT_REACHED, [], [])
             return
-        reply = "".join(chunks).strip() or SERVICE_ERROR
+        reply = "".join(chunks).strip()
+        if not reply:
+            await self._fail_turn(conv, message_id)
+            return
         shown, blocked = guard_display(
             reply, self._denylist, neutral_fallback([], conv.pincode)
         )
@@ -496,6 +542,20 @@ class WidgetRelay:
                 "neutrality_block_total", "Replies replaced by the neutrality filter"
             )
         await self._finish_text(conv, message_id, text, shown, [], [])
+
+    async def _fail_turn(self, conv: Conversation, message_id: str) -> None:
+        """Mark the message failed without storing a dead turn in ``conv.history``."""
+        await self._store.fail_message(conv.id, message_id)
+        await self._emit(
+            conv.id,
+            {
+                "type": "error",
+                "code": "upstream",
+                "message_id": message_id,
+                "message": SERVICE_ERROR,
+                "retryable": True,
+            },
+        )
 
     async def _finish_text(
         self,
@@ -574,7 +634,7 @@ class WidgetRelay:
     def _tools(self) -> Any:
         if getattr(self._socket.app.state, "widget_model", None) is not None:
             return getattr(self._socket.app.state, "widget_tools", None)
-        if not self._settings.catalogue_token:
+        if not self._settings.catalogue_configured:
             return None
         return tool_session(self._settings)
 

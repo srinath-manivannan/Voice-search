@@ -169,7 +169,7 @@ calls that is 8.24 generations, and every one of them re-bills the window.
 An earlier version of this file read 5.73 off the trace and wrote it in this
 column, which understated the rate by about a rupee.
 
-Poorvika's target is Rs 2.50. **We are over it, and over the incumbent's
+The retailer's target is Rs 2.50. **We are over it, and over the incumbent's
 Rs 4.85 as well.** The target is Rs 2.50, shown on screen and coloured
 against; the session ceiling that actually ends a call sits at Rs 8, because hanging up on
 a customer mid-sentence does not refund the rupee.

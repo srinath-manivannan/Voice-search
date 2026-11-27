@@ -49,7 +49,7 @@ class SessionBudget:
     # the re-processed history, the standing prompt, the agent's voice,
     # transcription and thinking.
     #
-    # This is NOT Poorvika's Rs 2.50 target. It is a runaway guard, and it
+    # This is NOT the retailer's Rs 2.50 target. It is a runaway guard, and it
     # sits far above the target on purpose. A ceiling set at the commercial
     # target cuts a customer off in the middle of a sentence on a call that
     # is merely more expensive than we would like, which costs the sale and

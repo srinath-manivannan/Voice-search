@@ -34,7 +34,7 @@ find and none of them are guessable:
     zero stock, it puts a Notify Me button on a phone that is on the shelf.
   * EMI is keyed by the **SKU** and the selling price **in paise**, and is the
     CRM calculator the shop's own page calls - not the NBFC endpoint, which
-    404s on poorvika.com too.
+    404s on the storefront too.
   * "the smallest instalment wins" is wrong. A No Cost plan over 6 months has
     the largest instalment of the three kinds and is the cheapest offer on the
     page, so each kind keeps its own cheapest and the headline is Standard.
@@ -67,7 +67,7 @@ was true of the documentation as it stood. It is not true of the
 documentation as it stands.
 
 The Postman collection's Production folder now carries a **CI - Stock Check
-API** of its own, at `ci-gateway.poorvika.com/central-inv/v1`, with a token
+API** of its own, at `ci-gateway.retailer.example/central-inv/v1`, with a token
 whose payload is the same `{"username":"test"}` as staging's and whose
 **signature is different** - which is exactly the shape the gateway's own
 behaviour predicted, since it verifies with a secret chosen by the `mode`
@@ -79,7 +79,7 @@ answered `in stock, 34 across 24 branches` in 491 ms, item 48849 answered a
 genuine `out of stock`, and `unanswered` came back empty for both.
 
 **`CI_HOST` is a base URL, not a hostname.** The estate table holds full URLs
-with scheme and path, so a bare `ci-gateway.poorvika.com` reaches the request
+with scheme and path, so a bare `ci-gateway.retailer.example` reaches the request
 builder and fails there with *"Request URL is missing an 'http://' or
 'https://' protocol"* - configured, ready, and unable to answer. `make
 estate ARGS=--live` is the thing that tells those two apart.
@@ -245,7 +245,7 @@ def read(payload: dict[str, Any]) -> Facts:
     a phone line.
 
     Values are taken from the derived `summary` where it has them, because
-    those are the two numbers poorvika.com itself prints and they were checked
+    those are the two numbers the storefront itself prints and they were checked
     against the shop on four products. The per-section `status` still decides
     whether anything may be said at all: summary carries no statuses, so
     reading it alone would turn a service that did not answer into a confident
@@ -293,7 +293,7 @@ def _price(sections: dict[str, Any], summary: dict[str, Any]) -> Price:
     if state != KNOWN:
         return Price(state, reason=reason)
     # PIM can mark a price as one the shop does not display. Speaking it anyway
-    # would publish a number Poorvika chose to withhold.
+    # would publish a number the retailer chose to withhold.
     if data.get("hide_selling_price"):
         return Price(UNKNOWN, reason="this product's price is not for display")
     # `list_price` in the summary is the price list's own figure, which on a

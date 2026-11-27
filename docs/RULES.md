@@ -72,7 +72,7 @@ hidden in the table.
 ## 04 Set up the database
 
 Rules 30–38: **n/a**. There is no database. Every fact the agent speaks is
-fetched live from Poorvika's own services, on purpose — a cached price is a
+fetched live from the retailer's own services, on purpose — a cached price is a
 price that can be wrong on a phone call.
 
 ## 05 Build the frontend screens
@@ -228,7 +228,7 @@ on, which did not exist either:
 The runbook leads with the decision, not the commands: a per-signal table of
 roll back now / do not, and that whoever is on call decides alone without
 waiting for anyone. It also says what a rollback does **not** undo — host
-environment variables, Poorvika's own upstream services, the traces the bad
+environment variables, the retailer's own upstream services, the traces the bad
 release wrote, the money already spent.
 
 Two lines of it are marked `<host>`, because that is gap 9.
@@ -248,8 +248,7 @@ transcript breaks that quietly. Fields that carry speech are dropped whole,
 because half a sentence is still a sentence.
 
 It is **off unless `SENTRY_DSN` is set**, and that is a decision rather than
-an oversight: sending reports to a third party is data processing and it is
-Poorvika's call. With a DSN they go to Sentry *as well as* the log, never
+an oversight: the retailer decides whether to send reports to a third party. With a DSN they go to Sentry *as well as* the log, never
 instead — the log is the copy that stays in the country the call happened
 in. The SDK is optional and absent from `requirements.txt`.
 

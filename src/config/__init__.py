@@ -62,7 +62,7 @@ class Config:
     max_session_turns: int
     max_session_minutes: float
     max_session_inr: float
-    # Two different numbers, deliberately. The target is what Poorvika wants a
+    # Two different numbers, deliberately. The target is what the retailer wants a
     # connected minute to cost, GST in - Rs 1.50, the owner's figure of
     # 2026-11-23, restated for this path on 2026-11-24 - and it is what the
     # screen is coloured against. The ceiling is where a session is cut off, and it is a runaway
@@ -111,12 +111,12 @@ class Config:
 
     # Where errors are reported, as well as to the log. Empty means nowhere
     # leaves this process, which is the default: sending reports to a third
-    # party is a data decision and it is Poorvika's to make. See
+    # party is a data decision and it is the retailer's to make. See
     # src/observability/reporting.py.
     sentry_dsn: str
     # Guards /metrics. Empty leaves it open, which is right for development
     # and wrong for anywhere else: the numbers are not secrets but they are
-    # commercial, and how many calls Poorvika takes is not for a public URL.
+    # commercial, and how many calls the retailer takes is not for a public URL.
     metrics_token: str
 
     # Grok writes the text handover a fresh Live socket is given. Off leaves
@@ -178,11 +178,11 @@ class Config:
     daily_spend_cap_inr: float = 300.0
     guided_userinfo_url: str = ""
     guided_database_url: str = ""
-    # A Poorvika-hosted speech worker. Empty (the default): none is run, and
+    # A retailer-hosted speech worker. Empty (the default): none is run, and
     # the mic is offered only where the browser itself can hear.
     guided_asr_url: str = ""
     # How long a shelf's live stock and prices are believed before they are
-    # asked for again. Each rebuild is a burst of calls to Poorvika's own
+    # asked for again. Each rebuild is a burst of calls to the retailer's own
     # services - 86 for the phone shelf - so this is their load, not ours.
     guided_shelf_ttl_seconds: float = 900.0
     # The one voice the guided call speaks in - its recorded lines and every
@@ -232,6 +232,7 @@ class Config:
     chat_paid_enabled: bool = True
     # Release 3. Both stay off until a pilot turns them on. Route C, the
     # recorded guided path, does not need either flag.
+    voice_gemini_only: bool = False
     voice_route_b_enabled: bool = False
     voice_route_a_enabled: bool = False
     # Retailer names and domains, from the deployment secret. Never committed.
@@ -275,6 +276,10 @@ class Config:
         from src.agent.persona import widget_instruction
 
         return widget_instruction(self.assistant_name, self.chat_word_cap)
+
+    @property
+    def catalogue_configured(self) -> bool:
+        return bool(self.catalogue_url.strip() and self.catalogue_token.strip())
 
 
 _HEX = re.compile(r"^#[0-9A-Fa-f]{6}$")
@@ -464,6 +469,7 @@ def load(env: str | None = None) -> Config:
                 "EMI_HOST",
                 "PIM_HOST",
                 "OFFERS_HOST",
+                "REVIEWS_HOST",
                 # The CI gateway verifies its token with a secret chosen by
                 # this header, so the same token is accepted under one mode
                 # and rejected as "signature is invalid" under another.
@@ -579,6 +585,7 @@ def load(env: str | None = None) -> Config:
         chat_paid_enabled=os.environ.get("CHAT_PAID_ENABLED", "1").strip().lower()
         not in ("0", "false", "no", "off"),
         voice_route_b_enabled=_flag("VOICE_ROUTE_B"),
+        voice_gemini_only=_flag("VOICE_GEMINI_ONLY"),
         voice_route_a_enabled=_flag("VOICE_ROUTE_A"),
         neutrality_denylist=tuple(
             dict.fromkeys(

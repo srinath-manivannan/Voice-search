@@ -8,7 +8,7 @@ choice, the questions in a salesperson's order (brand, budget, what it is
 for, the follow-up, the suggestion), the shelves from live stock and the
 price in force, the one think, the governor, every fixed line recorded in
 both languages, and the customer's own questions about the product they
-picked - answered from Poorvika's own facts, checked, and capped at six.
+picked - answered from the retailer's own facts, checked, and capped at six.
 **Not built:** spoken answers to the questions (the customer taps; the
 agent talks), and the phone line. The code is `src/guided/`; this document
 is why it is shaped the way it is.
@@ -64,7 +64,7 @@ Under the five: "show me cheaper" and "more like these", both free. The one
 they tap is re-asked of the estate live - price, stock, offers, EMI - and
 under its card are the questions customers actually ask (EMI? which shops?
 warranty? other colours? what is in the box?), each answered once by the
-model from a page of Poorvika's own facts and never from its memory.
+model from a page of the retailer's own facts and never from its memory.
 
 ```
  language ──► shelf ──► brand ──► budget ──► what for? ──► studying what? /
@@ -83,7 +83,7 @@ model from a page of Poorvika's own facts and never from its memory.
              that product, live: price · stock · offers · EMI (₹0)
                                 │
          [EMI?] [which shops?] [warranty?] [colours?] [in the box?]
-          six per session, each answered ONCE from Poorvika's own
+          six per session, each answered ONCE from the retailer's own
           facts, every figure checked against them, cached for all
 ```
 
@@ -91,8 +91,7 @@ model from a page of Poorvika's own facts and never from its memory.
 
 This is the part the plan got wrong, and the data corrected it the first
 time the real catalogue was read. The search index this service is pointed
-at is **staging** (`stage-proxy.poorvika.in`, in both `devconfig` and
-`prodconfig`); price and stock come from **production**. They disagree:
+at is **staging** (configured separately for each deployment); price and stock come from **production**. They disagree:
 
 | | Index says | Production says |
 |---|---:|---:|
@@ -126,7 +125,7 @@ So `src/guided/shelf.py` reads each shelf from the index
 whatever is really there - and the engine narrows what survives. The counts
 on the buttons are counts of products a customer can buy at that price.
 
-It costs a burst of calls to Poorvika's own services: 86 for the phone
+It costs a burst of calls to the retailer's own services: 86 for the phone
 shelf, **5.5–6.5 s cold**. So it is done once a shelf, kept fifteen minutes
 (`GUIDED_SHELF_TTL_SECONDS`), served stale while it is rebuilt, and started
 when the first question is put rather than when a shelf is tapped. A tap on
@@ -196,7 +195,7 @@ GST in, ₹89 to the dollar. "Measured" means a real call on 2026-11-23.
 | Every question, the hold line, the result line | recorded audio | **₹0** a session |
 | Making the recordings, 41 lines in two languages | the Live model, once | about ₹17 in all, measured |
 | A tap, or a key on a phone | code | **₹0** |
-| Choices and their counts | the shelf, read once a quarter hour | ₹0 (Poorvika's own APIs) |
+| Choices and their counts | the shelf, read once a quarter hour | ₹0 (the retailer's own APIs) |
 | A *spoken* answer to a question | flash-lite, audio in | ₹0.005–0.015, measured, Tamil correct |
 | Five or fewer left to show | code | **₹0, no model** |
 | **The one think** | flash-lite, about 1,200 in / 140 out | **₹0.073, measured, 1.1–1.5 s** |
@@ -351,7 +350,7 @@ the washing machine shelf, 2026-11-24:
 | PIM, per item | the price in force - e.g. ₹24,000 in the index, **₹21,990** today |
 | Offers / EMI / policy / delivery | per item, on the card and in answers |
 
-So four is what Poorvika can sell today, not a number in the code. What IS
+So four is what the retailer can sell today, not a number in the code. What IS
 fixed in code, on purpose, is the conversation: the question wording, the
 list of shelves, the budget ladder and the purposes. That is what lets
 every question cost ₹0. Brands, counts, prices, stock, specs, EMI, offers,
@@ -383,7 +382,7 @@ can only press buttons that exist.** Speech is another way to tap.
 
 On the card, a spoken question that is not one of the five buttons
 ("கேமரா நல்லா இருக்கா?") goes to the same answerer as the buttons: answered
-from Poorvika's own facts, every figure checked, cached, six a session,
+from the retailer's own facts, every figure checked, cached, six a session,
 governed. That is the "conversation" - grounded, never free-running.
 
 **What the agent says back, in the voice:** sentences built **by code**
@@ -497,8 +496,7 @@ something code can fix.
 
 Four things the owner's own hands found, all changed:
 
-- **The call now answers like a shop**: "வணக்கம், பூர்விகாவுக்கு
-  வரவேற்கிறோம்!" opens it, and speaking to that first screen in either
+- **The call now answers like a shop**: "வணக்கம்!" opens it, and speaking to that first screen in either
   language both sets the language and, if a product was named, walks
   straight to it - "enakku phone paakanum" needs no taps at all.
 - **Voice mode stays on.** The mic button is a switch, not a push-to-talk:
@@ -779,7 +777,7 @@ stands. "Adopted" means built and tested; nothing below is claimed beyond that.
 - **The catalogue is production now** (`CATALOGUE_*` in `.env`, staging
   kept commented): POST to the proxy's `/typesense` root, key in
   `X-TYPESENSE-API-KEY` (`CATALOGUE_KEY_HEADER`), Origin
-  `https://search-proxy.poorvika.in`, a named User-Agent for Cloudflare.
+  `https://search-proxy.retailer.example`, a named User-Agent for Cloudflare.
   19,057 records in `productsnew` (staging had 12,934). Phone shelf: 635
   index-in-stock -> 630 really in stock -> 630 priced -> 275 models
   (staging: 71/17/17/16); six Samsung models at or under ₹25,000. The
@@ -820,7 +818,7 @@ minutes. Measured, then fixed:
   happened once, live: seventeen shelves built at once, all timed out).
 - **One shelf at a time** at startup, every shelf, phone and speaker first.
 - **The card is fetched before the tap.** When cards appear, their live
-  price, stock, offers and EMI are asked for at once (Poorvika's own APIs,
+  price, stock, offers and EMI are asked for at once (the retailer's own APIs,
   free); the tap joins that ask. Background builds take 8 of the estate's
   24 connections, so a tap never queues behind them.
 
@@ -970,7 +968,7 @@ real dealer transfer on it.
 6. **Out-of-stock products.** Today they are not shown - 10 of 14 washing
    machines, 54 of 70 phones. Showing them as "இப்போ இல்ல" would make
    shelves look fuller and sell nothing today.
-7. **The load on Poorvika's services.** Building all eleven scripted
+7. **The load on the retailer's services.** Building all eleven scripted
    shelves is about 330 calls and 44 seconds, one shelf at a time, once -
    and then one shelf again when it is next asked for after fifteen
    minutes. That is the price of true buttons. The interval is

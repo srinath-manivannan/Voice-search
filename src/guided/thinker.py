@@ -49,7 +49,7 @@ MAX_OUTPUT_TOKENS = 500
 MOST_PROMPT_TOKENS = 2_500
 NAME_CHARS = 90
 
-INSTRUCTION = """Rank the listed Poorvika SKUs for the confirmed shopping brief. Keep hard constraints and prioritise the requested uses in order. Use only each SKU's own evidence. Return up to four IDs best first; why may be empty. Reply in {language}."""
+INSTRUCTION = """Rank the listed SKUs for the confirmed shopping brief. Keep hard constraints and prioritise the requested uses in order. Use only each SKU's own evidence. Return up to four IDs best first; why may be empty. Reply in {language}."""
 
 _WHY_LANGUAGE = {"ta": "Tamil script", "en": "simple English"}
 

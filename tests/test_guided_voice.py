@@ -161,7 +161,7 @@ def test_a_wav_is_as_long_as_the_sound_put_into_it():
         # The question was answered instead of read.
         ("எந்த சைஸ் வேணும்?", "Yeah"),
         # The agent declined to read it and introduced itself.
-        ("இதோ முழு விவரம்.", "மன்னிக்கவும். நான் பூர்விகா AI அசிஸ்டன்ட்."),
+        ("இதோ முழு விவரம்.", "மன்னிக்கவும். நான் உங்க AI அசிஸ்டன்ட்."),
         # A different word, one letter away.
         ("எந்த சைஸ் வேணும்?", "எந்த சைடு வேணும்"),
         # Heard, but not in the script it has to be checked in.

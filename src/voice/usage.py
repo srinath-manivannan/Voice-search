@@ -118,6 +118,7 @@ class SessionUsage:
     # that is true of it, and reporting only the half this object holds
     # would make the cheaper architecture look cheaper than it is.
     _side_usd: float = 0.0
+    transcription_usd: float = 0.0
 
     def record(self, usage_metadata: dict[str, Any]) -> TurnUsage:
         turn = TurnUsage.parse(usage_metadata)
@@ -166,7 +167,13 @@ class SessionUsage:
 
     @property
     def total_usd(self) -> float:
-        return self.input_usd + self.output_usd + self._grok_usd + self._side_usd
+        return (
+            self.input_usd
+            + self.output_usd
+            + self._grok_usd
+            + self._side_usd
+            + self.transcription_usd
+        )
 
     @property
     def side_usd(self) -> float:
@@ -228,6 +235,7 @@ class SessionUsage:
             gst_rate=gst_rate,
             grok_tts_chars=grok_tts_chars,
             brain_usd=self.side_usd,
+            transcription_usd=self.transcription_usd,
             grok_tokens=self.grok_tokens,
             grok_usd=self._grok_usd,
             include_grok=include_grok,

@@ -136,12 +136,12 @@ LINES: dict[str, Words] = {
     # The spec's own greeting, and shorter than the first draft, which ran
     # seven and a half seconds against the six the tests allow.
     "ask_language": (
-        "வணக்கம்! பூர்விகாவுக்கு வரவேற்கிறோம். தமிழில் பேசலாமா, or English?",
+        "வணக்கம்! தமிழில் பேசலாமா, or English?",
         "",
     ),
     "ask_shelf": (
-        "நான் உங்க பூர்விகா உதவியாளர். இன்னைக்கு எந்த பொருள் பாக்கணும்?",
-        "I am your Poorvika assistant. What are you looking for today?",
+        "வணக்கம்! இன்னைக்கு எந்த பொருள் பாக்கணும்?",
+        "I am your Shopping Assistant. What are you looking for today?",
     ),
     "ask_brand": ("எந்த பிராண்ட் வேணும்?", "Which brand do you prefer?"),
     "ask_budget": (
@@ -267,8 +267,8 @@ LINES: dict[str, Words] = {
         "Please tap your choice for now.",
     ),
     "say_enough": (
-        "இன்னும் விவரத்துக்கு பக்கத்து பூர்விகா கடைல கேளுங்க.",
-        "For anything more, please ask at your nearest Poorvika shop.",
+        "இன்னும் விவரத்துக்கு பக்கத்து கடைல கேளுங்க.",
+        "For anything more, please ask at your nearest store.",
     ),
 }
 

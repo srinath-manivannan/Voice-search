@@ -1,6 +1,6 @@
 # shopping-assistant
 
-Inbound telephone voice agent for Poorvika. Tamil, English and Tanglish, over a
+Inbound telephone voice agent for the retailer ("Shopping Assistant"). Tamil, English and Tanglish, over a
 real phone call, under ₹2.50 per connected minute all-in.
 
 Phase 1 of six. See `../PHASE0-REPORT.md` for the architecture decision and
@@ -186,7 +186,7 @@ ours are committed. And it has no container story at all — ours is a root
 
 ## Known limitations
 
-1. **Over the cost target.** Poorvika wants ₹2.50 a connected minute; a real
+1. **Over the cost target.** The retailer wants ₹2.50 a connected minute; a real
    call runs at about ₹5.28. `docs/COST.md` says where every paisa goes.
    `docs/PIPELINE.md` carries the decision: **not** the cascade, whose
    reasoning leg measured ~1,100 ms to first token and would make the agent
@@ -203,7 +203,7 @@ ours are committed. And it has no container story at all — ours is a root
 3. **The deploy target is not configured.** `deploy.sh` builds the image and
    stops, because the host depends on which telephony provider terminates
    where. Phase 2.
-4. **Stock is unavailable in production.** Poorvika has not issued a Central
+4. **Stock is unavailable in production.** The retailer has not issued a Central
    Inventory host and a token for the mode it is sent with, so the agent
    reports that stock could not be checked — which is the truth, and is a
    different sentence from "there is none".
@@ -218,5 +218,5 @@ ours are committed. And it has no container story at all — ours is a root
   pattern `search-proxy` uses.
 - `detect-secrets` runs in CI against a committed baseline.
 - Call recording is **off**. The reference implementation records by default
-  behind a consent click; that is a policy decision for Poorvika to make
+  behind a consent click; that is a policy decision for the retailer to make
   explicitly, not a default to inherit.

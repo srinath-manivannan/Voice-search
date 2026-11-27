@@ -99,7 +99,7 @@ def _runaway_cost(metrics: Metrics) -> float | None:
 
 
 def _upstream(metrics: Metrics) -> float | None:
-    """Poorvika's own services. Not our outage, and our problem."""
+    """The retailer's own services. Not our outage, and our problem."""
     failures = metrics.counter("tool_failures_total")
     calls = metrics.counter("tool_calls_total")
     if calls < 20:

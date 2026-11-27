@@ -1,10 +1,8 @@
 """Fail the build when a retailer identity or a widget media API leaks.
 
-The deny-list is the ``NEUTRALITY_DENYLIST`` environment variable, one token
-per line or comma. It is a deployment secret, so this file does not contain
-a retailer name. With no list configured the text scan has nothing to find
-and still checks that the Release 1 widget cannot ask for a microphone,
-camera, speaker or speech synthesis.
+The built-in fingerprints cover retailer names and domain labels even in a
+clean checkout. NEUTRALITY_DENYLIST adds deployment-specific strings. Both
+checks apply to repository text and OCR output.
 
 Raster images are read with tesseract when that binary is installed. CI
 installs it, so a word painted into a PNG fails the build the same way a
@@ -14,14 +12,46 @@ OCR instead of pretending it looked.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
+import re
 import shutil
 import subprocess  # nosec B404
 import sys
+import unicodedata
+from collections.abc import Iterator
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-TEXT_ROOTS = ("src", "docs", "tests", "deploy", "scripts", ".env.example")
+# Fingerprints of case-folded names, common spoken spellings and domains.
+_FORBIDDEN = frozenset(
+    {
+        "1a1c5924714f78b15c8ac403352b8deb0063b97a70e2233e890a92829d42a77c",
+        "b0a60e13f5f4f35f2c6cb97cac6db0a28e27f18ba7bd8cdc31809b5cbc1af026",
+        "6a94a53f6132b1154388c5d8219eca983cef9929283a3b8bce92cd201dbae96d",
+        "643c6a2472fca16a4499931f0288ab2edfa69777da8d5d17c10c68a39eb7e8ec",
+        "2ad7bbf80f49ddb1d2999026a2a0a75ba0b758a41adc5a846ae7f7354e37ed7d",
+        "072440ee4984df07cc5871b40f1dd5c244c193d9f6e92f0316c7c19a02eb8c8c",
+        "77e10d23c0f6ecdac828fb455c962237c2c16b82b6bd06307294c3040c1931a9",
+    }
+)
+_TOKEN = re.compile(r"[a-z0-9]+(?:\.[a-z0-9]+)*|[\u0b80-\u0bff]+")
+_SKIP = {
+    ".git",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".pytest_cache",
+    ".aws",
+    ".codex",
+    ".agents",
+    "node_modules",
+    "out",
+    "attic",
+}
 _RASTER = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".tif", ".tiff"}
 WIDGET = ROOT / "src" / "web" / "static" / "widget"
 # Release 1 must not be able to play or record, even if a later edit tries.
@@ -47,46 +77,61 @@ def denylist_from_env(raw: str | None = None) -> tuple[str, ...]:
     return tuple(dict.fromkeys(tokens))
 
 
-def _iter_text_files(root: Path) -> list[Path]:
-    if root.is_file():
-        return [root]
-    found: list[Path] = []
-    for path in root.rglob("*"):
-        if not path.is_file():
-            continue
-        if any(
-            part in {".git", ".venv", "recordings", "__pycache__"}
-            for part in path.parts
-        ):
-            continue
-        if path.suffix.lower() in {
-            ".png",
-            ".avif",
-            ".wav",
-            ".pcm",
-            ".mp3",
-            ".jpg",
-            ".webp",
-            ".gif",
-        }:
-            continue
-        found.append(path)
-    return found
+def _repository_files(root: Path) -> list[Path]:
+    paths: Iterator[Path]
+    if (root / ".git").exists():
+        # Include unstaged additions so the same check works before committing.
+        git = shutil.which("git")
+        if git is None:
+            raise RuntimeError("git is required to list checkout files")
+        listed = subprocess.check_output(  # nosec B603
+            [git, "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+            cwd=root,
+        )
+        paths = (root / os.fsdecode(name) for name in listed.split(b"\0") if name)
+    else:
+        # Source archives and the small standalone trees used in tests.
+        files: list[Path] = []
+        for directory, dirs, names in os.walk(root):
+            dirs[:] = [name for name in dirs if name not in _SKIP]
+            files.extend(Path(directory) / name for name in names)
+        paths = iter(files)
+    return [
+        p
+        for p in paths
+        if p.is_file()
+        and not p.is_symlink()
+        and (p.name == ".env.example" or not p.name.startswith(".env"))
+    ]
+
+
+def _matches(text: str, denylist: tuple[str, ...]) -> list[str]:
+    folded = unicodedata.normalize("NFKC", text).casefold()
+    hits = [name for name in denylist if name in folded]
+    tokens = set(_TOKEN.findall(folded))
+    for host in tuple(tokens):
+        if "." in host:
+            labels = host.split(".")
+            tokens.update(labels)
+            tokens.update(".".join(pair) for pair in zip(labels, labels[1:]))
+    if any(hashlib.sha256(word.encode()).hexdigest() in _FORBIDDEN for word in tokens):
+        hits.append("forbidden retailer identity")
+    return hits
 
 
 def scan_text(paths: list[Path], denylist: tuple[str, ...]) -> list[str]:
     hits: list[str] = []
-    if not denylist:
-        return hits
     for path in paths:
-        try:
-            text = path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
+        if path.suffix.lower() in _RASTER | {".wav", ".pcm", ".mp3"}:
             continue
-        folded = text.casefold()
-        for token in denylist:
-            if token in folded:
-                hits.append(f"{path}: {token}")
+        raw = path.read_bytes()
+        if b"\0" in raw:
+            continue
+        text = raw.decode("utf-8", errors="replace")
+        if path.name == "manifest.json":
+            # Decode JSON escapes in spoken text and read-back transcripts.
+            text = json.dumps(json.loads(text), ensure_ascii=False)
+        hits.extend(f"{path}: {hit}" for hit in _matches(text, denylist))
     return hits
 
 
@@ -148,19 +193,7 @@ def scan_audio_metadata(root: Path) -> list[str]:
 
 
 def _raster_files(root: Path) -> list[Path]:
-    found: list[Path] = []
-    for name in TEXT_ROOTS:
-        target = root / name
-        if not target.exists():
-            continue
-        paths = [target] if target.is_file() else list(target.rglob("*"))
-        for path in paths:
-            if not path.is_file() or path.suffix.lower() not in _RASTER:
-                continue
-            if any(part in {".git", ".venv", "__pycache__"} for part in path.parts):
-                continue
-            found.append(path)
-    return found
+    return [p for p in _repository_files(root) if p.suffix.lower() in _RASTER]
 
 
 def _ocr(path: Path) -> tuple[str, str | None]:
@@ -195,12 +228,7 @@ def scan_images(root: Path, denylist: tuple[str, ...]) -> list[str]:
         if failed:
             hits.append(f"{path}: ocr failed ({failed})")
             continue
-        if not denylist:
-            continue
-        folded = text.casefold()
-        for token in denylist:
-            if token in folded:
-                hits.append(f"{path}: ocr {token}")
+        hits.extend(f"{path}: ocr {hit}" for hit in _matches(text, denylist))
     return hits
 
 
@@ -220,11 +248,7 @@ def optional_tools(root: Path = ROOT) -> list[str]:
 
 def collect(root: Path = ROOT, denylist: tuple[str, ...] | None = None) -> list[str]:
     tokens = denylist_from_env() if denylist is None else denylist
-    files: list[Path] = []
-    for name in TEXT_ROOTS:
-        target = root / name
-        if target.exists():
-            files.extend(_iter_text_files(target))
+    files = _repository_files(root)
     return (
         scan_text(files, tokens)
         + scan_widget(root / "src" / "web" / "static" / "widget")

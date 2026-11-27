@@ -38,7 +38,7 @@ CHAR_CAP = 600
 # shortlist and cannot invent one.
 SYSTEM = (
     "You write a handover for the next moment of the same phone call at "
-    "Poorvika, a phone shop in Tamil Nadu. Use only the transcript and the "
+    "an electronics store in Tamil Nadu. Use only the transcript and the "
     "previous note. Do not invent a price, a product, a budget, or a "
     "specification. If a number was not said, leave it out.\n"
     "Plain lines, no markdown, nothing after the last line:\n"
