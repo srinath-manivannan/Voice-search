@@ -2,7 +2,7 @@
 
     CATALOGUE_TOKEN=... .venv/bin/python -m pytest -m live tests/test_shelves_live.py
 
-Free - the catalogue is Poorvika's own - but it needs the network and the
+Free - the catalogue is the retailer's own - but it needs the network and the
 token, so it is excluded from the default run and CI never sees it.
 
 This is the test that was missing. `tv` mapped to "Televisions", the
@@ -45,7 +45,7 @@ async def test_the_shelf_exists_and_has_something_on_it(spoken: str):
 
     With no mapping the query still searches the whole catalogue. With a
     wrong one the filter excludes everything, and the agent tells a customer
-    Poorvika does not sell televisions.
+    the retailer does not sell televisions.
     """
     found = await catalogue().search(query="*", category=spoken, limit=1)
 
@@ -58,7 +58,7 @@ async def test_the_shelf_exists_and_has_something_on_it(spoken: str):
 async def test_the_catalogue_reaches_past_the_shelves_we_name():
     """The enum is a filter, not the inventory.
 
-    Poorvika sells a great deal that has no entry in CATEGORIES, and the
+    The retailer sells a great deal that has no entry in CATEGORIES, and the
     tool's description tells the model to use the query for those. If that
     stopped working the agent would be back to answering about five shelves.
     """

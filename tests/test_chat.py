@@ -156,7 +156,7 @@ def test_both_surfaces_share_one_persona_differing_only_in_delivery():
     for text in (voice, chat):
         assert "Never invent a price" in text
         # Tamil script by default, Tanglish when they write in Latin letters,
-        # English never - Poorvika's customers are Tamil speakers.
+        # English never - the retailer's customers are Tamil speakers.
         assert "NEVER REPLY IN ENGLISH" in text
         assert "Tanglish" in text
         # The word cap used to carry an exemption for the greeting, so that

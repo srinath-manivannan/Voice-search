@@ -194,7 +194,7 @@ def test_metrics_are_served_in_the_format_a_scrape_expects(config):
 
 def test_a_token_closes_the_endpoint_when_one_is_set(monkeypatch):
     """The numbers are not secrets but they are commercial. How many calls
-    Poorvika takes is not for a public URL."""
+    the retailer takes is not for a public URL."""
     monkeypatch.setenv("GEMINI_API_KEY", "test-key-not-real")
     monkeypatch.setenv("METRICS_TOKEN", "a-long-enough-metrics-token")
     with TestClient(create_app(load("development"))) as client:

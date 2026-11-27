@@ -139,7 +139,7 @@ def test_a_structure_that_nests_for_ever_does_not_hang_the_reporter():
 
 def test_nothing_leaves_the_process_without_a_dsn(config):
     """Sending reports to a third party is a data decision and it is
-    Poorvika's to make, not this code's."""
+    the retailer's to make, not this code's."""
     assert isinstance(build(config), LogReporter)
 
 

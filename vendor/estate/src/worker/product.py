@@ -96,7 +96,7 @@ TOTAL_BUDGET_MS = 9000
 
 _WORD = re.compile(r"[a-z0-9]+")
 _NOISE = {"the", "and", "for", "with", "best", "price", "of", "in", "a", "an",
-          "buy", "online", "poorvika", "new", "me", "show", "is", "it"}
+          "buy", "online", "new", "me", "show", "is", "it"}
 
 
 def plan(sections=None, question: str = "") -> tuple[str, ...]:
@@ -435,7 +435,7 @@ async def _reviews(env, item, ctx, product_block: dict) -> dict:
     data = (product_block or {}).get("data") or {}
     model = data.get("model_code")
     if (product_block or {}).get("status") != apis.OK or not model:
-        return _section(apis.NOT_REQUESTED, "poorvika-reviews", 0,
+        return _section(apis.NOT_REQUESTED, "retailer-reviews", 0,
                         {"reason": "needs the product record's model code, "
                                    "which is what reviews are filed under"})
     slug = data.get("slug") or ""
@@ -455,13 +455,13 @@ async def _reviews(env, item, ctx, product_block: dict) -> dict:
     details, listing = pair
     took = max(details.get("took_ms", 0), listing.get("took_ms", 0))
     if details["status"] != apis.OK:
-        return _section(details["status"], "poorvika-reviews", took, details,
+        return _section(details["status"], "retailer-reviews", took, details,
                         _carry(details))
     # The list failing costs the list, not the averages above it.
     shelf = (listing.get("body") or {}) if listing["status"] == apis.OK else {}
     status, data = adapters.reviews(details.get("body") or {}, shelf)
     data["model_code"] = model
-    return _section(status, "poorvika-reviews", took, data, _carry(details))
+    return _section(status, "retailer-reviews", took, data, _carry(details))
 
 
 def pincode_of(value) -> str:

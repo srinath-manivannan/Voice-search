@@ -53,7 +53,7 @@ which function to take, and does not have to find it again.
 **775 calls per core is arithmetic, not capacity.** The event loop is a
 single thread, so a process carries what one core can carry, and what
 actually binds first is none of this: open sockets, memory per session, and
-Poorvika's own upstream services, which every call reaches through on nearly
+the retailer's own upstream services, which every call reaches through on nearly
 every turn.
 
 The honest sizing statement is that **CPU is not the constraint**, and that

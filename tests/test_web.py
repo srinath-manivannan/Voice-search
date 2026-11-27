@@ -88,7 +88,7 @@ async def test_a_closed_sink_stops_sending_rather_than_raising():
 
 
 def test_the_config_endpoint_publishes_nothing_about_the_stack(config):
-    """Which model Poorvika runs on is commercial information.
+    """Which model the retailer runs on is commercial information.
 
     This project read the reference implementation's entire stack - vendor,
     model id, orchestration framework - straight off a config blob its public

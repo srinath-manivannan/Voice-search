@@ -325,7 +325,7 @@ def pricing(body: dict, channel: str, now=None) -> tuple[str, dict]:
 
 # ── Central Inventory ──────────────────────────────────────────────────────
 
-# The states poorvika's own store locator lists (its open area_list call).
+# The states the retailer's own store locator lists (its open area_list call).
 _STATE = {"TN": "Tamil Nadu", "KA": "Karnataka", "PY": "Pondicherry"}
 # One spelling per place. Branch names spell some the way the counter staff
 # say them, and the same town twice ("Velacherry", "Velachery"); a shopper
@@ -738,7 +738,7 @@ def price_block(pricing: dict, offers_block: dict, channel: str) -> dict:
     An offer tagged EMI-only (payment.transaction_types == ['emi']) still
     counts: the shop's own "Effective Price @ Online" includes it — Bosch fridge
     55453 shows ₹1,03,990 (1,08,990 − the EMI-tagged ₹5,000) and the PS5 54486
-    ₹66,490 (69,990 − ₹3,500), checked on poorvika.com 2026-11-09.
+    ₹66,490 (69,990 − ₹3,500), checked on the storefront 2026-11-09.
     """
     listed = pricing.get("price")
     if listed is None:
@@ -1245,7 +1245,7 @@ def reviews(details: dict, listing: dict) -> tuple[str, dict]:
     Two calls the shop's page makes: `getReviewDetails` for the averages and
     the most positive and negative review, `review` for the list. Filed by
     model, so the Teal iPhone 16 carries the review written on the Black one
-    — which is what poorvika.com shows, and why PIM's per-item rating of 0
+    — which is what the storefront shows, and why PIM's per-item rating of 0
     said "be the first to review" under a product with a five-star review.
     """
     details = details if isinstance(details, dict) else {}

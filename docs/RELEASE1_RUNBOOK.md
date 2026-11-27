@@ -23,7 +23,7 @@ Open `http://localhost:8088`. The page is a sample product, Demo Handset A1, wit
 - Change the variant and ask again. The answer follows the variant on the page.
 - Tap **‹ Back to product**. The panel closes and the page returns to the product.
 
-Then run the canary against that copy. The demo has no live catalogue token, so `/readyz` is not fully ready:
+Then run the canary against that copy. The demo disables the live estate backend, so `/readyz` reports that check as unavailable:
 
 ```bash
 python scripts/verify_release1_canary.py \
@@ -49,6 +49,8 @@ Move traffic only at these stops. Do not skip one.
 At every stop, `/healthz` shows the release you meant to ship. If it shows something else, you are not looking at the copy you think you are.
 
 The storefront origin in `WIDGET_HOST_ORIGINS` is an exact scheme, host and port. Add the next origin only when that stop starts. A page that is not on the list cannot embed the widget, and a socket whose `Origin` is not this service is closed with 1008.
+
+In production, startup refuses to serve an enabled widget unless `WIDGET_PUBLIC_ORIGIN` and at least one `WIDGET_HOST_ORIGINS` entry are configured.
 
 ## 4. Kill switches
 

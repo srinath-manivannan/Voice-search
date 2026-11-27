@@ -44,7 +44,7 @@ one session, comparing what was sent against `outputTranscription`:
 | line | | first audio |
 |---|---|---|
 | "Rendu nalla option irukku. Redmi 15C 5G, 22,499 - 50MP camera." | verbatim | 527 ms |
-| "Poorvika-ku welcome! Sollunga, enna venum?" | verbatim | 406 ms |
+| "Vanakkam! Sollunga, enna venum?" | verbatim | 406 ms |
 | "Stock irukka-nu ippo check pannitten - 34 units, 24 branches la irukku." | verbatim | 494 ms |
 | "Adhoda EMI month-ku 1,984 rupees, 48 months." | verbatim | 500 ms |
 

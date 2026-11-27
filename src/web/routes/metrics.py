@@ -5,7 +5,7 @@ and no label that identifies a caller: a label is a cardinality decision as
 well as a privacy one, and one per caller would be both.
 
 Behind a token when `METRICS_TOKEN` is set, which production should. The
-numbers are not secrets but they are commercial - how many calls Poorvika
+numbers are not secrets but they are commercial - how many calls the retailer
 takes and what each costs is not for a public URL.
 """
 

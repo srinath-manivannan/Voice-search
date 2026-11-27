@@ -333,8 +333,8 @@ class TestTheRest:
 
     async def test_the_greeting_is_spoken_without_anyone_having_spoken(self):
         session = build(FakeEar(), FakeBrain(), mouth := FakeMouth())
-        await session.greet("Poorvika, sollunga.")
-        assert mouth.said == ["Poorvika, sollunga."]
+        await session.greet("Vanakkam, sollunga.")
+        assert mouth.said == ["Vanakkam, sollunga."]
         assert session.turn_id == 1
 
     async def test_an_interrupted_mouth_still_ends_the_turn(self):

@@ -53,7 +53,7 @@ CATEGORIES: dict[str, tuple[str, ...]] = {
     "tablet": ("tablet", "tab", "ipad", "டேப்லெட்"),
     "watch": ("watch", "smartwatch", "கடிகாரம்", "வாட்ச்"),
     "tv": ("tv", "television", "டிவி", "தொலைக்காட்சி"),
-    # Poorvika is not a phone shop. These were added after a call where a
+    # The retailer is not a phone shop. These were added after a call where a
     # customer asked for something off the phone shelf and the agent had no
     # way to look for it: the tool's category was an enum of five.
     #

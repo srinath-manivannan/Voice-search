@@ -5,7 +5,7 @@ decision: a stack trace nobody reads at three in the morning is not
 monitoring. This is the seam that closes it.
 
 **Off unless a DSN is set.** Sending error reports to a third party is a
-data-processing decision and it is Poorvika's to make, not this file's. With
+data-processing decision and it is the retailer's to make, not this file's. With
 no `SENTRY_DSN` nothing leaves the process and the behaviour is exactly what
 it was. With one, the same scrubbed payload goes to Sentry as well as the
 log - as well as, never instead of, because the log is the copy that stays

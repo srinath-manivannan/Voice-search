@@ -1,4 +1,4 @@
-"""The Poorvika API estate — one switch, four services, one HTTP layer.
+"""The retailer API estate — one switch, four services, one HTTP layer.
 
 `API_ENV` picks the whole estate at once, stage or production. No caller
 chooses per service, because the failure worth designing against is not an
@@ -24,60 +24,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import time
 
 import js
 from pyodide.ffi import to_js
 
-# Hosts per environment. The production CI host is deliberately absent: the
-# documentation's Production folder points its stock request at
-# stage-ci-gateway, so there is no published production host to copy, and
-# guessing one would be a stage answer wearing a production label. Set
-# CI_HOST explicitly to enable live stock on production.
-ESTATE: dict[str, dict[str, str | None]] = {
-    "stage": {
-        "search": "https://stage-proxy.poorvika.in/mMBVOUVdxJWP",
-        "pim": "https://stage-pim-gateway.poorvika.com/tzpjqLcWp",
-        "offers": "https://stage-offers-gateway.poorvika.com/offers",
-        "ci": "https://stage-ci-gateway.poorvika.com/central-inv/v1",
-        "emi": None,
-        # Reviews are the shop's public record of what customers wrote, not
-        # an environment's data, and there is no staging twin — so stage
-        # reads the live service too (see `cross_env` below).
-        "reviews": "https://www.poorvika.com/api/review",
-    },
-    "production": {
-        "search": "https://proxy.poorvika.com/mMBVOUVdxJWP",
-        "pim": "https://pim-gateway.poorvika.com/tzpjqLcWp",
-        "offers": "https://offers-gateway.poorvika.com/offers",
-        "ci": None,
-        # The EMI calculator the shop's own product page calls. It is the
-        # storefront's endpoint rather than a gateway, and it is the only
-        # one in the estate that needs no credential. There is no staging
-        # twin that we know of, so stage reports it not_configured rather
-        # than quietly quoting production EMI on staging prices.
-        "emi": "https://poorvika.com/api/crm",
-        # The shop's own ratings and reviews, which its product page reads.
-        # Open like the EMI calculator, and keyed by MODEL: every colour and
-        # storage of a phone shares one set of reviews. No staging twin.
-        "reviews": "https://www.poorvika.com/api/review",
-    },
-}
-
+# Deployment bindings supply each service's full base URL.
+ENVIRONMENTS = {"stage", "production"}
 DEFAULT_ENV = "stage"
-
-# What to ask for, for the one host the documentation does not give us.
-# A message that only says "set CI_HOST" sends whoever reads it back to the
-# same Postman page that caused the gap.
-MISSING_NOTE = {
-    "ci": ("poorvika.com reaches Central Inventory at "
-           "poorvika.com/api/centralinventory/v1 with an authorization the "
-           "storefront holds; ci-gateway.poorvika.com answers but rejects "
-           "both published tokens, which are staging's. Ask for a "
-           "production host and a token issued for the mode it is sent "
-           "with, then set CI_HOST and CI_AUTH_TOKEN together"),
-}
 
 # Per-service: the header its credential goes in, the secret that holds it,
 # the variable that overrides its host, and how long one call may take.
@@ -134,12 +90,15 @@ def _js(value):
 
 
 def _var(env, name: str, default: str = "") -> str:
-    return (getattr(env, name, None) or default).strip()
+    val = getattr(env, name, None)
+    if val is None and name:
+        val = os.environ.get(name)
+    return (val or default).strip()
 
 
 def api_env(env) -> str:
     name = _var(env, "API_ENV", DEFAULT_ENV).lower()
-    return name if name in ESTATE else DEFAULT_ENV
+    return name if name in ENVIRONMENTS else DEFAULT_ENV
 
 
 def host(env, service: str) -> tuple[str | None, str | None]:
@@ -150,13 +109,10 @@ def host(env, service: str) -> tuple[str | None, str | None]:
     after a copy, or the documentation's own production-folder slip.
     """
     name = api_env(env)
-    override = _var(env, SERVICES.get(service, {}).get("host_var", ""))
-    chosen = override or ESTATE[name].get(service)
+    host_var = SERVICES[service]["host_var"]
+    chosen = _var(env, host_var)
     if not chosen:
-        return None, (f"no {service} host for {name}: set "
-                      f"{SERVICES[service]['host_var']} to the confirmed one"
-                      + (f" — {MISSING_NOTE[service]}"
-                         if service in MISSING_NOTE else ""))
+        return None, f"no {service} host for {name}: set {host_var} to its full base URL"
     staging_host = "stage-" in chosen or "staging" in chosen
     # A public, read-only service with no per-environment twin may be read
     # from either estate; nothing it says depends on which one is asking.

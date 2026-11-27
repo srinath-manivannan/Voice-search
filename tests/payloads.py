@@ -102,7 +102,7 @@ ANSWERED = {
         "stock": {
             "status": "not_configured",
             "reason": (
-                "no ci host for production: ci-gateway.poorvika.com answers "
+                "no ci host for production: ci-gateway.retailer.example answers "
                 "but rejects both published tokens, which are staging's"
             ),
         },

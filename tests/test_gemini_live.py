@@ -465,7 +465,7 @@ async def test_a_recorded_greeting_is_told_to_the_model_as_its_own_turn(config):
     `opened_with` is what replaces `greet` when the opening line comes off
     disk. The role is the whole test: `prime` wraps what it is given in a
     USER turn, and priming the greeting that way would tell the model the
-    customer introduced herself as Poorvika.
+    customer introduced herself as the shop.
     """
     from src.agent.persona import GREETING
 

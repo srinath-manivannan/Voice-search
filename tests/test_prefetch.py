@@ -427,7 +427,7 @@ class TestTheBudgetSaidInWords:
 
 
 class TestTheWiderShelves:
-    """Poorvika is not a phone shop, and for a while this code thought it was.
+    """The retailer is not a phone shop, and for a while this code thought it was.
 
     The tool's category was an enum of five, so a customer asking for an AC
     or a washing machine got nothing the model could look for. These are the

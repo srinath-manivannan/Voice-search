@@ -1,4 +1,4 @@
-"""Product search against Poorvika's Product List API.
+"""Product search against the retailer's Product List API.
 
 The API is Typesense's own multi_search shape behind a proxy, which is the
 same thing the Search Blocks Worker talks to - so the query shape here is
@@ -58,7 +58,7 @@ QUERY_WEIGHTS = "4,3,2,1,1"
 # phones found nothing at all. The shelf is "Television", singular.
 #
 # These are the shelves that can be FILTERED. They are not the shelves
-# Poorvika sells: the catalogue carries over a hundred facet values and the
+# the retailer sells: the catalogue carries over a hundred facet values and the
 # text query reaches all of them, which is why the tool's description tells
 # the model to search by words for anything not listed here. Checked against
 # the live catalogue on 2026-11-16; counts in the comments are from that day
@@ -186,7 +186,7 @@ class Catalogue:
         self._token = token
         self._origin = origin
         # The staging proxy reads the key from "access-token"; production
-        # Typesense behind proxy.poorvika.com reads "X-TYPESENSE-API-KEY".
+        # Typesense behind proxy.retailer.example reads "X-TYPESENSE-API-KEY".
         self._key_header = key_header
         self._poster_factory = poster_factory
 
@@ -346,7 +346,7 @@ class Catalogue:
 
         Any one of them being rejected fails the lot: a rejected filter is a
         bug in our query, not an empty shelf, and reading it as "found
-        nothing" is how a customer gets told Poorvika does not sell
+        nothing" is how a customer gets told the retailer does not sell
         televisions.
         """
         owned = None

@@ -43,7 +43,7 @@ class TestRedaction:
         hosts carry a token in the path - so this is the second of two
         guards, not the only one.
         """
-        assert safe("ci-gateway.poorvika.com") == "ci-gateway.poorvika.com"
+        assert safe("ci-gateway.retailer.example") == "ci-gateway.retailer.example"
 
     def test_a_jwt_goes(self):
         jwt = f"{FAKE_JWT_HEAD}.{FAKE_JWT_BODY}"
@@ -132,15 +132,15 @@ class FakeSettings:
 READY = {
     "api_env": "production",
     "services": {
-        "ci": {"ready": True, "host": "ci-gateway.poorvika.com"},
-        "pim": {"ready": True, "host": "pim-gateway.poorvika.com"},
+        "ci": {"ready": True, "host": "ci-gateway.retailer.example"},
+        "pim": {"ready": True, "host": "pim-gateway.retailer.example"},
     },
 }
 NOT_READY = {
     "api_env": "production",
     "services": {
         "ci": {"ready": False, "host": None, "problem": "no ci host for production"},
-        "pim": {"ready": True, "host": "pim-gateway.poorvika.com"},
+        "pim": {"ready": True, "host": "pim-gateway.retailer.example"},
     },
 }
 

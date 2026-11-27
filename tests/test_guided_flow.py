@@ -606,7 +606,7 @@ def test_six_questions_then_everyone_is_sent_to_the_shop(monkeypatch):
 
     assert [a["left"] for a in answers[:6]] == [5, 4, 3, 2, 1, 0]
     assert all(a["how"]["source"] == "capped" for a in answers[6:])
-    assert "பூர்விகா கடைல" in answers[7]["say"]
+    assert "பக்கத்து கடைல" in answers[7]["say"]
     assert rig.model.asked <= 6
 
 

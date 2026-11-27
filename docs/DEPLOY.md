@@ -15,8 +15,8 @@ default). Everything a customer has open lives in that process's memory.
 | Guided questions, overview, cards | this process (rules, recorded voice) | ₹0 |
 | Hearing the customer | the browser's own speech recognition (Chrome, Edge, Safari) | ₹0 |
 | The agent's voice in Guided | recordings in the image (`src/guided/recordings`) | ₹0 |
-| Catalogue | production Typesense via `proxy.poorvika.com` | ₹0 (Poorvika's) |
-| Stock, price, offers, EMI | the estate, run in-process from `vendor/estate` | ₹0 (Poorvika's) |
+| Catalogue | production Typesense via `proxy.retailer.example` | ₹0 (retailer's API) |
+| Stock, price, offers, EMI | the estate, run in-process from `vendor/estate` | ₹0 (retailer's API) |
 | Ranking think | Gemini text, verified accounts only, inside the daily ceiling | ~₹0.06 when used |
 | Voice Call tab | Gemini Live, inside per-call and daily ceilings | ~₹2.40 a minute (measured, docs/COST.md) |
 | Chat tab | Gemini text, ₹1 per conversation, inside the daily ceiling | a few paise a message |

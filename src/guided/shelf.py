@@ -16,7 +16,7 @@ shelf is read from it once, every item is asked of the estate, and what the
 engine narrows is what survived: in stock, at a price somebody will be
 charged.
 
-That costs a burst of calls to Poorvika's own services - 86 for the phone
+That costs a burst of calls to the retailer's own services - 86 for the phone
 shelf, about seven seconds cold - which is why it is done once per shelf and
 kept for a quarter of an hour, not once per customer. Stock first, and only
 the survivors are priced: 54 of those 70 phones never needed a price.
@@ -638,7 +638,7 @@ class ShelfBook:
         """Start building these, one after another, without waiting.
 
         One at a time on purpose. Eleven shelves at once is a few hundred
-        calls landing on Poorvika's services in the same second, to save a
+        calls landing on the retailer's services in the same second, to save a
         wait that only the first customer of the day would have had.
         """
         if self._warming is not None and not self._warming.done():

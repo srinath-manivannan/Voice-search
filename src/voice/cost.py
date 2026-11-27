@@ -217,7 +217,7 @@ class Breakdown:
     """A whole call priced out, per component, per connected minute.
 
     `inr_per_min` figures are inclusive of GST, because that is the number
-    Poorvika is held to. Everything is model cost: telephony, hosting and our
+    the retailer is held to. Everything is model cost: telephony, hosting and our
     own compute are elsewhere.
     """
 

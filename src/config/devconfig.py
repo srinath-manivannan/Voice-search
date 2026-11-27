@@ -17,9 +17,8 @@ GEMINI_LIVE_MODEL = "gemini-3.8-live"
 VOICE_NAME = ""
 GEMINI_TEXT_MODEL = "gemini-3.5-flash-lite"
 
-# Product List API. Staging for now - production needs its own URL
-# and token, and neither has been confirmed.
-CATALOGUE_URL = "https://stage-proxy.poorvika.in/mMBVOUVdxJWP"
+# Each deployment supplies the URL and credential for its catalogue.
+CATALOGUE_URL = ""
 # 18, chosen 2026-11-15 after 25 was tried and measured.
 #
 # The reply docs/CASCADE.md asks for - two products, a reason each, one

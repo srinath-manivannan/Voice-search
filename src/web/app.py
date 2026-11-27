@@ -109,6 +109,31 @@ def create_app(config: Config | None = None) -> FastAPI:
             app.state.widget_catalogue = LiveCatalogue(
                 index, estate.build(settings), settings.neutrality_denylist
             )
+    if (
+        settings.env == "main"
+        and settings.widget_enabled
+        and getattr(app.state, "widget_catalogue", None) is None
+    ):
+        raise RuntimeError(
+            "Widget catalogue is not configured: set TYPESENSE_API_KEY "
+            "(or WIDGET_DEMO_CATALOGUE=1 in development)."
+        )
+    if settings.env == "main" and settings.widget_enabled:
+        if not settings.widget_public_origin:
+            raise RuntimeError(
+                "WIDGET_PUBLIC_ORIGIN is required when the production widget is enabled."
+            )
+        if not settings.widget_host_origins:
+            raise RuntimeError(
+                "WIDGET_HOST_ORIGINS must contain at least one exact origin "
+                "when the production widget is enabled."
+            )
+    if (
+        settings.redis_url or settings.env == "main"
+    ) and not settings.conversation_token_secret.strip():
+        raise RuntimeError(
+            "CONVERSATION_TOKEN_SECRET is required when REDIS_URL is set or APP_ENV=main."
+        )
     middleware.install(app)
     errors.install(app, reporter)
 

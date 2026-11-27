@@ -52,6 +52,9 @@
   var modal = false;
   var hostEmbed = "";
   var slowTimer = 0;
+  var idleTimer = 0;
+  var closeTimer = 0;
+  var renderedMessages = {};
 
   function uuid() {
     if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
@@ -89,7 +92,7 @@
   function knownKeys(type) {
     if (type === "sa.init") return ["type", "v", "nonce", "host_session", "locale", "pincode", "product", "restore_token", "embed"];
     if (type === "sa.context") return ["type", "v", "nonce", "product"];
-    if (type === "sa.embed") return ["type", "v", "nonce", "embed"];
+    if (type === "sa.embed") return ["type", "v", "nonce", "embed", "open"];
     return null;
   }
 
@@ -112,6 +115,7 @@
     }
     if (data.embed && data.embed !== "panel" && data.embed !== "sheet") return false;
     if (data.type === "sa.embed" && !data.embed) return false;
+    if ("open" in data && typeof data.open !== "boolean") return false;
     if (data.restore_token && String(data.restore_token).length > 512) return false;
     if (data.pincode && !/^\d{6}$/.test(data.pincode)) return false;
     return true;
@@ -165,11 +169,17 @@
     }
   }
 
-  function addBubble(text, mine) {
+  function addBubble(text, mine, messageId) {
+    var role = mine ? "user" : "assistant";
+    if (messageId) {
+      var key = role + ":" + messageId;
+      if (renderedMessages[key]) return renderedMessages[key];
+    }
     var wrap = document.createElement("div");
     wrap.className = "sa-turn" + (mine ? " mine" : "");
+    if (messageId) wrap.setAttribute("data-message-id", messageId);
     var node = document.createElement("p");
-    node.className = "sa-msg " + (mine ? "user" : "assistant");
+    node.className = "sa-msg " + role;
     node.textContent = text;
     if (mine && tamil(text)) node.lang = "ta";
     var time = document.createElement("time");
@@ -180,6 +190,7 @@
     wrap.appendChild(time);
     logEl.appendChild(wrap);
     logEl.scrollTop = logEl.scrollHeight;
+    if (messageId) renderedMessages[role + ":" + messageId] = node;
     return node;
   }
 
@@ -303,9 +314,45 @@
       var button = document.createElement("button");
       button.type = "button";
       button.textContent = label;
-      button.addEventListener("click", function () { send(label); });
+      button.addEventListener("click", function () {
+        if ((label === "Try again" || label === "Retry") && outbox && outbox.status !== "done") {
+          retryOutbox();
+          return;
+        }
+        send(label);
+      });
       chips.appendChild(button);
     });
+  }
+
+  function retryOutbox() {
+    if (!outbox || !outbox.message_id || !outbox.text) return;
+    outbox.status = "sending";
+    saveOutbox();
+    attempts = 0;
+    setAlert("");
+    input.disabled = true;
+    var sendButton = form.querySelector(".sa-send");
+    if (sendButton) sendButton.disabled = true;
+    connectAndSend();
+  }
+
+  function armIdleClose() {
+    clearTimeout(idleTimer);
+    idleTimer = window.setTimeout(function () {
+      if (socket && (!outbox || outbox.status === "done")) {
+        try { socket.close(4000, "idle"); } catch (err) { /* ignore */ }
+      }
+    }, 300000);
+  }
+
+  function schedulePanelClose() {
+    clearTimeout(closeTimer);
+    closeTimer = window.setTimeout(function () {
+      if (!panelOpen && socket) {
+        try { socket.close(1000, "panel closed"); } catch (err) { /* ignore */ }
+      }
+    }, 60000);
   }
 
   function saveOutbox() {
@@ -320,7 +367,7 @@
   function jitter(ms) { return Math.round(ms * (0.8 + Math.random() * 0.4)); }
 
   function connectAndSend() {
-    if (!outbox) return;
+    if (!outbox || outbox.status !== "sending") return;
     if (socket && socket.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({ type: "user_message", message_id: outbox.message_id, text: outbox.text }));
       return;
@@ -357,7 +404,7 @@
       if (socket !== current) return;
       enableComposer();
       socket = null;
-      if (!outbox || outbox.status === "done") return;
+      if (!outbox || outbox.status !== "sending") return;
       if (!navigator.onLine) {
         setAlert("You're offline. We'll send your message when you're back online.");
         return;
@@ -382,9 +429,15 @@
   function onServer(message) {
     if (message.type === "welcome") {
       token = message.token || token;
+      if (typeof message.conv_seq === "number" && message.conv_seq > lastSeq) {
+        lastSeq = message.conv_seq;
+      }
       post({ type: "sa.persist", token: token });
-      (message.replay || []).forEach(onServer);
-      if (outbox && outbox.status !== "done") {
+      (message.replay || []).forEach(function (item) {
+        if (item.seq && item.seq > lastSeq) lastSeq = item.seq;
+        onServer(item);
+      });
+      if (outbox && outbox.status === "sending") {
         socket.send(JSON.stringify({ type: "user_message", message_id: outbox.message_id, text: outbox.text }));
       }
       return;
@@ -403,27 +456,50 @@
       clearTimeout(slowTimer);
       showTyping(false);
       setStatus("");
+      var msgId = message.message_id || "";
+      if (msgId && renderedMessages["assistant:" + msgId]) return;
       var text = message.display && message.display.text;
-      var node = text ? addBubble(text, false) : null;
+      var node = text ? addBubble(text, false, msgId) : null;
       var products = (message.products && message.products.length) ? message.products : fromCards(message.cards);
       if (node) renderProducts(node, products);
       if (message.suggestions && message.suggestions.length) renderSuggestions(message.suggestions);
       return;
     }
     if (message.type === "done") {
+      if (outbox && outbox.message_id !== message.message_id) return;
       clearTimeout(slowTimer);
       showTyping(false);
       setStatus("");
       enableComposer();
+      armIdleClose();
       if (outbox) { outbox.status = "done"; saveOutbox(); outbox = null; }
       try { sessionStorage.removeItem("sa_outbox"); } catch (err) { /* ignore */ }
       return;
     }
     if (message.type === "error") {
+      if (message.message_id && (!outbox || outbox.message_id !== message.message_id)) return;
       clearTimeout(slowTimer);
       showTyping(false);
       enableComposer();
-      setAlert(message.message || "Sorry, something went wrong on our side. You weren't charged.");
+      var errText = (message.message || "Sorry, something went wrong on our side. You weren't charged.")
+        .replace(/\s*\[(Try again|Retry)\]\s*$/i, "");
+      if (outbox && outbox.status !== "done" && message.code !== "message_id_reused") {
+        outbox.status = "failed";
+        saveOutbox();
+        setAlert(errText + " ");
+        var retryBtn = document.createElement("button");
+        retryBtn.type = "button";
+        retryBtn.textContent = "Try again";
+        retryBtn.setAttribute("aria-label", "Retry sending your message");
+        retryBtn.addEventListener("click", retryOutbox);
+        alertEl.appendChild(retryBtn);
+        return;
+      }
+      if (outbox && message.code === "message_id_reused") {
+        outbox = null;
+        try { sessionStorage.removeItem("sa_outbox"); } catch (err) { /* ignore */ }
+      }
+      setAlert(errText);
     }
   }
 
@@ -439,13 +515,13 @@
     // id and a second reply. The composer is disabled until the socket
     // closes or the reply finishes, and the guard covers the tap that
     // lands in the same turn as the first.
-    if (outbox && outbox.status !== "done") return;
+    if (outbox && outbox.status === "sending") return;
     input.disabled = true;
     var sendButton = form.querySelector(".sa-send");
     if (sendButton) sendButton.disabled = true;
     outbox = { message_id: uuid(), text: text, created_at: Date.now(), status: "sending" };
     saveOutbox();
-    addBubble(text, true);
+    addBubble(text, true, outbox.message_id);
     input.value = "";
     setAlert("");
     if (!navigator.onLine) {
@@ -458,20 +534,30 @@
   function redraw(messages) {
     messages.forEach(function (item) {
       if (!item.text) return;
-      var node = addBubble(item.text, item.role === "user");
+      var isUser = item.role === "user";
+      var msgId = item.message_id || "";
+      if (msgId && renderedMessages[(isUser ? "user:" : "assistant:") + msgId]) return;
+      var node = addBubble(item.text, isUser, msgId);
       var products = (item.products && item.products.length) ? item.products : fromCards(item.cards);
-      if (item.role !== "user") renderProducts(node, products);
+      if (!isUser) renderProducts(node, products);
     });
+    if (outbox && outbox.message_id && renderedMessages["assistant:" + outbox.message_id]) {
+      outbox = null;
+      try { sessionStorage.removeItem("sa_outbox"); } catch (err) { /* ignore */ }
+    }
   }
 
   function loadHistory(restore) {
-    if (!restore || !parentOrigin) return;
-    fetch("/api/v1/widget/history", {
+    if (!restore || !parentOrigin) return Promise.resolve();
+    return fetch("/api/v1/widget/history", {
       headers: { "Authorization": "Bearer " + restore, "X-Sa-Host": parentOrigin }
     }).then(function (response) { return response.json(); }).then(function (body) {
       if (body.token) {
         token = body.token;
         post({ type: "sa.persist", token: token });
+      }
+      if (typeof body.last_seq === "number" && body.last_seq > lastSeq) {
+        lastSeq = body.last_seq;
       }
       redraw(body.messages || []);
     }).catch(function () { /* history is optional; the welcome is already on screen */ });
@@ -503,6 +589,9 @@
     }
   });
   function setLauncher(open) {
+    panelOpen = open;
+    if (!open && welcome) welcome.hidden = true;
+    if (open) clearTimeout(closeTimer); else schedulePanelClose();
     document.documentElement.setAttribute("data-launcher", open ? "open" : "closed");
     if (bubble) bubble.setAttribute("aria-expanded", open ? "true" : "false");
     if (open) input.focus(); else if (bubble) bubble.focus();
@@ -514,14 +603,13 @@
     if (standalone) { setLauncher(false); return; }
     panelOpen = false;
     post({ type: "sa.close" });
+    schedulePanelClose();
   });
   document.getElementById("sa-min").addEventListener("click", function () {
     if (standalone) { setLauncher(false); return; }
     panelOpen = false;
     post({ type: "sa.layout", mode: "closed", modal: false });
-    window.setTimeout(function () {
-      if (!panelOpen && socket) socket.close(1000, "panel closed");
-    }, 60000);
+    schedulePanelClose();
   });
   input.addEventListener("input", function () {
     input.style.height = "44px";
@@ -535,7 +623,10 @@
         if (menu) menu.setAttribute("aria-expanded", "false");
         return;
       }
+      if (standalone) { setLauncher(false); return; }
+      panelOpen = false;
       post({ type: "sa.close" });
+      schedulePanelClose();
       return;
     }
     if (!modal || event.key !== "Tab") return;
@@ -558,6 +649,11 @@
     setAlert("");
     if (outbox && outbox.status !== "done") connectAndSend();
   });
+  window.addEventListener("pagehide", function () {
+    if (socket && socket.readyState !== WebSocket.CLOSED) {
+      try { socket.close(1000, "pagehide"); } catch (err) { /* ignore */ }
+    }
+  });
   if (window.visualViewport) {
     window.visualViewport.addEventListener("resize", function () {
       document.documentElement.style.setProperty("--sa-vvh", window.visualViewport.height + "px");
@@ -575,6 +671,8 @@
     token = "";
     lastSeq = 0;
     outbox = null;
+    renderedMessages = {};
+    clearTimeout(idleTimer);
     try { sessionStorage.removeItem("sa_outbox"); } catch (err) { /* ignore */ }
     if (socket && socket.readyState !== WebSocket.CLOSED) {
       try { socket.close(1000, "new chat"); } catch (err2) { /* ignore */ }
@@ -664,19 +762,37 @@
       product = data.product || null;
       if (data.pincode) config.pincode = data.pincode;
       try { sessionStorage.setItem("sa_host_session", data.host_session || ""); } catch (err) { /* ignore */ }
+      loadOutbox();
+      var historyDone = Promise.resolve();
       if (data.restore_token) {
         token = data.restore_token;
-        loadHistory(token);
+        historyDone = loadHistory(token);
       }
       if (product && product.variant_id) {
         document.documentElement.setAttribute("data-variant", product.variant_id);
       }
-      loadOutbox();
-      if (outbox && outbox.status !== "done") connectAndSend();
+      historyDone.then(function () {
+        if (outbox) {
+          addBubble(outbox.text, true, outbox.message_id);
+          if (outbox.status === "sending") connectAndSend();
+          if (outbox.status === "failed") {
+            onServer({ type: "error", code: "upstream", message_id: outbox.message_id });
+          }
+        }
+        document.documentElement.setAttribute("data-ready", "1");
+      });
       applyMode();
-      document.documentElement.setAttribute("data-ready", "1");
       input.focus();
     } else if (data.type === "sa.embed") {
+      if (typeof data.open === "boolean") {
+        panelOpen = data.open;
+        if (!panelOpen) {
+          if (welcome) welcome.hidden = true;
+          schedulePanelClose();
+          return;
+        }
+        clearTimeout(closeTimer);
+      }
       hostEmbed = data.embed;
       applyMode();
     } else if (data.type === "sa.context") {

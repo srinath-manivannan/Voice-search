@@ -169,7 +169,7 @@ class Governor:
     clock: Callable[[], float] = field(default=time.time, compare=False)
 
     def inr(self, usd: float) -> float:
-        """Dollars as the rupees Poorvika is charged, GST in."""
+        """Dollars as the rupees the retailer is charged, GST in."""
         return usd * self.usd_inr * (1 + self.gst_rate)
 
     def minutes(self, session: Session) -> float:

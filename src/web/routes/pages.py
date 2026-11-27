@@ -87,7 +87,8 @@ def install_health(app: FastAPI, settings: Config, *, include_warm: bool) -> Non
         """
         checks = {
             "model_key": bool(settings.gemini_api_key),
-            "catalogue": bool(settings.catalogue_token),
+            "catalogue": settings.catalogue_configured
+            or getattr(request.app.state, "widget_catalogue", None) is not None,
             "estate": settings.estate_backend != "off",
         }
         body: dict[str, Any] = {"ready": all(checks.values()), "checks": checks}

@@ -120,9 +120,9 @@
     "voice": "ta-in-techagent-5"
   },
   "ask_language": {
-    "heard": "வணக்கம், பூர்விகாவுக்கு வரவேற்கிறோம் தமிழில் பேசலாமா or English?",
-    "seconds": 4.8,
-    "text": "வணக்கம்! பூர்விகாவுக்கு வரவேற்கிறோம். தமிழில் பேசலாமா, or English?",
+    "heard": "வணக்கம் தமிழில் பேசலாமா? or English",
+    "seconds": 3.42,
+    "text": "வணக்கம்! தமிழில் பேசலாமா, or English?",
     "voice": "ta-in-techagent-5"
   },
   "ask_movement": {
@@ -174,15 +174,15 @@
     "voice": "ta-in-techagent-5"
   },
   "ask_shelf": {
-    "heard": "நான் உங்க பூர்விகா உதவியாளர் இன்னைக்கு எந்த பொருள் பார்க்கணும்?",
-    "seconds": 3.8,
-    "text": "நான் உங்க பூர்விகா உதவியாளர். இன்னைக்கு எந்த பொருள் பாக்கணும்?",
+    "heard": "வணக்கம். இன்னைக்கு எந்த பொருள் பார்க்கணும்?",
+    "seconds": 2.36,
+    "text": "வணக்கம்! இன்னைக்கு எந்த பொருள் பாக்கணும்?",
     "voice": "ta-in-techagent-5"
   },
   "ask_shelf_en": {
-    "heard": "I'm your Purvika assistant. What are you looking for today?",
-    "seconds": 3.52,
-    "text": "I am your Poorvika assistant. What are you looking for today?",
+    "heard": "I'm your shopping assistant. What are you looking for today?",
+    "seconds": 3.36,
+    "text": "I am your Shopping Assistant. What are you looking for today?",
     "voice": "ta-in-techagent-5"
   },
   "ask_size": {
@@ -330,15 +330,15 @@
     "voice": "ta-in-techagent-5"
   },
   "say_enough": {
-    "heard": "இன்னும் விபரத்துக்கு பக்கத்து பூர்விக கடையில கேளுங்க",
-    "seconds": 3.28,
-    "text": "இன்னும் விவரத்துக்கு பக்கத்து பூர்விகா கடைல கேளுங்க.",
+    "heard": "இன்னும் விவரத்துக்கு பக்கத்து கடையில கேளுங்க.",
+    "seconds": 2.66,
+    "text": "இன்னும் விவரத்துக்கு பக்கத்து கடைல கேளுங்க.",
     "voice": "ta-in-techagent-5"
   },
   "say_enough_en": {
-    "heard": "For anything more, please ask at your nearest Poorvika shop.",
-    "seconds": 4.2,
-    "text": "For anything more, please ask at your nearest Poorvika shop.",
+    "heard": "For anything more, please ask at your nearest store.",
+    "seconds": 3.58,
+    "text": "For anything more, please ask at your nearest store.",
     "voice": "ta-in-techagent-5"
   },
   "say_expired": {
