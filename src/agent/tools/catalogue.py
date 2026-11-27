@@ -121,10 +121,14 @@ def _amount(value: Any) -> int | None:
 
 def selling_price(doc: dict[str, Any]) -> int | None:
     for field_name in ("special_price", "selling_price", "price"):
-        if amount := _amount(doc.get(field_name)):
+        if (amount := _amount(doc.get(field_name))) and amount >= 100:
             return amount
     for tier in doc.get("prices") or []:
-        if isinstance(tier, dict) and (amount := _amount(tier.get("min"))):
+        if (
+            isinstance(tier, dict)
+            and (amount := _amount(tier.get("min")))
+            and amount >= 100
+        ):
             return amount
     return None
 
@@ -231,6 +235,24 @@ class Catalogue:
             specs["processor"] = processor
         if _first(document.get("cellulartechnology")) == "5G":
             specs["network"] = "5G"
+
+        name = str(document.get("name") or "")
+        # AC specs (capacity, star rating, inverter/fixed)
+        if ton_match := re.search(r"(\d+(?:\.\d+)?\s*Ton)", name, re.IGNORECASE):
+            specs["capacity"] = ton_match.group(1).strip()
+        if star_match := re.search(r"(\d\s*Star)", name, re.IGNORECASE):
+            specs["rating"] = star_match.group(1).strip()
+        if "inverter" in name.lower():
+            specs["type"] = "Inverter Split AC"
+        elif "window" in name.lower():
+            specs["type"] = "Window AC"
+
+        # TV specs
+        if inch_match := re.search(r"(\d{2,3}\s*inch)", name, re.IGNORECASE):
+            specs["screen"] = inch_match.group(1).strip()
+        if "4k" in name.lower() or "ultra hd" in name.lower():
+            specs["resolution"] = "4K Ultra HD"
+
         return specs
 
     @staticmethod

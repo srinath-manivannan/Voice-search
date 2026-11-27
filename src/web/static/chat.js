@@ -180,6 +180,9 @@ function connectChat() {
       const text = message.display && message.display.text;
       const body = text ? bubble(text, false) : null;
       if (body) renderChatProducts(body, productsFrom(message));
+      if (message.suggestions && message.suggestions.length) {
+        renderChatSuggestions(message.suggestions);
+      }
       return;
     }
     if (message.type === "done") {
@@ -247,16 +250,20 @@ function freshStorefrontChat() {
   el("chat-send").disabled = false;
 }
 
-const chipRow = el("chat-chips");
-if (chipRow) {
-  for (const label of CHAT_CHIPS) {
+function renderChatSuggestions(list) {
+  const row = el("chat-chips");
+  if (!row) return;
+  row.innerHTML = "";
+  for (const label of (list && list.length ? list : CHAT_CHIPS)) {
     const button = document.createElement("button");
     button.type = "button";
     button.textContent = label;
     button.addEventListener("click", () => sendChat(label));
-    chipRow.appendChild(button);
+    row.appendChild(button);
   }
 }
+
+renderChatSuggestions(CHAT_CHIPS);
 
 el("chat-form").addEventListener("submit", (event) => {
   event.preventDefault();

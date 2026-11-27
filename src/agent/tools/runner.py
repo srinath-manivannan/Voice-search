@@ -68,6 +68,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from typing import Any
 
 from src.agent.tools import estate as estate_api
@@ -477,6 +478,7 @@ class ToolSession:
         kept: list[Candidate] = []
         over: list[dict[str, Any]] = []
         confirmed = 0
+        seen_models: set[str] = set()
         for product, in_force in answered:
             price = in_force.selling if in_force else product.price
             if in_force:
@@ -489,6 +491,14 @@ class ToolSession:
                     )
                     over.append({"name": product.name, "price_inr": price})
                     continue
+
+            # Deduplicate color/storage variants of the same base model so a customer
+            # gets distinct choices instead of 3 colors of the same phone/appliance.
+            base_model = re.sub(r"\s*\([^)]*\)", "", product.name).strip().lower()
+            if base_model in seen_models and len(answered) > SHORTLIST:
+                continue
+            seen_models.add(base_model)
+
             # The former price is the price list's own MRP. The index's figure
             # is a different object and disagrees often enough that pairing it
             # with a price-list selling price produced "was 24,499, now

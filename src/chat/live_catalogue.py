@@ -42,7 +42,10 @@ def _category_matches(doc: dict[str, Any], category: str) -> bool:
         ):
             return True
         return not slugs and labels == {"mobiles"}
-    return CATEGORIES[category].casefold() in labels
+    expected = CATEGORIES.get(category)
+    if not expected:
+        return True
+    return expected.casefold() in labels
 
 
 def _capacity_gb(value: Any) -> int | None:
@@ -115,12 +118,18 @@ class LiveCatalogue:
         shelf = (
             "categories_slug:=smartphones"
             if category == "phone"
-            else f"categories:={CATEGORIES[category]}"
+            else (
+                f"categories:={CATEGORIES[category]}" if category in CATEGORIES else ""
+            )
         )
-        base = f"isActive:=true && stock_status:=In Stock && {shelf}"
+        base = (
+            f"isActive:=true && stock_status:=In Stock && {shelf}"
+            if shelf
+            else "isActive:=true && stock_status:=In Stock"
+        )
 
         def price_filter(field: str) -> str:
-            clauses = [base, f"{field}:>0"]
+            clauses = [base, f"{field}:>=100"]
             if max_price is not None:
                 clauses.append(f"{field}:<={max_price}")
             if min_price is not None:

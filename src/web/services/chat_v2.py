@@ -20,8 +20,10 @@ from typing import Any, cast
 from fastapi import WebSocket, WebSocketDisconnect
 
 from src.chat.allowlist import (
+    for_card,
     guard_display,
     neutral_fallback,
+    product_from_raw,
     sanitise_tool_result,
 )
 from src.chat.copy import LIMIT_REACHED, SERVICE_ERROR, UNAVAILABLE
@@ -468,6 +470,7 @@ class WidgetRelay:
         elif turn.context_label:
             conv.context_label = turn.context_label
         if turn.model_needed:
+            conv.slots = turn.slots
             await self._model(conv, message_id, text, claim.attempt)
             return
         allowed = _card_tokens(turn.cards)
@@ -510,9 +513,18 @@ class WidgetRelay:
             hooks=meter,
         )
         box["session"] = session
-        note = _slot_note(conv.slots)
+        note = _slot_note(conv.slots, conv.product)
         if note:
             session.remember(note)
+        for item in conv.history[-8:]:
+            role = item.get("role")
+            msg_text = str(item.get("text") or "").strip()
+            if role == "user" and msg_text:
+                session._history.append({"role": "user", "parts": [{"text": msg_text}]})
+            elif role == "assistant" and msg_text:
+                session._history.append(
+                    {"role": "model", "parts": [{"text": msg_text}]}
+                )
         chunks: list[str] = []
         try:
             async for delta in session.send(text):
@@ -541,7 +553,19 @@ class WidgetRelay:
             METRICS.count(
                 "neutrality_block_total", "Replies replaced by the neutrality filter"
             )
-        await self._finish_text(conv, message_id, text, shown, [], [])
+        model_cards = _cards_from_tools(session._tools, conv.pincode)
+        if model_cards:
+            conv.slots["visible"] = list(model_cards)
+        suggestions = (
+            ["Compare these", "EMI options", "Check store availability"]
+            if model_cards
+            else [
+                "Best phone under ₹25,000",
+                "Best AC for my room",
+                "Laptop under ₹50,000",
+            ]
+        )
+        await self._finish_text(conv, message_id, text, shown, model_cards, suggestions)
 
     async def _fail_turn(self, conv: Conversation, message_id: str) -> None:
         """Mark the message failed without storing a dead turn in ``conv.history``."""
@@ -624,11 +648,13 @@ class WidgetRelay:
             return cast(GeminiTextModel, override)
         if not self._settings.gemini_api_key:
             return None
+        from src.web.services.dependencies import declarations_for
+
         return GeminiTextModel(
             api_key=self._settings.gemini_api_key,
             model=self._settings.gemini_text_model,
             system_instruction=self._settings.widget_instruction,
-            tools=None,
+            tools=declarations_for(self._settings),
         )
 
     def _tools(self) -> Any:
@@ -649,6 +675,28 @@ class WidgetRelay:
             await self._socket.send_json(body)
         except Exception:
             return
+
+
+def _cards_from_tools(tools: Any, pincode: str) -> list[dict[str, Any]]:
+    shortlist = getattr(tools, "shortlist", None)
+    if not isinstance(shortlist, tuple) or not shortlist:
+        return []
+    letters = "ABCDEFGHIJ"
+    cards: list[dict[str, Any]] = []
+    for index, candidate in enumerate(shortlist[:4]):
+        raw = {
+            "item_code": getattr(candidate, "item_code", ""),
+            "name": getattr(candidate, "name", ""),
+            "brand": getattr(candidate, "brand", ""),
+            "price_inr": getattr(candidate, "price", None),
+            "was_inr": getattr(candidate, "was", None),
+            "in_stock_hint": getattr(candidate, "in_stock_hint", None),
+            "specs": getattr(candidate, "specs", {}),
+        }
+        built = product_from_raw(raw, (), ref=letters[index])
+        if built is not None:
+            cards.append(for_card(built, pincode))
+    return cards
 
 
 def products_from_cards(cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -688,8 +736,10 @@ def _card_tokens(cards: list[dict[str, Any]]) -> tuple[str, ...]:
     return tuple(tokens)
 
 
-def _slot_note(slots: dict[str, Any]) -> str:
+def _slot_note(slots: dict[str, Any], product: dict[str, Any] | None = None) -> str:
     parts: list[str] = []
+    if slots.get("category"):
+        parts.append(f"category {slots['category']}")
     if slots.get("budget"):
         hardness = "hard" if slots.get("budget_hard") else "soft"
         parts.append(f"budget {slots['budget']} {hardness}")
@@ -699,6 +749,17 @@ def _slot_note(slots: dict[str, Any]) -> str:
         parts.append(f"purpose {slots['purpose']}")
     if slots.get("needs"):
         parts.append("needs " + ",".join(slots["needs"]))
+    if product and product.get("product_id"):
+        parts.append(f"viewing product_id {product['product_id']}")
+    visible = slots.get("visible")
+    if isinstance(visible, list) and visible:
+        summary = ", ".join(
+            f"{card.get('ref')}: {card.get('model_name')} (₹{(card.get('price') or {}).get('selling_inr')})"
+            for card in visible[:4]
+            if isinstance(card, dict) and card.get("model_name")
+        )
+        if summary:
+            parts.append(f"currently shown on screen: {summary}")
     if not parts:
         return ""
     return "Shopper constraints, already agreed: " + "; ".join(parts) + "."

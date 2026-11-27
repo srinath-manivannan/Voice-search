@@ -7,6 +7,11 @@ import httpx
 from src.guided.listen import Ear
 from src.voice.whisper import Heard, seconds_of, to_wav
 
+# Audio frames with RMS below this are digital silence / room noise.
+# Returning empty Heard avoids unnecessary HTTP calls to Gemini and prevents
+# hallucinated speech from quiet/silent background noise.
+SILENCE_RMS_THRESHOLD = 120.0
+
 
 class GeminiEar:
     def __init__(self, api_key: str, model: str, language: str) -> None:

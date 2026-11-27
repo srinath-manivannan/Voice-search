@@ -318,3 +318,76 @@ async def test_sequence_keeps_advancing_when_replay_is_trimmed() -> None:
         204,
         205,
     ]
+
+
+async def test_voice_caller_speech_during_greeting_is_forwarded_when_greeting_ends() -> (
+    None
+):
+    import struct
+    from src.voice.events import AudioOut, TurnComplete
+    from src.voice.opening import SpeaksTheOpening
+    from src.voice.session import Conversation
+    from src.voice.usage import TurnUsage
+    from src.voice.vad import EnergyVad
+    from tests.fakes import FakeSink, FakeSource
+    from tests.test_session import SILENCE, SPEECH, StubModel
+
+    greeting_pcm = struct.pack("<960h", *([1200, -1200] * 480))
+    inner = StubModel(
+        [
+            AudioOut(turn_id=1, pcm=b"\x01\x02" * 100),
+            TurnComplete(
+                turn_id=1, usage=TurnUsage(response_audio=50), first_audio_ms=100.0
+            ),
+        ],
+        keep_open=True,
+    )
+    # Caller speaks while the greeting is playing, then goes silent.
+    source = FakeSource([SPEECH] * 10 + [SILENCE] * 40)
+    conv = Conversation(
+        SpeaksTheOpening(inner, greeting_pcm, 24000, pace=0.0),
+        source,
+        FakeSink(),
+        vad=EnergyVad(),
+        agent_opens=True,
+    )
+    await conv.run()
+    # Even though speech started during the protected greeting, end_of_speech
+    # fires on release and non-zero caller PCM was flushed to the model.
+    assert inner.ends == 1
+    assert any(any(frame) for frame in inner.sent)
+
+
+def test_widget_guide_handles_multi_shelf_categories_and_tailored_chips(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = create_app(_settings(monkeypatch))
+    with TestClient(app) as client:
+        with client.websocket_connect(
+            "/ws/chat", headers={"origin": "http://testserver"}
+        ) as ws:
+            ws.send_json(_hello())
+            ws.receive_json()
+            ws.send_json(
+                {
+                    "type": "user_message",
+                    "message_id": MESSAGE,
+                    "text": "Best AC for my room",
+                }
+            )
+            ac_turn = next(
+                item for item in _until(ws, "done") if item["type"] == "final"
+            )
+            assert "ton" in ac_turn["display"]["text"].lower()
+            assert any("Ton" in chip for chip in ac_turn["suggestions"])
+            ws.send_json(
+                {
+                    "type": "user_message",
+                    "message_id": "3b0e7a52-2f7c-4c3e-9a51-0c7f4f3d9a11",
+                    "text": "Check store availability",
+                }
+            )
+            avail_turn = next(
+                item for item in _until(ws, "done") if item["type"] == "final"
+            )
+            assert avail_turn["suggestions"]

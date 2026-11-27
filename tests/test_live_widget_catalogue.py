@@ -110,7 +110,7 @@ def test_two_turn_widget_returns_production_shaped_cards(monkeypatch):
     assert all(
         f in query["filter_by"]
         for f in (
-            "special_price:>0",
+            "special_price:>=100",
             "special_price:<=30000",
             "isActive:=true",
             "stock_status:=In Stock",

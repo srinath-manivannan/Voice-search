@@ -169,6 +169,7 @@ class Conversation:
         # cut the greeting off.
         self._in_greeting = agent_opens
         self._barge_frames = 0
+        self._greeting_caller_pcm = bytearray()
         # Roughly 300 ms. While the microphone is held back these keep the run
         # up to a genuine interruption, so the caller's first syllable is not
         # lost when we start forwarding again.
@@ -210,20 +211,19 @@ class Conversation:
     # Longest an agent's closing line is allowed to hold the line open.
     MAX_CLOSING_WAIT_SECONDS = 8.0
 
-    BARGE_IN_SPEECH_FRAMES = 12
+    BARGE_IN_SPEECH_FRAMES = 14
     BARGE_IN_RMS_FACTOR = 6.0
     # An absolute floor as well as a relative one. A trace showed a barge-in
     # firing at rms 103 against a noise floor of 1: in a quiet room the floor
     # decays to its minimum, at which point "six times the floor" means
     # "louder than six" and every echo clears it. Real speech into a laptop
-    # microphone sits in the thousands; surviving echo sat at 103.
-    BARGE_IN_MIN_RMS = 800.0
+    # microphone sits in the thousands; surviving echo sat at 103-1400.
+    BARGE_IN_MIN_RMS = 1500.0
 
-    # How much speech counts as the caller taking their turn. Eight 20 ms
-    # frames is 160 ms - shorter than any syllable, long enough that the tail
-    # of the agent's own sentence leaking through the speaker does not
-    # qualify.
-    SPEECH_FRAMES_FOR_A_TURN = 8
+    # How much speech counts as the caller taking their turn. Six 20 ms
+    # frames is 120 ms - catches short Tamil words ("Phone", "Aamaa", "20k")
+    # on the first try while still ignoring an 80 ms speaker tail.
+    SPEECH_FRAMES_FOR_A_TURN = 6
 
     def _floor_held_for(self) -> float:
         return time.monotonic() - self._agent_started_at
@@ -310,6 +310,15 @@ class Conversation:
                     self.trace.record(
                         "gate_held", rms=int(verdict.rms), run=self._barge_frames
                     )
+                    # If the caller spoke during the opening greeting (which
+                    # cannot be barged into), buffer their speech and count it
+                    # as a turn so we flush it to the model as soon as the
+                    # greeting finishes, instead of making them repeat 3 times.
+                    if self._in_greeting and verdict.is_speech:
+                        if len(self._greeting_caller_pcm) < 16000 * 2 * 10:
+                            self._greeting_caller_pcm.extend(frame)
+                        if verdict.speech_run >= self.SPEECH_FRAMES_FOR_A_TURN:
+                            self._heard_speech_this_turn = True
                     # Silence, not nothing. Withholding frames entirely leaves
                     # the model receiving no audio at all for the length of a
                     # reply - a trace showed 440 held frames and not one byte
@@ -446,9 +455,11 @@ class Conversation:
                     await self._sink.write(pcm)
 
                 case Transcript(text=text, turn_id=turn_id):
+                    self.trace.record("agent_transcript", turn=turn_id, text=text)
                     await self._notify(type="transcript", text=text, turn_id=turn_id)
 
                 case CallerTranscript(text=text, turn_id=turn_id):
+                    self.trace.record("caller_transcript", turn=turn_id, text=text)
                     # The line is already finished. Recording it does not
                     # wait on Grok, and it is not what starts playback.
                     await self._notify(
@@ -470,6 +481,7 @@ class Conversation:
                 case TurnComplete(
                     turn_id=turn_id, usage=usage, first_audio_ms=first_audio_ms
                 ):
+                    was_greeting = self._in_greeting
                     self._agent_speaking = False
                     # The greeting is over; normal interruption resumes.
                     self._in_greeting = False
@@ -478,6 +490,29 @@ class Conversation:
                     # call and the caller's later speech is never signalled.
                     # A trace showed one end_of_speech across forty seconds.
                     self._awaiting_reply = False
+                    if was_greeting and self._greeting_caller_pcm:
+                        queued = bytes(self._greeting_caller_pcm)
+                        self._greeting_caller_pcm.clear()
+                        for offset in range(0, len(queued), 640):
+                            await self._model.send_audio(queued[offset : offset + 640])
+                        # If the caller already finished speaking before the
+                        # greeting ended, signal end_of_speech now so they
+                        # don't have to repeat themselves.
+                        if (
+                            self._heard_speech_this_turn
+                            and not self._caller_speaking
+                            and not self._awaiting_reply
+                        ):
+                            self._heard_speech_this_turn = False
+                            self._awaiting_reply = True
+                            self._reply_belongs_to_caller = True
+                            self._held_the_line = False
+                            self.trace.record(
+                                "end_of_speech", turn=self._model.turn_id + 1
+                            )
+                            if self._before_reply is not None:
+                                await self._before_reply()
+                            await self._model.end_of_speech()
                     # A spoken reply closes the caller turn. A tool generation
                     # that came back with no audio does not: the answer is
                     # still coming, and the summary waits for it.

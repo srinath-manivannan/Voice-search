@@ -63,9 +63,50 @@ _COMPARE = ("compare",)
 _SIMILAR = ("similar", "alternatives")
 _DETAILS = ("full spec", "store availability")
 _CATEGORY = re.compile(
-    r"\b(smartphones?|mobiles?|phones?|laptops?|acs?|fridge|fridges|tv|tvs|tablet|tablets)\b",
+    r"\b(smartphones?|mobiles?|phones?|laptops?|notebooks?|acs?|air\s+conditioners?|fridges?|refrigerators?|tvs?|televisions?|tablets?|ipads?|watches?|smartwatches?|washing\s+machines?|headphones?|earbuds?|earphones?|speakers?|fans?|geysers?|power\s*banks?|chargers?)\b",
     re.IGNORECASE,
 )
+_CATEGORY_ALIASES = {
+    "mobile": "phone",
+    "smartphone": "phone",
+    "notebook": "laptop",
+    "air conditioner": "ac",
+    "refrigerator": "fridge",
+    "television": "tv",
+    "ipad": "tablet",
+    "smartwatch": "watch",
+    "watch": "watch",
+    "watche": "watch",
+    "earbud": "headphones",
+    "earphone": "headphones",
+    "headphone": "headphones",
+    "power bank": "powerbank",
+}
+_BUDGET_CHIPS: dict[str, list[str]] = {
+    "phone": ["Under ₹15,000", "Under ₹25,000", "Under ₹40,000", "Above ₹50,000"],
+    "laptop": ["Under ₹40,000", "Under ₹60,000", "Under ₹80,000", "Gaming laptop"],
+    "ac": ["1 Ton AC under ₹35,000", "1.5 Ton AC under ₹45,000", "5 Star Inverter AC"],
+    "tv": [
+        "43 inch TV under ₹30,000",
+        "55 inch 4K TV under ₹50,000",
+        "Smart TV under ₹20,000",
+    ],
+    "fridge": [
+        "Single door under ₹20,000",
+        "Double door under ₹35,000",
+        "Under ₹50,000",
+    ],
+    "washing machine": ["Front load under ₹35,000", "Top load under ₹25,000"],
+    "tablet": ["Tablet under ₹20,000", "Tablet under ₹35,000", "iPad"],
+    "watch": ["Smartwatch under ₹5,000", "Smartwatch under ₹15,000"],
+    "headphones": ["Earbuds under ₹3,000", "Headphones under ₹10,000"],
+}
+_CATEGORY_QUESTION: dict[str, str] = {
+    "ac": "What room size or tonnage do you need (1 Ton or 1.5 Ton), and what budget should I stay within?",
+    "tv": "What screen size fits your room (32, 43, or 55 inch), and what budget should I stay within?",
+    "laptop": "What will you use the laptop for (work, study, or gaming), and what budget should I stay within?",
+    "fridge": "Are you looking for a single-door or double-door refrigerator, and what budget should I stay within?",
+}
 _YES = {"yes", "yeah", "yep", "ok", "okay", "sure", "haan", "ஆமா", "ஆம்"}
 _WIDER = ("please", "wider", "show more", "look wider", "a little wider")
 _LETTERS = "ABCDEFGHIJ"
@@ -241,8 +282,18 @@ class ShopperGuide:
 
         category = _CATEGORY.search(cleaned)
         if category:
-            name = category.group(0).casefold().rstrip("s")
-            slots.category = "phone" if name in {"mobile", "smartphone"} else name
+            raw_cat = " ".join(category.group(0).casefold().split()).rstrip("s")
+            mapped = _CATEGORY_ALIASES.get(raw_cat, raw_cat)
+            if mapped != slots.category:
+                slots.category = mapped
+                slots.brand = None
+                slots.previous_brand = None
+                slots.purpose = None
+                slots.needs = []
+                slots.visible = []
+                slots.rejected = []
+                slots.pending = ""
+                slots.asked = []
 
         if slots.pending == "relax" and self._accepts_relax(folded, slots):
             stated, hard = _find_budget(cleaned)
@@ -366,12 +417,16 @@ class ShopperGuide:
         if self._needs_a_budget(slots, cleaned) and len(slots.asked) < 2:
             slots.asked.append("budget")
             slots.pending = "budget"
-            return self._turn(
-                slots,
+            question = _CATEGORY_QUESTION.get(
+                slots.category,
                 "What budget should I stay within, and what matters most — "
                 "price, camera, battery, or performance?",
+            )
+            chips = _BUDGET_CHIPS.get(
+                slots.category,
                 ["Under ₹20,000", "Under ₹30,000", "Under ₹50,000"],
             )
+            return self._turn(slots, question, chips)
         return GuideTurn("", [], [], slots.as_dict(), model_needed=True)
 
     def _needs_a_budget(self, slots: Slots, text: str) -> bool:
@@ -446,13 +501,22 @@ class ShopperGuide:
             )
         else:
             more = " Want me to compare these or show all matching options?"
-        noun = {"tv": "TVs", "ac": "air conditioners"}.get(
-            slots.category, slots.category + "s"
-        )
+        noun = {
+            "tv": "TVs",
+            "ac": "air conditioners",
+            "watch": "smartwatches",
+            "headphones": "headphones",
+            "washing machine": "washing machines",
+        }.get(slots.category, slots.category + "s")
         text = (
             f"{lead}Here are {count} {brand} {noun}{ceiling}{detail}.{more}"
         ).replace("  ", " ")
-        suggestions = [f"Show all matching {noun}", "Compare these"]
+        suggestions = [
+            f"Show all matching {noun}",
+            "Compare these",
+            "EMI options",
+            "Under ₹20,000" if (slots.budget or 0) > 20000 else "Under ₹35,000",
+        ]
         if any(card.get("partial") for card in cards):
             suggestions = ["Optical only", "Electronic is OK"]
         return self._turn(slots, text.strip(), suggestions, cards)
@@ -509,11 +573,23 @@ class ShopperGuide:
     async def _available(
         self, slots: Slots, product: dict[str, Any] | None
     ) -> GuideTurn:
+        if not product and slots.visible:
+            top = slots.visible[0]
+            sku = str(top.get("sku_id") or "")
+            if sku:
+                product = {
+                    "product_id": sku,
+                    "variant_id": str(top.get("variant_id") or ""),
+                }
         if not product:
             return self._turn(
                 slots,
-                "Open a product page and ask again, and I'll check that exact model.",
-                [],
+                "Tell me which product or brand and budget you want to check, or open a product page and ask again.",
+                [
+                    "Best phone under ₹25,000",
+                    "1.5 Ton AC under ₹45,000",
+                    "Laptop under ₹50,000",
+                ],
             )
         found = await self._safe_lookup(
             str(product.get("product_id") or ""), str(product.get("variant_id") or "")

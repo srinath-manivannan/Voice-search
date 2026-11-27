@@ -79,6 +79,7 @@ from src.voice.events import (
     TurnInterrupted,
 )
 from src.voice.usage import SessionUsage, TurnUsage
+from src.voice.vad import frame_rms
 from src.voice.whisper import Heard
 
 log = logging.getLogger(__name__)
@@ -384,6 +385,15 @@ class CascadeSession:
     # -- internals ---------------------------------------------------------
 
     async def _turn(self, pcm: bytes, turn_id: int) -> None:
+        if not pcm or frame_rms(pcm) < 120.0:
+            # Low-energy noise or background silence: avoid calling the ear,
+            # spending dollars, or waiting on an answer.
+            await self._out.put(
+                TurnComplete(turn_id=turn_id, usage=TurnUsage(), first_audio_ms=None)
+            )
+            self._after_silent_turn()
+            return
+
         heard = await self._transcribe(pcm)
         if heard is None:
             self._unheard += 1

@@ -23,11 +23,15 @@ _NUMBER = re.compile(r"\d+(?:\.\d+)?")
 
 TRANSCRIBE = {
     "ta": (
-        "Transcribe exactly what is spoken in this recording, in Tamil script. "
+        "Listen carefully to this audio recording. "
+        "If the audio is silent, noise, cough, breathing, background hum, or contains no clear human speech, reply with nothing (empty). "
+        "Otherwise transcribe exactly what is spoken in this recording in Tamil script or English. "
         "Write numbers in digits. Write only the words spoken, nothing else."
     ),
     "en": (
-        "Transcribe exactly what is spoken in this recording, in English. "
+        "Listen carefully to this audio recording. "
+        "If the audio is silent, noise, background hum, or contains no clear human speech, reply with nothing (empty). "
+        "Otherwise transcribe exactly what is spoken in this recording in English. "
         "Write numbers in digits. Write only the words spoken, nothing else."
     ),
 }

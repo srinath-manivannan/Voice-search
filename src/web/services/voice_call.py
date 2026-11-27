@@ -494,22 +494,22 @@ class VoiceCall:
         """
         return self._grok_mouth.characters if self._grok_mouth is not None else 0
 
-    def _mouth(self) -> GrokMouth | GeminiLiveSession:
+    def _mouth(self) -> GrokMouth | RotatingLiveSession | GeminiLiveSession:
         """Who says the brain's reply out loud.
 
-        Grok where the flag and the key are both there, a second Gemini Live
-        socket otherwise. Same rule as every other side model: a missing key
-        logs and falls back rather than refusing the call.
-
-        The two are interchangeable because the cascade only ever asks a
-        mouth to `say` and to hand back events, which is the smaller half of
-        what a Live session does.
+        Grok where the flag and the key are both there, a rotating Gemini Live
+        socket otherwise. Rotating the mouth drops accumulated audio context
+        so speaking stays under the ₹1.50/min target instead of growing with turns.
         """
         settings = self._settings
         if self._grok_is_the_voice():
             return self._new_grok_mouth()
-        return GeminiLiveSession(
-            settings, instruction=SPEAK_ONLY, temperature=MOUTH_TEMPERATURE
+        return RotatingLiveSession(
+            lambda: GeminiLiveSession(
+                settings, instruction=SPEAK_ONLY, temperature=MOUTH_TEMPERATURE
+            ),
+            lambda: "",
+            rotate_above_audio_tokens=150,
         )
 
     def _new_grok_mouth(self) -> GrokMouth:

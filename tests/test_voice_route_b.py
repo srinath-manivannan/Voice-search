@@ -73,6 +73,7 @@ def test_gemini_only_uses_no_other_speech_or_memory_provider(monkeypatch):
     from types import SimpleNamespace
 
     from src.voice.gemini_live import GeminiLiveSession
+    from src.voice.rotating import RotatingLiveSession
     from src.voice.gemini_stt import GeminiEar
     from src.web.services.voice_call import VoiceCall
 
@@ -82,7 +83,7 @@ def test_gemini_only_uses_no_other_speech_or_memory_provider(monkeypatch):
     monkeypatch.setenv("GROQ_API_KEY", "offline")
     call = VoiceCall(SimpleNamespace(), _settings(monkeypatch), None)
     assert isinstance(call._ear(), GeminiEar)
-    assert isinstance(call._mouth(), GeminiLiveSession)
+    assert isinstance(call._mouth(), (GeminiLiveSession, RotatingLiveSession))
     assert call._memory is None and call._shadow is None
 
 

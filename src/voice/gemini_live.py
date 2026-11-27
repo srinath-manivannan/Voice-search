@@ -590,6 +590,8 @@ class GeminiLiveSession:
             # The model asking for a tool. Run it and answer on the same
             # socket; the model then speaks with the result in hand.
             if tool_call := message.get("toolCall"):
+                if self._turn_id == 0:
+                    self._turn_id = 1
                 await self._answer_tool_call(tool_call)
                 continue
 
@@ -617,12 +619,18 @@ class GeminiLiveSession:
                 inline = part.get("inlineData") or {}
                 if data := inline.get("data"):
                     if self._first_audio_at is None:
+                        if self._turn_id == 0:
+                            self._turn_id = 1
+                            turn_id = 1
                         self._first_audio_at = self._clock()
                     yield AudioOut(turn_id=turn_id, pcm=base64.b64decode(data))
                 elif text := part.get("text"):
                     # Speaking in text. This IS the reply, not a transcript
                     # of one, and whoever is listening turns it into sound.
                     if self._first_audio_at is None:
+                        if self._turn_id == 0:
+                            self._turn_id = 1
+                            turn_id = 1
                         self._first_audio_at = self._clock()
                     yield Transcript(turn_id=turn_id, text=text)
 

@@ -96,6 +96,7 @@ FUSED: dict[str, int] = {
     "இருபத": 20,
     "முப்பத": 30,
     "நாற்பத": 40,
+    "நாப்பத": 40,
     "ஐம்பத": 50,
     "அறுபத": 60,
     "எழுபத": 70,
@@ -127,6 +128,7 @@ WORDS: dict[str, int] = {
     "இருபது": 20,
     "முப்பது": 30,
     "நாற்பது": 40,
+    "நாப்பது": 40,
     "ஐம்பது": 50,
     "அறுபது": 60,
     "எழுபது": 70,
@@ -334,14 +336,37 @@ def digitise(text: str) -> str:
             run = found[index : index + size]
             if not _adjacent(text, run):
                 continue
-            number = value_of([match.group() for match in run])
+            words = [match.group() for match in run]
+            number = value_of(words)
+            suffix_len = 0
+            if number is None and size == 1:
+                # Check for attached suffix like க்குள் or குள்ள (e.g. முப்பதாயிரத்துக்குள்ள)
+                single = words[0]
+                for suf in (
+                    "த்துக்குள்ள",
+                    "த்துக்குள்",
+                    "க்குள்ள",
+                    "க்குள்",
+                    "குள்ள",
+                    "வுக்குள்ள",
+                    "கிட்ட",
+                    "க்கு",
+                ):
+                    if single.endswith(suf):
+                        stem = single[: -len(suf)]
+                        candidate_num = value_of([stem])
+                        if candidate_num is not None:
+                            number = candidate_num
+                            suffix_len = len(suf)
+                            break
+
             # Only scaled numbers are worth rewriting. "ஒரு" is the article
             # in "ஒரு போன்" far more often than it is the number one, and
             # turning it into a 1 puts a digit next to a noun for no gain -
             # prefetch's floor is three thousand, so nothing under a hundred
             # could ever have been a budget anyway.
             if number is not None and number >= SMALLEST_WORTH_WRITING:
-                longest = (size, number, run[0].start(), run[-1].end())
+                longest = (size, number, run[0].start(), run[-1].end() - suffix_len)
                 break
         if longest is None:
             index += 1
